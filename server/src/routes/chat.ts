@@ -49,7 +49,20 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         query = query.eq('bot_name', botName);
       }
 
-      const { data: settings } = await query.maybeSingle();
+      let { data: settings } = await query.maybeSingle();
+
+      if (!settings && orgId) {
+        // Auto-create settings if they don't exist for this Org
+        const { data: newSettings, error: insertError } = await supabase
+          .from('bot_settings')
+          .insert({ org_id: orgId })
+          .select()
+          .single();
+        
+        if (!insertError) {
+          settings = newSettings;
+        }
+      }
 
       if (!settings) {
         return reply.status(404).send({ success: false, message: 'Bot configuration not found.' });

@@ -48,6 +48,8 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     container.style.position = 'fixed';
     container.style.bottom = '20px';
     container.style.right = '20px';
+    container.style.display = 'block';
+    container.style.visibility = 'visible';
     container.style.zIndex = '2147483647';
     container.style.fontFamily = 'system-ui, -apple-system, sans-serif';
 

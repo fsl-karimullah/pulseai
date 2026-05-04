@@ -13,8 +13,7 @@ import {
   CheckCircle2,
   Code2,
   Copy,
-  Loader2,
-  MessageSquare
+  Loader2
 } from 'lucide-react';
 import type { BotSetting } from '../types';
 

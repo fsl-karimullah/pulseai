@@ -7,7 +7,6 @@ import {
   X, 
   MoreHorizontal, 
   Paperclip, 
-  Smile,
   ShieldCheck,
   Zap,
   Loader2,

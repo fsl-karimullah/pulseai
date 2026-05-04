@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Bot, Loader2, Mail, Lock, ArrowRight, User, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Bot, Loader2, Mail, Lock, ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 const SignUpPage: React.FC = () => {
   const [email, setEmail] = useState('');
