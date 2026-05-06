@@ -13,16 +13,15 @@ import knowledgeRoutes from './routes/knowledge';
 const MAX_FILE_SIZE_MB = 25;
 
 export async function createServer() {
+  const isDev = process.env.NODE_ENV === 'development' && !process.env.VERCEL;
+
   const server = Fastify({
-    logger: {
-      transport:
-        process.env.NODE_ENV === 'development'
-          ? {
-              target: 'pino-pretty',
-              options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
-            }
-          : undefined,
-    },
+    logger: isDev ? {
+      transport: {
+        target: 'pino-pretty',
+        options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
+      }
+    } : true,
   });
 
   // ── Plugins ──────────────────────────────────────────────────────────────
