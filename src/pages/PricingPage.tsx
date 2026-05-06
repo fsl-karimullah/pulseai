@@ -87,7 +87,6 @@ const PricingPage: React.FC = () => {
         window.snap.pay(data.token, {
           onSuccess: async function (result: any) {
             console.log('Payment success:', result);
-            // Manually verify with our backend because webhooks might not hit localhost
             const verifyRes = await fetch(`/api/payments/verify/${result.order_id}`);
             const verifyData = await verifyRes.json();
             
@@ -116,19 +115,16 @@ const PricingPage: React.FC = () => {
     }
   };
 
-  const [isAnnual, setIsAnnual] = useState(false);
   const currentPlanType = subscription?.plan_type || 'free';
   
-  // Helper to check if a plan is the current one
   const isCurrentPlan = (plan: string) => {
-    if (plan === 'free' && currentPlanType === 'free') return true;
-    if (plan === 'business' && (currentPlanType === 'business' || currentPlanType === 'business_annual')) return true;
-    return false;
+    return currentPlanType === plan;
   };
 
   const getPlanLabel = (type: string) => {
-    if (type === 'business_annual') return 'Early Access (Tahunan)';
-    if (type === 'business') return 'Early Access (Bulanan)';
+    if (type === 'starter') return 'Paket Starter (1 Bulan)';
+    if (type === 'pro') return 'Paket Pro (3 Bulan)';
+    if (type === 'full_scale') return 'Paket Full Scale (12 Bulan)';
     return type.charAt(0).toUpperCase() + type.slice(1);
   };
 
@@ -138,7 +134,6 @@ const PricingPage: React.FC = () => {
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-semibold mb-4">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           Paket Saat Ini: <span className="font-bold">{getPlanLabel(currentPlanType)}</span>
-          <span className="text-[8px] text-slate-400 ml-1">({currentPlanType})</span>
           {subscription?.expires_at && (
             <span className="text-[10px] text-slate-500 ml-2 border-l border-slate-200 pl-2">
               {(() => {
@@ -150,23 +145,10 @@ const PricingPage: React.FC = () => {
             </span>
           )}
         </div>
-        <h1 className="text-3xl font-extrabold text-slate-900 sm:text-4xl tracking-tight">Tingkatkan Engagement AI Anda</h1>
+        <h1 className="text-3xl font-extrabold text-slate-900 sm:text-4xl tracking-tight">Investasi Cerdas Untuk Bisnis Anda</h1>
         <p className="mt-4 text-lg text-slate-500">
-          Alat profesional untuk interaksi dan otomasi pelanggan tingkat enterprise.
+          Pilih paket yang sesuai dengan volume percakapan dan kebutuhan durasi bisnis Anda.
         </p>
-
-        {/* Toggle Billing */}
-        <div className="flex items-center justify-center gap-4 mt-8">
-          <span className={`text-sm font-bold ${!isAnnual ? 'text-emerald-600' : 'text-slate-500'}`}>Bulanan</span>
-          <button 
-            onClick={() => setIsAnnual(!isAnnual)}
-            className="relative w-14 h-7 bg-slate-200 rounded-full p-1 transition-colors duration-300 focus:outline-none"
-          >
-            <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isAnnual ? 'translate-x-7 bg-emerald-500' : 'translate-x-0'}`} />
-          </button>
-          <span className={`text-sm font-bold ${isAnnual ? 'text-emerald-600' : 'text-slate-500'}`}>Tahunan</span>
-          <div className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-tight animate-bounce">Hemat 20%</div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-12 items-stretch">
@@ -175,102 +157,97 @@ const PricingPage: React.FC = () => {
           <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-6">
             <Zap className="text-slate-400" size={24} />
           </div>
-          <h3 className="text-xl font-bold text-slate-900">Starter</h3>
-          <p className="text-sm text-slate-500 mt-2">Coba PulseAI secara gratis tanpa kartu kredit.</p>
-          <div className="mt-6 flex items-baseline gap-1">
-            <span className="text-4xl font-extrabold text-slate-900">Rp 0</span>
-            <span className="text-slate-500 font-medium">/bln</span>
+          <h3 className="text-xl font-bold text-slate-900">Paket Starter</h3>
+          <p className="text-sm text-slate-500 mt-2">Durasi 1 Bulan</p>
+          <div className="mt-6 flex flex-col">
+            <span className="text-4xl font-extrabold text-slate-900">Rp 69.000</span>
+            <span className="text-emerald-600 text-xs font-bold mt-1">Rp 69.000/bulan</span>
           </div>
           <ul className="mt-8 space-y-4 flex-1">
-            <FeatureWithTooltip text="100 Pesan / bulan" />
-            <FeatureWithTooltip text="1 Dokumen PDF (Maks 2MB)" />
-            <FeatureWithTooltip text="1 Agen Chatbot" />
+            <FeatureWithTooltip text="Unlimited Pesan / bulan" />
+            <FeatureWithTooltip text="Free PDF Documents Upload" />
+            <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
             <FeatureWithTooltip text="Integrasi Widget Web" />
+            <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />
           </ul>
           <button 
-            disabled={isCurrentPlan('free')}
+            onClick={() => handleCheckout('starter', 69000)}
+            disabled={loadingPlan === 'starter' || isCurrentPlan('starter')}
             className={`mt-8 w-full py-3 px-4 rounded-xl font-medium transition-all ${
-              isCurrentPlan('free') 
+              isCurrentPlan('starter') 
               ? 'bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed'
               : 'bg-white text-slate-700 border border-slate-200 hover:border-emerald-500 hover:text-emerald-600'
             }`}
           >
-            {isCurrentPlan('free') ? 'Paket Saat Ini' : 'Pindah ke Starter'}
+            {loadingPlan === 'starter' ? <Loader2 className="animate-spin mx-auto" size={20} /> : (isCurrentPlan('starter') ? 'Paket Saat Ini' : 'Pilih Paket Starter')}
           </button>
         </div>
 
-        {/* Early Access Plan (Most Popular) */}
+        {/* Pro Plan (Most Popular) */}
         <div className="bg-white rounded-3xl p-8 border-2 border-emerald-600 shadow-xl shadow-emerald-500/10 relative flex flex-col transform md:-translate-y-4 transition-all">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest py-1.5 px-4 rounded-full shadow-lg">
-            Penawaran Early Bird
+            BEST VALUE
           </div>
-          {isAnnual && (
-            <div className="absolute top-4 right-4 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-sm">
-              Hemat Rp 239.000
-            </div>
-          )}
           <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-6 border border-emerald-100">
             <Sparkles className="text-emerald-600" size={24} />
           </div>
-          <h3 className="text-xl font-bold text-slate-900">Early Access</h3>
-          <p className="text-sm text-slate-500 mt-2">Fokus pada Akurasi Data Dokumen - Penawaran Khusus.</p>
-          <div className="mt-6 flex flex-col gap-1">
-            <span className="text-slate-400 line-through text-sm font-medium">
-              {isAnnual ? 'Rp 1.188.000' : 'Rp 499.000'}
-            </span>
+          <h3 className="text-xl font-bold text-slate-900">Paket Pro</h3>
+          <p className="text-sm text-slate-500 mt-2">Durasi 3 Bulan</p>
+          <div className="mt-6 flex flex-col">
             <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-extrabold text-slate-900">
-                {isAnnual ? 'Rp 949.000' : 'Rp 99.000'}
-              </span>
-              <span className="text-slate-500 font-medium">{isAnnual ? '/thn' : '/bln'}</span>
+              <span className="text-4xl font-extrabold text-slate-900">Rp 149.000</span>
             </div>
+            <span className="text-emerald-600 text-xs font-bold mt-1">Hanya ~Rp 49.700/bulan</span>
           </div>
           <ul className="mt-8 space-y-4 flex-1">
-            <FeatureWithTooltip text="2.000 Pesan / bulan" />
-            <FeatureWithTooltip text="Hingga 10 Dokumen PDF" />
-            <FeatureWithTooltip text="Branding Kustom (Tanpa logo PulseAI)" />
-            <FeatureWithTooltip text="Dukungan Prioritas" />
+            <FeatureWithTooltip text="Unlimited Pesan / bulan" />
+            <FeatureWithTooltip text="Free PDF Documents Upload" />
+            <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
             <FeatureWithTooltip text="Integrasi Widget Web" />
+            <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />
           </ul>
           <button 
-            onClick={() => handleCheckout(isAnnual ? 'business_annual' : 'business', isAnnual ? 949000 : 99000)}
-            disabled={loadingPlan === 'business' || isCurrentPlan('business')}
+            onClick={() => handleCheckout('pro', 149000)}
+            disabled={loadingPlan === 'pro' || isCurrentPlan('pro')}
             className={`mt-8 w-full py-3 px-4 rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2 ${
-              isCurrentPlan('business')
+              isCurrentPlan('pro')
               ? 'bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed'
               : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/20'
             }`}
           >
-            {loadingPlan === 'business' ? <Loader2 className="animate-spin" size={20} /> : (isCurrentPlan('business') ? 'Paket Saat Ini' : 'Amankan Slot Early Bird')}
+            {loadingPlan === 'pro' ? <Loader2 className="animate-spin" size={20} /> : (isCurrentPlan('pro') ? 'Paket Saat Ini' : 'Ambil Penawaran Terbaik')}
           </button>
         </div>
 
-        {/* Enterprise Plan */}
+        {/* Full Scale Plan */}
         <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col transition-all hover:border-emerald-200">
           <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-6">
             <Building2 className="text-slate-400" size={24} />
           </div>
-          <h3 className="text-xl font-bold text-slate-900">Enterprise</h3>
-          <p className="text-sm text-slate-500 mt-2">Solusi kustom untuk kebutuhan korporasi skala besar.</p>
-          <div className="mt-6 flex items-baseline gap-1">
-            <span className="text-4xl font-extrabold text-slate-900">Kustom</span>
+          <h3 className="text-xl font-bold text-slate-900">Paket Full Scale</h3>
+          <p className="text-sm text-slate-500 mt-2">Durasi 12 Bulan</p>
+          <div className="mt-6 flex flex-col">
+            <span className="text-4xl font-extrabold text-slate-900">Rp 249.000</span>
+            <span className="text-emerald-600 text-xs font-bold mt-1">Hanya ~Rp 20.750/bulan</span>
           </div>
           <ul className="mt-8 space-y-4 flex-1">
-            <FeatureWithTooltip text="Dokumen PDF Tanpa Batas" />
-            <FeatureWithTooltip text="Volume Pesan Tinggi" />
-            <FeatureWithTooltip text="Infrastruktur AI Terdedikasi" />
-            <FeatureWithTooltip text="Integrasi API Kustom" />
-            <FeatureWithTooltip text="Account Manager Khusus" />
+            <FeatureWithTooltip text="Unlimited Pesan / bulan" />
+            <FeatureWithTooltip text="Free PDF Documents Upload" />
+            <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
+            <FeatureWithTooltip text="Integrasi Widget Web" />
+            <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />
           </ul>
-          <a 
-            href="https://wa.me/628123456789" // Placeholder link
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-8 w-full py-3 px-4 rounded-xl font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-600 transition-all flex items-center justify-center gap-2"
+          <button 
+            onClick={() => handleCheckout('full_scale', 249000)}
+            disabled={loadingPlan === 'full_scale' || isCurrentPlan('full_scale')}
+            className={`mt-8 w-full py-3 px-4 rounded-xl font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-emerald-500 hover:text-emerald-600 transition-all flex items-center justify-center gap-2 ${
+              isCurrentPlan('full_scale')
+              ? 'bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed'
+              : ''
+            }`}
           >
-            <MessageCircle size={18} />
-            Hubungi Penjualan
-          </a>
+            {loadingPlan === 'full_scale' ? <Loader2 className="animate-spin" size={20} /> : (isCurrentPlan('full_scale') ? 'Paket Saat Ini' : 'Go Full Scale')}
+          </button>
         </div>
       </div>
     </div>

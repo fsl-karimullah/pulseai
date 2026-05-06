@@ -77,26 +77,42 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (org) {
-        const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
-        const plan = sub?.plan_type || 'free';
-        
-        // Count unique documents (by title) for THIS organization
-        const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
-        const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-        
-        if (plan === 'free' && uniqueTitles.size >= 1) {
-          return reply.status(403).send({
-            success: false,
-            message: 'Upgrade to Business to upload more than 1 document.',
-          });
-        }
-        if (plan === 'business' && uniqueTitles.size >= 20) {
-          return reply.status(403).send({
-            success: false,
-            message: 'Upgrade to Enterprise to upload more than 20 documents.',
-          });
-        }
+      const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
+      const plan = sub?.plan_type || 'free';
+
+      // 1. Document Count Limit
+      const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
+      const uniqueTitles = new Set(existingDocs?.map(d => d.title));
+      
+      const docLimits: Record<string, number> = {
+        'free': 1,
+        'starter': 999999,
+        'pro': 999999,
+        'full_scale': 999999
+      };
+
+      const currentDocLimit = docLimits[plan] || 1;
+      if (uniqueTitles.size >= currentDocLimit) {
+        return reply.status(403).send({
+          success: false,
+          message: `Limit tercapai. Paket ${plan} Anda hanya mendukung ${currentDocLimit} dokumen. Silakan upgrade paket Anda.`,
+        });
+      }
+
+      // 2. File Size Limit
+      const sizeLimits: Record<string, number> = {
+        'free': 2 * 1024 * 1024,      // 2MB
+        'starter': 100 * 1024 * 1024,  // 100MB
+        'pro': 100 * 1024 * 1024,      // 100MB
+        'full_scale': 100 * 1024 * 1024 // 100MB
+      };
+
+      const currentSizeLimit = sizeLimits[plan] || sizeLimits['free'];
+      if (fileBuffer.length > currentSizeLimit) {
+        return reply.status(400).send({
+          success: false,
+          message: `Ukuran file terlalu besar. Paket ${plan} Anda hanya mendukung maksimal ${currentSizeLimit / (1024 * 1024)}MB.`,
+        });
       }
 
       // Validate MIME type
@@ -153,12 +169,12 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
    *  3. Generate embeddings for each chunk via text-embedding-004
    *  4. Bulk-insert chunks + vectors into knowledge_nodes
    */
-  fastify.post(
+  fastify.post<{ Body: UrlIngestBody }>(
     '/ingest/url',
     { preHandler: [authenticate] },
     async (
-      request: FastifyRequest<{ Body: UrlIngestBody }>,
-      reply: FastifyReply
+      request,
+      reply
     ): Promise<IngestResult> => {
       const userId = (request as any).user?.id;
       
@@ -177,25 +193,26 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (org) {
-        const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
-        const plan = sub?.plan_type || 'free';
-        
-        const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
-        const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-        
-        if (plan === 'free' && uniqueTitles.size >= 1) {
-          return reply.status(403).send({
-            success: false,
-            message: 'Upgrade to Business to upload more than 1 document.',
-          });
-        }
-        if (plan === 'business' && uniqueTitles.size >= 20) {
-          return reply.status(403).send({
-            success: false,
-            message: 'Upgrade to Enterprise to upload more than 20 documents.',
-          });
-        }
+      const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
+      const plan = sub?.plan_type || 'free';
+      
+      const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
+      const uniqueTitles = new Set(existingDocs?.map(d => d.title));
+      
+      const limits: Record<string, number> = {
+        'free': 1,
+        'starter': 999999,
+        'pro': 999999,
+        'full_scale': 999999 // Unlimited
+      };
+
+      const currentLimit = limits[plan] || 1;
+
+      if (uniqueTitles.size >= currentLimit) {
+        return reply.status(403).send({
+          success: false,
+          message: `Limit tercapai. Paket ${plan} Anda hanya mendukung ${currentLimit} dokumen. Silakan upgrade paket Anda.`,
+        });
       }
 
       fastify.log.info({ url }, 'URL ingest started');

@@ -19,7 +19,6 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const result = await model.embedContent({
       content: { role: 'user', parts: [{ text }] },
-      outputDimensionality: 768,
     });
     const embedding = result.embedding;
     return embedding.values;

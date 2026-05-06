@@ -142,16 +142,28 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
             .single();
 
           if (order) {
-            // 2. Update Subscription
-            const isAnnual = order.plan_type.includes('annual');
-            const newLimit = order.plan_type.includes('business') ? 3000 : 2000; // Early access limit is 2000
-            
-            // Calculate expiration
+            // Calculate expiration and limits based on plan
             const expirationDate = new Date();
-            if (isAnnual) {
+            let newLimit = 100; // Default fallback
+
+            if (order.plan_type === 'starter') {
+              expirationDate.setMonth(expirationDate.getMonth() + 1);
+              newLimit = 999999;
+            } else if (order.plan_type === 'pro') {
+              expirationDate.setMonth(expirationDate.getMonth() + 3);
+              newLimit = 999999;
+            } else if (order.plan_type === 'full_scale') {
               expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+              newLimit = 999999;
             } else {
-              expirationDate.setDate(expirationDate.getDate() + 30);
+              // Old plans or fallback
+              const isAnnual = order.plan_type.includes('annual');
+              if (isAnnual) {
+                expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+              } else {
+                expirationDate.setMonth(expirationDate.getMonth() + 1);
+              }
+              newLimit = order.plan_type.includes('business') ? 3000 : 2000;
             }
 
             await supabase
@@ -203,14 +215,26 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
           .single();
 
         if (order) {
-          const isAnnual = order.plan_type.includes('annual');
-          const newLimit = order.plan_type.includes('business') ? 3000 : 2000;
-          
           const expirationDate = new Date();
-          if (isAnnual) {
+          let newLimit = 100;
+
+          if (order.plan_type === 'starter') {
+            expirationDate.setMonth(expirationDate.getMonth() + 1);
+            newLimit = 999999;
+          } else if (order.plan_type === 'pro') {
+            expirationDate.setMonth(expirationDate.getMonth() + 3);
+            newLimit = 999999;
+          } else if (order.plan_type === 'full_scale') {
             expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+            newLimit = 999999;
           } else {
-            expirationDate.setDate(expirationDate.getDate() + 30);
+            const isAnnual = order.plan_type.includes('annual');
+            if (isAnnual) {
+              expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+            } else {
+              expirationDate.setMonth(expirationDate.getMonth() + 1);
+            }
+            newLimit = order.plan_type.includes('business') ? 3000 : 2000;
           }
 
           await supabase
