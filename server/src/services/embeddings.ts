@@ -9,7 +9,7 @@ if (!apiKey) {
 }
 
 const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 /**
  * Generates an embedding vector for a single text string.
@@ -19,6 +19,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const result = await model.embedContent({
       content: { role: 'user', parts: [{ text }] },
+      outputDimensionality: 768,
     });
     const embedding = result.embedding;
     return embedding.values;
@@ -29,24 +30,36 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
- * Generates embeddings for multiple texts with rate-limit safety.
- * Batches requests with a small delay between them to avoid quota errors.
+ * Generates embeddings for multiple texts using the batch API.
+ * This is much faster than individual calls and avoids Vercel timeouts.
  */
 export async function generateEmbeddingsBatch(
-  texts: string[],
-  delayMs = 200
+  texts: string[]
 ): Promise<number[][]> {
-  const results: number[][] = [];
+  if (texts.length === 0) return [];
 
-  for (let i = 0; i < texts.length; i++) {
-    const embedding = await generateEmbedding(texts[i]);
-    results.push(embedding);
+  try {
+    // Google supports batching up to 100 items per request
+    const BATCH_SIZE = 100;
+    const results: number[][] = [];
 
-    // Polite delay between requests to stay within rate limits
-    if (i < texts.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+      const batch = texts.slice(i, i + BATCH_SIZE);
+      const batchResult = await model.batchEmbedContents({
+        requests: batch.map(text => ({
+          content: { role: 'user', parts: [{ text }] },
+          taskType: 'RETRIEVAL_DOCUMENT' as any,
+          outputDimensionality: 768,
+        }))
+      });
+
+      const vectors = batchResult.embeddings.map(e => e.values);
+      results.push(...vectors);
     }
-  }
 
-  return results;
+    return results;
+  } catch (error: any) {
+    console.error('[Embeddings] batch generation error:', error.message);
+    throw new Error(`Batch Embedding API failed: ${error.message}`);
+  }
 }

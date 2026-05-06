@@ -11,5 +11,10 @@
       "src": "/(.*)",
       "dest": "api/serverless.ts"
     }
-  ]
+  ],
+  "functions": {
+    "api/serverless.ts": {
+      "maxDuration": 30
+    }
+  }
 }
