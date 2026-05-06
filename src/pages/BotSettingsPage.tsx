@@ -169,8 +169,11 @@ const BotSettingsPage: React.FC = () => {
     }
   };
 
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+  const botName = String(settings.find((s) => s.id === 'bot-name')?.value ?? 'Aria');
+  const company = 'PulseAI';
+
   const handleCopyCode = () => {
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
     const scriptTag = `<script src="${apiBase}/api/widget.js?botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(company)}"></script>`;
     navigator.clipboard.writeText(scriptTag);
     alert('Kode embed berhasil disalin!');

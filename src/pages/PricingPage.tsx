@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Check, Loader2, Sparkles, Zap, Building2, Info, MessageCircle } from 'lucide-react';
+import { Check, Loader2, Sparkles, Zap, Building2, Info } from 'lucide-react';
 import { useSubscription } from '../hooks/useSubscription';
 import { useSearchParams } from 'react-router-dom';
 
