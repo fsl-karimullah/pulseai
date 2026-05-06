@@ -63,8 +63,10 @@ const PublicChatWidget: React.FC = () => {
     setInput('');
     setIsTyping(true);
 
+    const apiBase = import.meta.env.VITE_API_URL || '';
+    
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(`${apiBase}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -108,9 +110,11 @@ const PublicChatWidget: React.FC = () => {
     e.preventDefault();
     if (!leadData.name || !leadData.whatsapp) return;
 
+    const apiBase = import.meta.env.VITE_API_URL || '';
+
     setIsSubmittingLead(true);
     try {
-      const response = await fetch('/api/leads', {
+      const response = await fetch(`${apiBase}/api/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -31,7 +31,8 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     const logoUrl = settings?.logo_url || '';
     const resolvedOrgId = orgId || settings?.org_id || '';
 
-    const widgetUrl = `http://localhost:5173/widget?orgId=${resolvedOrgId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(company)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(company)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
 
     const scriptContent = `
 (function() {
