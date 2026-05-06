@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/(api|widget.js)(.*)",
+      "destination": "https://api.pulseai.biz.id/$1$2"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
