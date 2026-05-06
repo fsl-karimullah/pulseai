@@ -40,7 +40,7 @@ const PricingPage: React.FC = () => {
     if (orderId && (statusCode === '200' || statusCode === '201')) {
       const verifyPayment = async () => {
         try {
-          const verifyRes = await fetch(`http://localhost:3001/api/payments/verify/${orderId}`);
+          const verifyRes = await fetch(`/api/payments/verify/${orderId}`);
           const verifyData = await verifyRes.json();
           
           if (verifyData.success) {
@@ -68,7 +68,7 @@ const PricingPage: React.FC = () => {
   const handleCheckout = async (plan: string, amount: number) => {
     try {
       setLoadingPlan(plan);
-      const response = await fetch('http://localhost:3001/api/payments/create-transaction', {
+      const response = await fetch('/api/payments/create-transaction', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

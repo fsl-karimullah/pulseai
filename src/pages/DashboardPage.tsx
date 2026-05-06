@@ -64,7 +64,7 @@ const DashboardPage: React.FC = () => {
   useEffect(() => {
     if (!session?.access_token) return;
     
-    fetch('http://localhost:3001/api/analytics', {
+    fetch('/api/analytics', {
       headers: {
         'Authorization': `Bearer ${session.access_token}`
       }

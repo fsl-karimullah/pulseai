@@ -170,9 +170,8 @@ const BotSettingsPage: React.FC = () => {
   };
 
   const handleCopyCode = () => {
-    const botName = String(settings.find((s) => s.id === 'bot-name')?.value ?? 'Aria');
-    const company = 'PulseAI'; 
-    const scriptTag = `<script src="http://localhost:3001/api/widget.js?botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(company)}"></script>`;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const scriptTag = `<script src="${apiBase}/api/widget.js?botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(company)}"></script>`;
     navigator.clipboard.writeText(scriptTag);
     alert('Kode embed berhasil disalin!');
   };
@@ -386,7 +385,7 @@ const BotSettingsPage: React.FC = () => {
         <div className="relative">
           <div className="bg-slate-900 rounded-xl p-4 pr-12 overflow-x-auto">
             <code className="text-xs text-emerald-400 whitespace-nowrap font-mono">
-              &lt;script src="http://localhost:3001/api/widget.js?botName={encodeURIComponent(String(settings.find((s) => s.id === 'bot-name')?.value ?? 'Aria'))}&amp;company=PulseAI"&gt;&lt;/script&gt;
+              &lt;script src="{apiBase}/api/widget.js?botName={encodeURIComponent(String(settings.find((s) => s.id === 'bot-name')?.value ?? 'Aria'))}&amp;company=PulseAI"&gt;&lt;/script&gt;
             </code>
           </div>
           <button 
