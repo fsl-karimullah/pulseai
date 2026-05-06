@@ -165,7 +165,7 @@ const PricingPage: React.FC = () => {
           </div>
           <ul className="mt-8 space-y-4 flex-1">
             <FeatureWithTooltip text="Unlimited Pesan / bulan" />
-            <FeatureWithTooltip text="Free PDF Documents Upload" />
+            <FeatureWithTooltip text="3 Dokumen PDF Upload" />
             <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
             <FeatureWithTooltip text="Integrasi Widget Web" />
             <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />
@@ -201,7 +201,7 @@ const PricingPage: React.FC = () => {
           </div>
           <ul className="mt-8 space-y-4 flex-1">
             <FeatureWithTooltip text="Unlimited Pesan / bulan" />
-            <FeatureWithTooltip text="Free PDF Documents Upload" />
+            <FeatureWithTooltip text="3 Dokumen PDF Upload" />
             <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
             <FeatureWithTooltip text="Integrasi Widget Web" />
             <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />
@@ -232,7 +232,7 @@ const PricingPage: React.FC = () => {
           </div>
           <ul className="mt-8 space-y-4 flex-1">
             <FeatureWithTooltip text="Unlimited Pesan / bulan" />
-            <FeatureWithTooltip text="Free PDF Documents Upload" />
+            <FeatureWithTooltip text="3 Dokumen PDF Upload" />
             <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
             <FeatureWithTooltip text="Integrasi Widget Web" />
             <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />

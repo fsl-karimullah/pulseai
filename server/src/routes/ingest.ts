@@ -86,16 +86,16 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       
       const docLimits: Record<string, number> = {
         'free': 1,
-        'starter': 999999,
-        'pro': 999999,
-        'full_scale': 999999
+        'starter': 3,
+        'pro': 3,
+        'full_scale': 3
       };
 
       const currentDocLimit = docLimits[plan] || 1;
       if (uniqueTitles.size >= currentDocLimit) {
         return reply.status(403).send({
           success: false,
-          message: `Limit tercapai. Paket ${plan} Anda hanya mendukung ${currentDocLimit} dokumen. Silakan upgrade paket Anda.`,
+          message: `Limit tercapai. Paket ${plan} Anda hanya mendukung ${currentDocLimit} dokumen. Silakan upgrade paket Anda atau hubungi support.`,
         });
       }
 
@@ -201,9 +201,9 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       
       const limits: Record<string, number> = {
         'free': 1,
-        'starter': 999999,
-        'pro': 999999,
-        'full_scale': 999999 // Unlimited
+        'starter': 3,
+        'pro': 3,
+        'full_scale': 3
       };
 
       const currentLimit = limits[plan] || 1;
