@@ -88,6 +88,16 @@ export async function generateChatResponse(
   try {
     const chat = model.startChat({ history: geminiHistory });
     const result = await chat.sendMessage(userMessage);
+    
+    // Safety check: ensure we have a valid response candidate
+    if (!result.response.candidates || result.response.candidates.length === 0) {
+      console.warn('[Gemini] No candidates returned. This usually means the response was blocked by safety filters.');
+      return { 
+        message: 'Maaf, saya tidak dapat merespon pesan tersebut karena alasan keamanan atau teknis. Silakan coba pertanyaan lain.', 
+        triggerLeadCapture: false 
+      };
+    }
+
     const raw = result.response.text().trim();
 
     try {
