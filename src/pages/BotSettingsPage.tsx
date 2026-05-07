@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-// ... existing imports ...
 import {
   Settings2,
   Save,
@@ -181,9 +180,12 @@ const BotSettingsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-        <Loader2 className="w-8 h-8 animate-spin mb-4" />
-        <p className="text-sm font-medium">Memuat konfigurasi...</p>
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
+          <div className="absolute inset-0 rounded-full border-4 border-t-violet-500 animate-spin" />
+        </div>
+        <p className="text-sm font-medium text-slate-500">Memuat konfigurasi bot...</p>
       </div>
     );
   }

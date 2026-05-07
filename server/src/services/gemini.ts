@@ -86,13 +86,14 @@ export async function generateChatResponse(
     systemInstruction: SYSTEM_TEMPLATE(botName, company, context, tone, customInstructions, adminWhatsApp),
     generationConfig: {
       responseMimeType: 'application/json',
-      maxOutputTokens: 300,
-      temperature: 0.4,
+      maxOutputTokens: 600,   // Enough for detailed answers without waste
+      temperature: 0.3,        // Lower = more focused, less hallucination
+      topP: 0.85,              // Nucleus sampling for efficiency
     },
   });
 
-  // Convert our history format to Gemini's Content[] format
-  const geminiHistory: Content[] = history.slice(-4).map((m) => ({
+  // Keep last 6 messages for context (3 pairs), trim older history to save tokens
+  const geminiHistory: Content[] = history.slice(-6).map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));

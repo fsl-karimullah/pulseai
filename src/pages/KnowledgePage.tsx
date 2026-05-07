@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-// ... existing imports ...
 import {
   Search,
   Plus,
-  Eye,
   Clock,
   Tag,
   FileText,
   BookOpen,
-  ChevronRight,
-  Edit3,
   Trash2,
   Upload,
+  Loader2,
 } from 'lucide-react';
 import type { KnowledgeArticle } from '../types';
 import IngestModal from '../components/IngestModal';
+
+// ── Module-level cache to prevent re-fetching on tab switch ───────────────
+const knowledgeCache: { data: KnowledgeArticle[]; timestamp: number } = { data: [], timestamp: 0 };
+const CACHE_TTL_MS = 30_000; // 30 seconds
 
 const categoryColors: Record<string, string> = {
   Onboarding: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -37,7 +38,13 @@ const KnowledgePage: React.FC = () => {
   const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchKnowledge = useCallback(() => {
+  const fetchKnowledge = useCallback((force = false) => {
+    const now = Date.now();
+    if (!force && knowledgeCache.data.length > 0 && (now - knowledgeCache.timestamp) < CACHE_TTL_MS) {
+      setArticles(knowledgeCache.data);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     fetch('/api/knowledge', {
       headers: {
@@ -51,10 +58,12 @@ const KnowledgePage: React.FC = () => {
             id: dbNode.id,
             title: dbNode.title,
             category: dbNode.source_type === 'pdf' ? 'Onboarding' : 'Integrations',
-            views: dbNode.chunks || 0, // Using chunks as mock views
+            views: dbNode.chunks || 0,
             lastUpdated: dbNode.created_at,
             status: 'published',
           }));
+          knowledgeCache.data = mappedArticles;
+          knowledgeCache.timestamp = Date.now();
           setArticles(mappedArticles);
         }
       })
@@ -63,24 +72,22 @@ const KnowledgePage: React.FC = () => {
   }, [session]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this document? All associated AI knowledge will be removed.')) return;
-
+    if (!confirm('Yakin ingin menghapus dokumen ini? Semua pengetahuan AI terkait akan dihapus.')) return;
     try {
       const response = await fetch(`/api/knowledge/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`
-        }
+        headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
       const data = await response.json();
       if (data.success) {
-        fetchKnowledge();
+        knowledgeCache.timestamp = 0; // Invalidate cache after delete
+        fetchKnowledge(true);
       } else {
-        alert(data.message || 'Failed to delete document');
+        alert(data.message || 'Gagal menghapus dokumen');
       }
     } catch (error) {
       console.error('Delete error:', error);
-      alert('An error occurred while deleting the document.');
+      alert('Terjadi kesalahan saat menghapus dokumen.');
     }
   };
 
@@ -97,6 +104,18 @@ const KnowledgePage: React.FC = () => {
   });
 
   const categories = Array.from(new Set(articles.map((a) => a.category)));
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
+          <div className="absolute inset-0 rounded-full border-4 border-t-emerald-500 animate-spin" />
+        </div>
+        <p className="text-sm font-medium text-slate-500">Memuat basis pengetahuan...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -118,14 +137,7 @@ const KnowledgePage: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl shadow-sm shadow-emerald-500/30 transition-all duration-150 active:scale-95"
           >
             <Upload size={15} />
-            Tambah Sumber
-          </button>
-          <button
-            id="kb-new-article"
-            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all"
-          >
-            <Plus size={15} />
-            Artikel Baru
+            Tambah PDF
           </button>
         </div>
       </div>
@@ -257,13 +269,7 @@ const KnowledgePage: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-4 px-4">
-                    <div className="flex items-center justify-end gap-1">
-                      <button className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
-                        <Edit3 size={14} />
-                      </button>
-                      <button className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
-                        <ChevronRight size={14} />
-                      </button>
+                    <div className="flex items-center justify-end">
                       <button 
                         onClick={() => handleDelete(article.id)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"

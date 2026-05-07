@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageSquare,
   Users,
@@ -13,6 +13,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../hooks/useSubscription';
+
+// ── Simple in-memory cache to avoid re-fetching on tab switch ──────────────
+const analyticsCache: { data: any; timestamp: number } = { data: null, timestamp: 0 };
+const CACHE_TTL_MS = 60_000; // 60 seconds
 
 const metricsConfig: Record<string, any> = {
   conversations: {
@@ -64,20 +68,30 @@ const DashboardPage: React.FC = () => {
   useEffect(() => {
     if (!session?.access_token) return;
     
+    const now = Date.now();
+    // If cache is fresh, use it immediately (no flicker on tab switch)
+    if (analyticsCache.data && (now - analyticsCache.timestamp) < CACHE_TTL_MS) {
+      setData(analyticsCache.data);
+      setLoading(false);
+      return;
+    }
+
+    // Stale or empty: show loader and fetch fresh data
+    setLoading(true);
     fetch('/api/analytics', {
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`
-      }
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
     })
       .then((res) => res.json())
       .then((resData) => {
         if (resData.success) {
+          analyticsCache.data = resData;
+          analyticsCache.timestamp = Date.now();
           setData(resData);
         }
       })
       .catch((err) => console.error('Failed to fetch analytics', err))
       .finally(() => setLoading(false));
-  }, []);
+  }, [session?.access_token]);
 
   const weeklyData = data?.weeklyData || [0, 0, 0, 0, 0, 0, 0];
   const maxVal = Math.max(...weeklyData, 10); // Ensure no divide by zero
@@ -152,7 +166,13 @@ const DashboardPage: React.FC = () => {
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {loading ? (
-          <div className="col-span-full py-8 text-center text-slate-400">Memuat metrik...</div>
+          <div className="col-span-full flex flex-col items-center justify-center py-12 gap-3">
+            <div className="relative w-10 h-10">
+              <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
+              <div className="absolute inset-0 rounded-full border-4 border-t-emerald-500 animate-spin" />
+            </div>
+            <p className="text-sm font-medium text-slate-500">Memuat data dashboard...</p>
+          </div>
         ) : (
           data?.metrics?.map(({ id, title, value, change, label }: any) => {
             const config = metricsConfig[id] || metricsConfig.conversations;
