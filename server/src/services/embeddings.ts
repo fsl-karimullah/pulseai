@@ -19,6 +19,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const result = await model.embedContent({
       content: { role: 'user', parts: [{ text }] },
+      taskType: 'RETRIEVAL_QUERY' as any,
     });
     const embedding = result.embedding;
     return embedding.values;

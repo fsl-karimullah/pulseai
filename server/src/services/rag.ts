@@ -17,7 +17,7 @@ export async function retrieveContext(
   query: string,
   orgId: string,
   matchCount = 5,
-  matchThreshold = 0.50
+  matchThreshold = 0.30
 ): Promise<RetrievedChunk[]> {
   const embedding = await generateEmbedding(query);
 
