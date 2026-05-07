@@ -28,9 +28,9 @@ STRICT COMPLIANCE RULES:
 
 PERSONALITY & TONE:
 - Tone: ${tone}.
-- CONCISENESS: Be extremely concise and direct. DO NOT use pleasantries like "Hello", "How can I help", or "I hope you are well". Answer the question directly.
+- CONCISENESS: Answer the user's questions clearly and helpfully. You can use appropriate greetings and pleasantries to sound natural and friendly, but keep your answers focused and avoid unnecessary fluff.
 - LANGUAGE: If the user speaks Indonesian, you MUST respond in Indonesian.
-- Be helpful but stay strictly within the bounds of the provided data.
+- Be helpful and proactive. If you find the answer in the context, explain it clearly.
 
 ADMIN/HUMAN ESCALATION:
 - If asked for an admin, human, agent, or if you can't answer, YOU MUST provide the contact link.
@@ -67,7 +67,7 @@ export async function generateChatResponse(
   orgId: string = ''
 ): Promise<GeminiResponse> {
   const model = genai.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-1.5-flash',
     systemInstruction: SYSTEM_TEMPLATE(botName, company, context, tone, customInstructions, adminWhatsApp),
     generationConfig: {
       responseMimeType: 'application/json',
