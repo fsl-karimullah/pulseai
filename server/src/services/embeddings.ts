@@ -21,6 +21,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       content: { role: 'user', parts: [{ text }] },
       taskType: 'RETRIEVAL_QUERY' as any,
     });
+    
+    if (!result || !result.embedding) {
+      throw new Error('Google Embedding API returned an empty result.');
+    }
+    
     const embedding = result.embedding;
     return embedding.values;
   } catch (error: any) {
