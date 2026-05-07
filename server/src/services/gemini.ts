@@ -1,6 +1,10 @@
 import { GoogleGenerativeAI, type Content } from '@google/generative-ai';
 
-const genai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+const apiKey = process.env.GOOGLE_AI_API_KEY;
+if (!apiKey) {
+  console.error('[Gemini] CRITICAL: GOOGLE_AI_API_KEY is missing in environment variables.');
+}
+const genai = new GoogleGenerativeAI(apiKey || 'MISSING_KEY');
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
