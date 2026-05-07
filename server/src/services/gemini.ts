@@ -82,7 +82,7 @@ export async function generateChatResponse(
   orgId: string = ''
 ): Promise<GeminiResponse> {
   const model = genai.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash-lite',
     systemInstruction: SYSTEM_TEMPLATE(botName, company, context, tone, customInstructions, adminWhatsApp),
     generationConfig: {
       responseMimeType: 'application/json',
@@ -97,39 +97,54 @@ export async function generateChatResponse(
     parts: [{ text: m.content }],
   }));
 
-  try {
-    const chat = model.startChat({ history: geminiHistory });
-    const result = await chat.sendMessage(userMessage);
-    
-    // Safety check: ensure we have a valid response candidate
-    if (!result.response.candidates || result.response.candidates.length === 0) {
-      console.warn('[Gemini] No candidates returned. This usually means the response was blocked by safety filters.');
-      return { 
-        message: 'Maaf, saya tidak dapat merespon pesan tersebut karena alasan keamanan atau teknis. Silakan coba pertanyaan lain.', 
-        triggerLeadCapture: false 
-      };
-    }
+  const MAX_RETRIES = 3;
+  let lastError: any;
 
-    const raw = result.response.text().trim();
-
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const parsed = JSON.parse(raw) as GeminiResponse;
-      return {
-        message: parsed.message ?? 'Sorry, I could not generate a response.',
-        triggerLeadCapture: parsed.triggerLeadCapture === true,
-      };
-    } catch {
-      // Gemini occasionally returns extra text despite responseMimeType
-      const match = raw.match(/\{[\s\S]*\}/);
-      if (match) {
-        const parsed = JSON.parse(match[0]) as GeminiResponse;
-        return { message: parsed.message ?? raw, triggerLeadCapture: false };
+      const chat = model.startChat({ history: geminiHistory });
+      const result = await chat.sendMessage(userMessage);
+      
+      // Safety check: ensure we have a valid response candidate
+      if (!result.response.candidates || result.response.candidates.length === 0) {
+        console.warn('[Gemini] No candidates returned. Response may have been blocked by safety filters.');
+        return { 
+          message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.', 
+          triggerLeadCapture: false 
+        };
       }
-      return { message: raw, triggerLeadCapture: false };
+
+      const raw = result.response.text().trim();
+
+      try {
+        const parsed = JSON.parse(raw) as GeminiResponse;
+        return {
+          message: parsed.message ?? 'Sorry, I could not generate a response.',
+          triggerLeadCapture: parsed.triggerLeadCapture === true,
+        };
+      } catch {
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]) as GeminiResponse;
+          return { message: parsed.message ?? raw, triggerLeadCapture: false };
+        }
+        return { message: raw, triggerLeadCapture: false };
+      }
+    } catch (error: any) {
+      lastError = error;
+      const is503 = error.message?.includes('503') || error.message?.includes('Service Unavailable') || error.message?.includes('high demand');
+      
+      if (is503 && attempt < MAX_RETRIES) {
+        const waitMs = attempt * 2000; // 2s, 4s
+        console.warn(`[Gemini] 503 on attempt ${attempt}/${MAX_RETRIES}. Retrying in ${waitMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+      
+      console.error(`[Gemini] [Org: ${orgId}] Response generation error on attempt ${attempt}:`, error.message || error);
+      throw error;
     }
-  } catch (error: any) {
-    console.error(`[Gemini] [Org: ${orgId}] Response generation error:`, error.message || error);
-    if (error.stack) console.error(error.stack);
-    throw error;
   }
+
+  throw lastError;
 }
