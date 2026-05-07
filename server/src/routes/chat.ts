@@ -69,13 +69,16 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       }
 
       const resolvedOrgId = settings.org_id;
+      const resolvedBotName = settings.bot_name || botName || 'Aria';
+      const resolvedCompany = settings.company_name || company || 'PulseAI';
       const tone = settings.tone || 'Professional';
       const instructions = settings.custom_instructions || '';
       const adminWhatsApp = settings.admin_whatsapp || '';
 
       // 1 — RAG: retrieve relevant chunks for THIS organization
-      const chunks = await retrieveContext(message, resolvedOrgId, 3);
-      fastify.log.info({ chunksFound: chunks.length, orgId: resolvedOrgId }, 'RAG context retrieved');
+      fastify.log.info({ orgId: resolvedOrgId, query: message.slice(0, 60) }, '[RAG] Starting retrieval');
+      const chunks = await retrieveContext(message, resolvedOrgId, 5);
+      fastify.log.info({ chunksFound: chunks.length, orgId: resolvedOrgId }, '[RAG] context retrieved');
       const context = buildContextBlock(chunks);
 
       // 2 — Generate response
@@ -85,8 +88,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           message,
           history,
           context,
-          botName,
-          company,
+          resolvedBotName,
+          resolvedCompany,
           tone,
           instructions,
           adminWhatsApp,
