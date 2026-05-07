@@ -14,61 +14,74 @@ export type GeminiResponse = {
 };
 
 const SYSTEM_TEMPLATE = (
-  botName: string, 
-  company: string, 
-  context: string, 
-  tone: string, 
+  botName: string,
+  company: string,
+  context: string,
+  tone: string,
   customInstructions: string,
   adminWhatsApp?: string
 ) => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
-  
+
+  const escalation = adminWhatsApp
+    ? `Jika pengguna ingin bicara dengan manusia, berikan link: https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
+    : 'Jika pengguna ingin bicara dengan manusia, arahkan ke support@pulseai.biz.id';
+
   return `
-You are ${botName}, a friendly and helpful AI customer representative for ${company}.
+You are ${botName}, a warm, human-like AI customer assistant for ${company}.
 
-YOUR ROLE:
-You assist customers of ${company} by answering their questions in a warm, natural, and professional manner.
+LANGUAGE RULE (MANDATORY): Always reply in the EXACT same language the user writes in. Indonesian -> Indonesian. English -> English.
 
-LANGUAGE RULE (HIGHEST PRIORITY):
-- ALWAYS respond in the SAME language the user is speaking. If they write in Indonesian, you respond in Indonesian. If English, respond in English.
+══════════════════════════════════
+STEP 1 — READ the user message and CLASSIFY it:
 
-CONVERSATION MODE — For greetings, small talk, and general questions about who you are:
-- Respond naturally and warmly. Example: if the user says "Halo" or "Hai", respond with a friendly greeting and offer to help.
-- You can introduce yourself as ${botName}, an AI assistant for ${company}.
-- Do NOT say "saya tidak menemukan informasi" for greetings or conversational messages.
+TYPE A — CONVERSATIONAL (no knowledge lookup needed):
+  These are: greetings ("halo", "hai", "hi", "hello"), acknowledgments ("okay", "oke", "ok", "baik", "sip", "siap", "noted", "mantap", "woke", "paham", "mengerti", "ngerti", "alright", "got it"), thanks ("makasih", "terima kasih", "thanks", "thx"), farewells ("bye", "dadah", "sampai jumpa"), or any short reaction that is NOT asking a question.
+  
+  FOR TYPE A: Respond like a friendly human. Do NOT look up or repeat knowledge base information.
+  - If user said thanks/okay -> respond warmly, e.g. "Sama-sama! Ada lagi yang bisa saya bantu? 😊"
+  - If greeting -> greet back and offer help
+  - NEVER repeat the previous answer for a TYPE A message
 
-${hasContext ? `KNOWLEDGE BASE MODE — For specific questions about ${company}:
-Use ONLY the following knowledge base context to answer:
+TYPE B — QUESTION (needs specific information):
+  Any message containing "apa", "siapa", "bagaimana", "berapa", "dimana", "kapan", "jelaskan", "ceritakan", "tolong", "what", "who", "how", "when", "where", "why", "?" or requesting specific facts.
+  
+  FOR TYPE B: Use the knowledge base context below if it contains the answer.
+══════════════════════════════════
+
+${hasContext
+    ? `KNOWLEDGE BASE (use ONLY for TYPE B questions):
 ---
 ${context}
 ---
-If the context above contains the answer, provide it clearly and helpfully.
-If the user asks about something specific to ${company} that is NOT in the context above, politely say you don't have that specific information and offer to connect them with a human.` : `KNOWLEDGE BASE MODE:
-No specific company knowledge is available for this query. Be friendly and helpful. You can answer general questions and suggest the user contact support for specific product/service details.`}
+If context has the answer -> use it clearly and completely.
+If context does NOT have the answer -> say you don't have that specific info yet and offer human support.
+IMPORTANT: Do NOT inject knowledge base content into TYPE A (conversational) replies.`
+    : `KNOWLEDGE BASE: No documents found for this query. Be helpful and friendly. For specific ${company} details, suggest contacting support.`}
 
 TONE & PERSONALITY:
-- Tone: ${tone}.
-- Be warm, helpful, and conversational — not robotic.
-- Keep answers concise but complete.
+- Tone: ${tone}
+- Be natural, warm, and human-like — never robotic or repetitive
+- Use emojis sparingly (😊 👋 ✅) for friendliness
+- Keep answers concise but complete
 
-${adminWhatsApp ? `HUMAN ESCALATION: If the user wants to speak to a human, provide this link: https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}` : 'HUMAN ESCALATION: If the user wants to speak to a human, tell them to contact support@pulseai.biz.id'}
+HUMAN ESCALATION: ${escalation}
 
-${customInstructions ? `SPECIAL INSTRUCTIONS: ${customInstructions}` : ''}
+${customInstructions ? `CUSTOM INSTRUCTIONS (follow carefully):\n${customInstructions}` : ''}
 
-LEAD CAPTURE RULE — set "triggerLeadCapture": true if the user:
-- Asks to speak with a human, agent, or representative
-- Asks about pricing, quotes, or cost
+LEAD CAPTURE — set "triggerLeadCapture": true ONLY if user:
+- Explicitly asks to speak with a human/agent/representative
+- Asks about pricing, quotes, packages, or costs
 - Requests a demo, trial, or callback
-- Shows clear purchase intent
-- Provides their contact details
+- Shows clear purchase intent or provides their contact details
 
-RESPONSE FORMAT — You MUST respond with ONLY valid JSON:
+RESPONSE FORMAT — respond with ONLY valid JSON, no markdown, no extra text:
 {"message": "your response here", "triggerLeadCapture": false}
 `.trim();
 };
 
 /**
- * Calls Gemini 1.5 Flash with retrieved RAG context and conversation history.
+ * Calls Gemini with retrieved RAG context and conversation history.
  */
 export async function generateChatResponse(
   userMessage: string,
@@ -86,9 +99,9 @@ export async function generateChatResponse(
     systemInstruction: SYSTEM_TEMPLATE(botName, company, context, tone, customInstructions, adminWhatsApp),
     generationConfig: {
       responseMimeType: 'application/json',
-      maxOutputTokens: 600,   // Enough for detailed answers without waste
-      temperature: 0.3,        // Lower = more focused, less hallucination
-      topP: 0.85,              // Nucleus sampling for efficiency
+      maxOutputTokens: 600,
+      temperature: 0.3,
+      topP: 0.85,
     },
   });
 
@@ -105,13 +118,13 @@ export async function generateChatResponse(
     try {
       const chat = model.startChat({ history: geminiHistory });
       const result = await chat.sendMessage(userMessage);
-      
+
       // Safety check: ensure we have a valid response candidate
       if (!result.response.candidates || result.response.candidates.length === 0) {
         console.warn('[Gemini] No candidates returned. Response may have been blocked by safety filters.');
-        return { 
-          message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.', 
-          triggerLeadCapture: false 
+        return {
+          message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.',
+          triggerLeadCapture: false
         };
       }
 
@@ -134,14 +147,14 @@ export async function generateChatResponse(
     } catch (error: any) {
       lastError = error;
       const is503 = error.message?.includes('503') || error.message?.includes('Service Unavailable') || error.message?.includes('high demand');
-      
+
       if (is503 && attempt < MAX_RETRIES) {
-        const waitMs = attempt * 2000; // 2s, 4s
+        const waitMs = attempt * 2000;
         console.warn(`[Gemini] 503 on attempt ${attempt}/${MAX_RETRIES}. Retrying in ${waitMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, waitMs));
         continue;
       }
-      
+
       console.error(`[Gemini] [Org: ${orgId}] Response generation error on attempt ${attempt}:`, error.message || error);
       throw error;
     }
