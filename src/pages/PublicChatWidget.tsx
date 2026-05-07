@@ -49,6 +49,41 @@ const PublicChatWidget: React.FC = () => {
     }
   }, [messages, isTyping]);
 
+  // ── Markdown Renderer ───────────────────────────────────────────────────
+  const renderMarkdown = (text: string) => {
+    const lines = text.split('\n');
+    return lines.map((line, lineIdx) => {
+      // Numbered list: "1. **Title:** content"
+      const listMatch = line.match(/^(\d+)\.\s+(.*)/);
+      if (listMatch) {
+        return (
+          <div key={lineIdx} className="flex gap-2 mt-2 first:mt-0">
+            <span className="font-bold text-slate-500 flex-shrink-0 w-5 text-right">{listMatch[1]}.</span>
+            <span>{renderInline(listMatch[2])}</span>
+          </div>
+        );
+      }
+      // Empty line = spacer
+      if (line.trim() === '') return <div key={lineIdx} className="h-1" />;
+      // Normal line
+      return <div key={lineIdx}>{renderInline(line)}</div>;
+    });
+  };
+
+  // Render inline markdown: **bold** and URLs
+  const renderInline = (text: string): React.ReactNode[] => {
+    const parts = text.split(/(\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-bold text-slate-800">{part.slice(2, -2)}</strong>;
+      }
+      if (part.match(/^https?:\/\//)) {
+        return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline font-bold text-emerald-600 hover:text-emerald-700 break-all">{part}</a>;
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
@@ -198,20 +233,17 @@ const PublicChatWidget: React.FC = () => {
                 {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
               </div>
               <div 
-                className={`p-3 rounded-2xl text-sm shadow-sm leading-relaxed ${
+                className={`p-3 rounded-2xl text-sm shadow-sm ${
                   msg.role === 'user' 
-                    ? 'text-white rounded-tr-none' 
+                    ? 'text-white rounded-tr-none leading-relaxed' 
                     : 'bg-white text-slate-700 rounded-tl-none border border-slate-100'
                 }`}
                 style={msg.role === 'user' ? { backgroundColor: themeColor } : {}}
               >
-                {(msg.content || "").split(/(https?:\/\/[^\s]+)/g).map((part, i) => 
-                  part && part.match(/^https?:\/\//) ? (
-                    <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline font-bold text-emerald-600 hover:text-emerald-700 break-all">
-                      {part}
-                    </a>
-                  ) : part
-                )}
+                {msg.role === 'user' 
+                  ? (msg.content || '')
+                  : <div className="space-y-0.5 leading-relaxed">{renderMarkdown(msg.content || '')}</div>
+                }
               </div>
             </div>
           </div>
