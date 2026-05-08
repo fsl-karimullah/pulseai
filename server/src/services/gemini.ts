@@ -13,68 +13,119 @@ export type GeminiResponse = {
   triggerLeadCapture: boolean;
 };
 
+// ─────────────────────────────────────────────
+// Intent classifiers — run BEFORE hitting the model
+// ─────────────────────────────────────────────
+
+const GREETING_PATTERNS = [
+  /^(hi|halo|hello|hey|hai|hei|yo|howdy|greetings|good\s?(morning|afternoon|evening|night)|selamat\s?(pagi|siang|sore|malam)|apa\s?kabar|how are you|how's it going|what'?s up|sup)\s*[!?.]*$/i,
+];
+
+const CLOSING_PATTERNS = [
+  /^(ok|oke|okay|okey|sip|siap|noted|got it|alright|alrite|understood|i see|ic|clear|roger|copy that|mantap|oke deh|oke siap|oke makasih|oke thanks|oke thank you|thanks?|thank you|makasih|terima kasih|thx|tq|no problem|no thanks|nope|nothing else|that'?s all|that'?s it|done|cukup|sudah|udah|sudah cukup|udah cukup|bye|goodbye|see you|sampai jumpa|dadah|selesai)\s*[!?.]*$/i,
+];
+
+const SMALL_TALK_PATTERNS = [
+  /^(what('?s| is) your name|siapa (nama|kamu)|kamu (siapa|apa)|who are you|are you (a |an )?(bot|ai|robot|human|real)|apa kamu (bot|ai|robot)|how (old|smart) are you|do you (have|understand|speak)|bisa bahasa|can you speak)/i,
+  /^(nice|good|great|awesome|cool|wow|amazing|luar biasa|bagus|keren|hebat|mantap)\s*[!?.]*$/i,
+];
+
+function classifyIntent(message: string): 'greeting' | 'closing' | 'small_talk' | 'question' {
+  const trimmed = message.trim();
+  if (GREETING_PATTERNS.some((p) => p.test(trimmed))) return 'greeting';
+  if (CLOSING_PATTERNS.some((p) => p.test(trimmed))) return 'closing';
+  if (SMALL_TALK_PATTERNS.some((p) => p.test(trimmed))) return 'small_talk';
+  return 'question';
+}
+
+// ─────────────────────────────────────────────
+// System prompt builder
+// ─────────────────────────────────────────────
+
 const buildSystemPrompt = (
   botName: string,
   company: string,
   context: string,
   tone: string,
   customInstructions: string,
-  adminWhatsApp?: string
+  adminWhatsApp?: string,
+  intent?: string,
+  lastBotMessage?: string
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
-  const ragContext = hasContext ? context : 'No specific documents are available for this query.';
+  const ragContext = hasContext ? context : null;
   const escalationContact = adminWhatsApp
     ? `https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
     : 'pulseaichat@gmail.com';
 
   const lines: string[] = [
     `**Role:**`,
-    `You are ${botName}, a sophisticated AI assistant for ${company}. Your primary function is to help users understand documents and information related to ${company} and its partners.`,
+    `You are ${botName}, a warm and conversational AI assistant for ${company}. You talk like a friendly, knowledgeable human — not a robot reading a manual.`,
     ``,
-    `**Language Rule:** Always reply in the EXACT same language the user writes in. Indonesian -> Indonesian. English -> English.`,
+    `**Language Rule:** ALWAYS reply in the EXACT same language the user writes in. If they write Indonesian, reply in Indonesian. If English, reply in English. Match their language automatically.`,
     ``,
-    `**Core Directives:**`,
+    `**PERSONALITY & TONE (${tone}):**`,
+    `- Sound human and natural. Use contractions ("I'm", "you'll", "that's"). Vary your sentence structure.`,
+    `- Never start every reply the same way. Rotate between different openers.`,
+    `- Use light emojis occasionally (😊 ✅ 👋) when they add warmth — but don't force them.`,
+    `- Never say "Based on my data...", "According to my documents...", or "Berdasarkan dokumen...".`,
     ``,
-    `1. **SMART RETRIEVAL & ACKNOWLEDGMENT:**`,
-    `   - If a user asks about a specific entity or topic and the provided context contains relevant information, ANSWER IT. Do not say "I don't know" just because the phrasing is slightly different from what's in the document.`,
-    `   - If the user says "That's what I meant", "Exactly," or similar confirmations, acknowledge it naturally (e.g., "Understood," or "Glad we're on the same page.") instead of repeating the full explanation.`,
+    `**CRITICAL BEHAVIOR RULES:**`,
     ``,
-    `2. **CONVERSATIONAL FLOW (Anti-Repetition):**`,
-    `   - NEVER repeat the exact same paragraph or information twice in a single conversation.`,
-    `   - If the user provides short feedback like "oke", "sip", "ok", "cool", "ready", "noted", "makasih", "terima kasih", "thanks", or "thank you", respond with a brief follow-up only (e.g., "Got it! Is there anything else you'd like to know?" or "Siap! Ada hal lain yang bisa saya bantu?"). Do NOT repeat previous content.`,
+    `1. **GREETINGS:** When a user greets you (halo, hi, hey, good morning, etc.), respond warmly and naturally like a human would. Ask how you can help. Do NOT just echo their greeting back. Example: User says "Halo" → You say "Halo! Senang bisa ngobrol dengan kamu 😊 Ada yang bisa saya bantu hari ini?"`,
     ``,
-    `3. **INFORMATION LAYERING:**`,
-    `   - When asked "What information do you have?", provide a short bulleted summary of key topics available.`,
-    `   - Only give deep details (like specific numbers, clauses, or terms) if the user asks specifically about that topic.`,
-    `   - Keep answers concise. Users prefer bite-sized information over long blocks of text.`,
+    `2. **CLOSING / ACKNOWLEDGMENTS:** When a user says "ok", "oke", "thanks", "makasih", "noted", "siap", "bye", "that's all", "cukup", etc. — this means the conversation is wrapping up or they acknowledged your last message. Respond with a SHORT, warm closing like "Sama-sama! Semoga membantu 😊 Jangan ragu balik lagi kalau ada pertanyaan!" or "You're welcome! Feel free to reach out anytime." Do NOT repeat any information you already gave. Do NOT bring up topics from earlier.`,
     ``,
-    `4. **CONTEXTUAL REASONING:**`,
-    `   - Always check the Chat History. If a topic has already been discussed, move the conversation forward — do not re-explain it from the beginning.`,
-    `   - Example: If the user already knows about the event date, don't mention it again unless directly relevant to their new question.`,
+    `3. **NEVER REPEAT YOURSELF:** Check the conversation history. If you already said something, do not say it again. Move the conversation forward.`,
     ``,
-    `5. **TONE & PERSONALITY:**`,
-    `   - ${tone} tone. Professional, modern, and helpful.`,
-    `   - Never say "Based on my data...", "In my records...", or "Berdasarkan dokumen...". Just speak directly and naturally.`,
-    `   - Use emojis sparingly (😊 ✅) only when it adds warmth, never forced.`,
+    `4. **ONLY USE RAG WHEN RELEVANT:** Only reference the knowledge base if the user is clearly asking about a topic it covers. For greetings, small talk, acknowledgments, and general questions — answer naturally from your own intelligence. Do NOT force RAG content into every response.`,
     ``,
-    `**Response Length Constraint (CRITICAL):**`,
-    `- Short input from user (1-5 words, greetings, acknowledgments) = Short response (max 1-2 sentences).`,
-    `- Moderate question = 2-4 sentence answer.`,
-    `- Complex or multi-part question = Detailed, structured response with bullet points if helpful.`,
+    `5. **RESPONSE LENGTH:**`,
+    `   - 1–5 word input (greetings, "ok", "thanks") → max 1–2 sentences`,
+    `   - General question → 2–4 sentences`,
+    `   - Specific / complex question → structured answer with bullets if helpful`,
+    ``,
+    `6. **INFORMATION LAYERING:** When asked "What information do you have?", give a SHORT bulleted summary of available topics. Give details only when specifically asked.`,
+    ``,
+    `7. **CONTEXTUAL MEMORY:** Use chat history to avoid re-explaining things. If you already covered a topic, reference it briefly and move on.`,
     ``,
   ];
 
+  // Inject intent-specific hint for the model
+  if (intent === 'greeting') {
+    lines.push(`**INTENT HINT:** The user is greeting you. Respond warmly and ask how you can help. Do NOT reference any documents or knowledge base.`);
+    lines.push(``);
+  } else if (intent === 'closing') {
+    lines.push(`**INTENT HINT:** The user is wrapping up or acknowledging your last message. Give a brief, warm sign-off. Do NOT repeat any prior content.`);
+    if (lastBotMessage) {
+      lines.push(`**Your last message was:** "${lastBotMessage.slice(0, 200)}..."`);
+      lines.push(`Do NOT repeat or summarize this. Just say goodbye warmly.`);
+    }
+    lines.push(``);
+  } else if (intent === 'small_talk') {
+    lines.push(`**INTENT HINT:** The user is making small talk. Respond naturally and conversationally. No need to reference documents.`);
+    lines.push(``);
+  }
+
   if (customInstructions) {
-    lines.push(`**Custom Instructions (follow these carefully):**`);
-    lines.push(`${customInstructions}`);
+    lines.push(`**Custom Instructions (follow carefully):**`);
+    lines.push(customInstructions);
     lines.push(``);
   }
 
   lines.push(`**Human Escalation:** If the user wants to speak to a human, provide: ${escalationContact}`);
   lines.push(``);
-  lines.push(`**Current Context (RAG):**`);
-  lines.push(ragContext);
-  lines.push(``);
+
+  // Only include RAG context for actual questions
+  if (ragContext && intent === 'question') {
+    lines.push(`**Knowledge Base (use ONLY if directly relevant to the user's question):**`);
+    lines.push(ragContext);
+    lines.push(``);
+  } else if (intent === 'question') {
+    lines.push(`**Knowledge Base:** No specific documents available. Answer from general knowledge or let the user know you don't have that info.`);
+    lines.push(``);
+  }
+
   lines.push(`**LEAD CAPTURE** — set "triggerLeadCapture": true ONLY if user:`);
   lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
   lines.push(`- Asks about pricing, quotes, packages, or costs`);
@@ -87,9 +138,10 @@ const buildSystemPrompt = (
   return lines.join('\n');
 };
 
-/**
- * Calls Gemini with retrieved RAG context and conversation history.
- */
+// ─────────────────────────────────────────────
+// Main chat function
+// ─────────────────────────────────────────────
+
 export async function generateChatResponse(
   userMessage: string,
   history: ChatMessage[],
@@ -101,18 +153,34 @@ export async function generateChatResponse(
   adminWhatsApp: string = '',
   orgId: string = ''
 ): Promise<GeminiResponse> {
+
+  // Classify what the user is actually doing
+  const intent = classifyIntent(userMessage);
+
+  // Grab last bot message to prevent repetition on closing
+  const lastBotMessage = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+
   const model = genai.getGenerativeModel({
-    model: 'gemini-3.1-flash-lite',
-    systemInstruction: buildSystemPrompt(botName, company, context, tone, customInstructions, adminWhatsApp),
+    model: 'gemini-2.5-flash-lite',
+    systemInstruction: buildSystemPrompt(
+      botName,
+      company,
+      context,
+      tone,
+      customInstructions,
+      adminWhatsApp,
+      intent,
+      lastBotMessage
+    ),
     generationConfig: {
       responseMimeType: 'application/json',
-      maxOutputTokens: 600,
-      temperature: 0.3,
+      maxOutputTokens: intent === 'greeting' || intent === 'closing' ? 150 : 600,
+      temperature: intent === 'greeting' || intent === 'closing' || intent === 'small_talk' ? 0.7 : 0.3,
       topP: 0.85,
     },
   });
 
-  // Keep last 6 messages for context (3 pairs), trim older history to save tokens
+  // Keep last 6 messages for context (3 pairs)
   const geminiHistory: Content[] = history.slice(-6).map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -126,9 +194,8 @@ export async function generateChatResponse(
       const chat = model.startChat({ history: geminiHistory });
       const result = await chat.sendMessage(userMessage);
 
-      // Safety check: ensure we have a valid response candidate
       if (!result.response.candidates || result.response.candidates.length === 0) {
-        console.warn('[Gemini] No candidates returned. Response may have been blocked by safety filters.');
+        console.warn('[Gemini] No candidates returned. Possibly blocked by safety filters.');
         return {
           message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.',
           triggerLeadCapture: false,
