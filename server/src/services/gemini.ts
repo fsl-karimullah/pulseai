@@ -13,71 +13,69 @@ export type GeminiResponse = {
   triggerLeadCapture: boolean;
 };
 
-const SYSTEM_TEMPLATE = (
+const buildSystemPrompt = (
   botName: string,
   company: string,
   context: string,
   tone: string,
   customInstructions: string,
   adminWhatsApp?: string
-) => {
+): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
+  const ragContext = hasContext ? context : 'No specific documents are available for this query.';
+  const escalationContact = adminWhatsApp
+    ? `https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
+    : 'support@pulseai.biz.id';
 
-  const escalation = adminWhatsApp
-    ? `Jika pengguna ingin bicara dengan manusia, berikan link: https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
-    : 'Jika pengguna ingin bicara dengan manusia, arahkan ke support@pulseai.biz.id';
+  const lines: string[] = [
+    `**Role:**`,
+    `You are ${botName}, a highly intelligent and conversational business assistant for ${company}. Your goal is to provide accurate information based on provided documents while maintaining a natural, human-like conversation flow.`,
+    ``,
+    `**Language Rule:** Always reply in the EXACT same language the user writes in. Indonesian -> Indonesian. English -> English.`,
+    ``,
+    `**Operational Protocols:**`,
+    ``,
+    `1. **INTENT ANALYSIS:**`,
+    `   - Before responding, analyze the user's input.`,
+    `   - If the user provides a short acknowledgment, greeting, or feedback (e.g., "ok", "oke", "cool", "thanks", "makasih", "sip", "baik", "noted", "halo", "hai", "hello", "bye", "sampai jumpa"), DO NOT repeat document information. Respond with a brief, warm, polite conversational reply like: "Sama-sama! Ada lagi yang bisa saya bantu? 😊" or "Siap! Kalau ada pertanyaan lain, saya di sini."`,
+    `   - NEVER repeat the previous answer when the user's message is an acknowledgment or reaction.`,
+    ``,
+    `2. **KNOWLEDGE RETRIEVAL & RAG USAGE:**`,
+    `   - Use the provided context ONLY when the user asks a specific question or seeks information.`,
+    `   - If the user asks "What information do you have?", provide a concise high-level summary. Do not dump the entire document content.`,
+    `   - If the user's intent is ambiguous, ask for clarification instead of guessing and providing irrelevant data.`,
+    ``,
+    `3. **CONVERSATIONAL MEMORY:**`,
+    `   - Refer to the chat history to avoid redundancy. If you have already explained a topic, do not explain it again from scratch unless the user asks for more detail or clarification.`,
+    `   - Maintain a ${tone} tone — direct, efficient, and insightful.`,
+    ``,
+    `4. **CONSTRAINTS:**`,
+    `   - No robot-talk (e.g., avoid "Based on the documents provided...", "According to the context...", "Berdasarkan dokumen..."). Just answer naturally.`,
+    `   - If the information is not in the context, say naturally: "Maaf, saya belum punya detail spesifik itu." then offer to connect with human support.`,
+    `   - Keep responses concise to save tokens and respect the user's time.`,
+    `   - If the user wants to speak to a human, provide: ${escalationContact}`,
+  ];
 
-  return `
-You are ${botName}, a warm, human-like AI customer assistant for ${company}.
+  if (customInstructions) {
+    lines.push(``);
+    lines.push(`5. **CUSTOM INSTRUCTIONS (follow these above all else after language rule):**`);
+    lines.push(`   ${customInstructions}`);
+  }
 
-LANGUAGE RULE (MANDATORY): Always reply in the EXACT same language the user writes in. Indonesian -> Indonesian. English -> English.
+  lines.push(``);
+  lines.push(`**Current Context (RAG):**`);
+  lines.push(ragContext);
+  lines.push(``);
+  lines.push(`**LEAD CAPTURE** — set "triggerLeadCapture": true ONLY if user:`);
+  lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
+  lines.push(`- Asks about pricing, quotes, packages, or costs`);
+  lines.push(`- Requests a demo, trial, or callback`);
+  lines.push(`- Shows clear purchase intent or provides their contact details`);
+  lines.push(``);
+  lines.push(`**RESPONSE FORMAT** — respond with ONLY valid JSON, no markdown, no extra text:`);
+  lines.push(`{"message": "your response here", "triggerLeadCapture": false}`);
 
-══════════════════════════════════
-STEP 1 — READ the user message and CLASSIFY it:
-
-TYPE A — CONVERSATIONAL (no knowledge lookup needed):
-  These are: greetings ("halo", "hai", "hi", "hello"), acknowledgments ("okay", "oke", "ok", "baik", "sip", "siap", "noted", "mantap", "woke", "paham", "mengerti", "ngerti", "alright", "got it"), thanks ("makasih", "terima kasih", "thanks", "thx"), farewells ("bye", "dadah", "sampai jumpa"), or any short reaction that is NOT asking a question.
-  
-  FOR TYPE A: Respond like a friendly human. Do NOT look up or repeat knowledge base information.
-  - If user said thanks/okay -> respond warmly, e.g. "Sama-sama! Ada lagi yang bisa saya bantu? 😊"
-  - If greeting -> greet back and offer help
-  - NEVER repeat the previous answer for a TYPE A message
-
-TYPE B — QUESTION (needs specific information):
-  Any message containing "apa", "siapa", "bagaimana", "berapa", "dimana", "kapan", "jelaskan", "ceritakan", "tolong", "what", "who", "how", "when", "where", "why", "?" or requesting specific facts.
-  
-  FOR TYPE B: Use the knowledge base context below if it contains the answer.
-══════════════════════════════════
-
-${hasContext
-    ? `KNOWLEDGE BASE (use ONLY for TYPE B questions):
----
-${context}
----
-If context has the answer -> use it clearly and completely.
-If context does NOT have the answer -> say you don't have that specific info yet and offer human support.
-IMPORTANT: Do NOT inject knowledge base content into TYPE A (conversational) replies.`
-    : `KNOWLEDGE BASE: No documents found for this query. Be helpful and friendly. For specific ${company} details, suggest contacting support.`}
-
-TONE & PERSONALITY:
-- Tone: ${tone}
-- Be natural, warm, and human-like — never robotic or repetitive
-- Use emojis sparingly (😊 👋 ✅) for friendliness
-- Keep answers concise but complete
-
-HUMAN ESCALATION: ${escalation}
-
-${customInstructions ? `CUSTOM INSTRUCTIONS (follow carefully):\n${customInstructions}` : ''}
-
-LEAD CAPTURE — set "triggerLeadCapture": true ONLY if user:
-- Explicitly asks to speak with a human/agent/representative
-- Asks about pricing, quotes, packages, or costs
-- Requests a demo, trial, or callback
-- Shows clear purchase intent or provides their contact details
-
-RESPONSE FORMAT — respond with ONLY valid JSON, no markdown, no extra text:
-{"message": "your response here", "triggerLeadCapture": false}
-`.trim();
+  return lines.join('\n');
 };
 
 /**
@@ -96,7 +94,7 @@ export async function generateChatResponse(
 ): Promise<GeminiResponse> {
   const model = genai.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
-    systemInstruction: SYSTEM_TEMPLATE(botName, company, context, tone, customInstructions, adminWhatsApp),
+    systemInstruction: buildSystemPrompt(botName, company, context, tone, customInstructions, adminWhatsApp),
     generationConfig: {
       responseMimeType: 'application/json',
       maxOutputTokens: 600,
@@ -124,7 +122,7 @@ export async function generateChatResponse(
         console.warn('[Gemini] No candidates returned. Response may have been blocked by safety filters.');
         return {
           message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.',
-          triggerLeadCapture: false
+          triggerLeadCapture: false,
         };
       }
 
@@ -146,16 +144,19 @@ export async function generateChatResponse(
       }
     } catch (error: any) {
       lastError = error;
-      const is503 = error.message?.includes('503') || error.message?.includes('Service Unavailable') || error.message?.includes('high demand');
+      const is503 =
+        error.message?.includes('503') ||
+        error.message?.includes('Service Unavailable') ||
+        error.message?.includes('high demand');
 
       if (is503 && attempt < MAX_RETRIES) {
         const waitMs = attempt * 2000;
         console.warn(`[Gemini] 503 on attempt ${attempt}/${MAX_RETRIES}. Retrying in ${waitMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, waitMs));
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
       }
 
-      console.error(`[Gemini] [Org: ${orgId}] Response generation error on attempt ${attempt}:`, error.message || error);
+      console.error(`[Gemini] [Org: ${orgId}] Error on attempt ${attempt}:`, error.message || error);
       throw error;
     }
   }
