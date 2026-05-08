@@ -25,7 +25,7 @@ const buildSystemPrompt = (
   const ragContext = hasContext ? context : 'No specific documents are available for this query.';
   const escalationContact = adminWhatsApp
     ? `https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
-    : 'support@pulseai.biz.id';
+    : 'pulseaichat@gmail.com';
 
   const lines: string[] = [
     `**Role:**`,
@@ -102,7 +102,7 @@ export async function generateChatResponse(
   orgId: string = ''
 ): Promise<GeminiResponse> {
   const model = genai.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-3.1-flash-lite',
     systemInstruction: buildSystemPrompt(botName, company, context, tone, customInstructions, adminWhatsApp),
     generationConfig: {
       responseMimeType: 'application/json',
