@@ -14,32 +14,70 @@ export type GeminiResponse = {
 };
 
 // ─────────────────────────────────────────────
-// Intent classifiers — run BEFORE hitting the model
+// Intent classifier
 // ─────────────────────────────────────────────
 
-const GREETING_PATTERNS = [
-  /^(hi|halo|hello|hey|hai|hei|yo|howdy|greetings|good\s?(morning|afternoon|evening|night)|selamat\s?(pagi|siang|sore|malam)|apa\s?kabar|how are you|how's it going|what'?s up|sup)\s*[!?.]*$/i,
-];
+type Intent = 'greeting' | 'closing' | 'small_talk' | 'question';
 
-const CLOSING_PATTERNS = [
-  /^(ok|oke|okay|okey|sip|siap|noted|got it|alright|alrite|understood|i see|ic|clear|roger|copy that|mantap|oke deh|oke siap|oke makasih|oke thanks|oke thank you|thanks?|thank you|makasih|terima kasih|thx|tq|no problem|no thanks|nope|nothing else|that'?s all|that'?s it|done|cukup|sudah|udah|sudah cukup|udah cukup|bye|goodbye|see you|sampai jumpa|dadah|selesai)\s*[!?.]*$/i,
-];
+const GREETING_REGEX =
+  /^(hi|halo|hello|hey|hai|hei|yo|howdy|greetings|good\s?(morning|afternoon|evening|night)|selamat\s?(pagi|siang|sore|malam)|apa\s?kabar|how are you|how'?s it going|what'?s up|sup)\s*[!?.]*$/i;
 
-const SMALL_TALK_PATTERNS = [
-  /^(what('?s| is) your name|siapa (nama|kamu)|kamu (siapa|apa)|who are you|are you (a |an )?(bot|ai|robot|human|real)|apa kamu (bot|ai|robot)|how (old|smart) are you|do you (have|understand|speak)|bisa bahasa|can you speak)/i,
-  /^(nice|good|great|awesome|cool|wow|amazing|luar biasa|bagus|keren|hebat|mantap)\s*[!?.]*$/i,
-];
+// CLOSING: exact short phrases only
+const CLOSING_REGEX =
+  /^(ok|oke|okay|okey|sip|siap|noted|got it|alright|alrite|understood|i see|ic|clear|roger|copy that|mantap|oke deh|oke siap|oke makasih|oke thanks|oke thank you|thanks?|thank you|makasih|terima kasih|thx|tq|no problem|no thanks|nope|nothing else|that'?s all|that'?s it|done|cukup|sudah|udah|sudah cukup|udah cukup|bye|goodbye|see you|sampai jumpa|dadah|selesai)\s*[!?.]*$/i;
 
-function classifyIntent(message: string): 'greeting' | 'closing' | 'small_talk' | 'question' {
-  const trimmed = message.trim();
-  if (GREETING_PATTERNS.some((p) => p.test(trimmed))) return 'greeting';
-  if (CLOSING_PATTERNS.some((p) => p.test(trimmed))) return 'closing';
-  if (SMALL_TALK_PATTERNS.some((p) => p.test(trimmed))) return 'small_talk';
+const SMALL_TALK_REGEX =
+  /^(what('?s| is) your name|siapa (nama|kamu)|kamu (siapa|apa)|who are you|are you (a |an )?(bot|ai|robot|human|real)|apa kamu (bot|ai|robot)|how (old|smart) are you|do you (have|understand|speak)|bisa bahasa|can you speak|nice|good|great|awesome|cool|wow|amazing|luar biasa|bagus|keren|hebat)\s*[!?.]*$/i;
+
+function classifyIntent(message: string): Intent {
+  const t = message.trim();
+  if (GREETING_REGEX.test(t)) return 'greeting';
+  if (CLOSING_REGEX.test(t)) return 'closing';
+  if (SMALL_TALK_REGEX.test(t)) return 'small_talk';
   return 'question';
 }
 
 // ─────────────────────────────────────────────
-// System prompt builder
+// Hard-coded responses — bypass LLM entirely for greetings & closings
+// This is the root fix: no LLM = no hallucinated content repeats
+// ─────────────────────────────────────────────
+
+function isLikelyIndonesian(message: string): boolean {
+  return /\b(oke|sip|siap|makasih|terima kasih|sudah|udah|cukup|selesai|mantap|bagus|halo|hai)\b/i.test(message);
+}
+
+const CLOSING_RESPONSES_ID = [
+  'Sama-sama! Semoga informasinya membantu 😊 Jangan ragu untuk bertanya lagi kalau ada yang dibutuhkan.',
+  'Siap! Senang bisa membantu. Sampai jumpa lagi ya! 👋',
+  'Oke, kalau ada pertanyaan lain jangan sungkan untuk balik lagi. Semoga harimu menyenangkan! 😊',
+  'Terima kasih sudah bertanya! Semoga bermanfaat. Sampai jumpa! 👋',
+];
+
+const CLOSING_RESPONSES_EN = [
+  "You're welcome! Feel free to reach out anytime 😊",
+  'Glad I could help! Have a great day 👋',
+  'Anytime! Come back if you need anything else.',
+  "No problem at all! Hope that was helpful. See you! 😊",
+];
+
+const GREETING_RESPONSES_ID = [
+  'Halo! Senang bertemu kamu 😊 Ada yang bisa saya bantu hari ini?',
+  'Hai! Selamat datang. Ada yang ingin kamu tanyakan?',
+  'Halo! Saya siap membantu. Mau tanya apa nih? 😊',
+];
+
+const GREETING_RESPONSES_EN = [
+  "Hey there! 👋 Great to meet you. What can I help you with today?",
+  "Hello! I'm here and ready to help. What's on your mind?",
+  "Hi! Lovely to chat with you 😊 What would you like to know?",
+];
+
+function getRandomResponse(pool: string[]): string {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// ─────────────────────────────────────────────
+// System prompt — only built for real questions
 // ─────────────────────────────────────────────
 
 const buildSystemPrompt = (
@@ -49,80 +87,56 @@ const buildSystemPrompt = (
   tone: string,
   customInstructions: string,
   adminWhatsApp?: string,
-  intent?: string,
-  lastBotMessage?: string
+  intent?: Intent,
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
-  const ragContext = hasContext ? context : null;
   const escalationContact = adminWhatsApp
     ? `https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
     : 'pulseaichat@gmail.com';
 
   const lines: string[] = [
-    `**Role:**`,
-    `You are ${botName}, a warm and conversational AI assistant for ${company}. You talk like a friendly, knowledgeable human — not a robot reading a manual.`,
+    `**Role:** You are ${botName}, a warm and conversational AI assistant for ${company}.`,
+    `You talk like a friendly, knowledgeable human — not a robot reading a manual.`,
     ``,
-    `**Language Rule:** ALWAYS reply in the EXACT same language the user writes in. If they write Indonesian, reply in Indonesian. If English, reply in English. Match their language automatically.`,
+    `**Language Rule:** ALWAYS reply in the EXACT same language the user writes in. Indonesian → Indonesian. English → English.`,
     ``,
     `**PERSONALITY & TONE (${tone}):**`,
-    `- Sound human and natural. Use contractions ("I'm", "you'll", "that's"). Vary your sentence structure.`,
-    `- Never start every reply the same way. Rotate between different openers.`,
-    `- Use light emojis occasionally (😊 ✅ 👋) when they add warmth — but don't force them.`,
-    `- Never say "Based on my data...", "According to my documents...", or "Berdasarkan dokumen...".`,
+    `- Sound human and natural. Vary your sentence structure and openers.`,
+    `- Use light emojis occasionally (😊 ✅) when they add warmth — never forced.`,
+    `- NEVER say "Based on my data...", "According to documents...", or "Berdasarkan dokumen...". Speak naturally.`,
     ``,
-    `**CRITICAL BEHAVIOR RULES:**`,
+    `**CRITICAL RULES:**`,
     ``,
-    `1. **GREETINGS:** When a user greets you (halo, hi, hey, good morning, etc.), respond warmly and naturally like a human would. Ask how you can help. Do NOT just echo their greeting back. Example: User says "Halo" → You say "Halo! Senang bisa ngobrol dengan kamu 😊 Ada yang bisa saya bantu hari ini?"`,
+    `1. **KNOWLEDGE BASE USAGE:** Only use the knowledge base when the user is clearly asking about a specific topic it covers. For general questions or small talk, answer from your own intelligence. Do NOT force knowledge base content into responses unprompted.`,
     ``,
-    `2. **CLOSING / ACKNOWLEDGMENTS:** When a user says "ok", "oke", "thanks", "makasih", "noted", "siap", "bye", "that's all", "cukup", etc. — this means the conversation is wrapping up or they acknowledged your last message. Respond with a SHORT, warm closing like "Sama-sama! Semoga membantu 😊 Jangan ragu balik lagi kalau ada pertanyaan!" or "You're welcome! Feel free to reach out anytime." Do NOT repeat any information you already gave. Do NOT bring up topics from earlier.`,
+    `2. **NEVER REPEAT YOURSELF:** Check the chat history carefully. If you already explained something, do NOT say it again. Move forward.`,
     ``,
-    `3. **NEVER REPEAT YOURSELF:** Check the conversation history. If you already said something, do not say it again. Move the conversation forward.`,
+    `3. **INFORMATION SUMMARY:** When asked "What information do you have?" or "Apa informasi yang kamu punya?", give a SHORT bulleted summary of available topics only. Do NOT dump all the details — wait for the user to ask about a specific topic.`,
     ``,
-    `4. **ONLY USE RAG WHEN RELEVANT:** Only reference the knowledge base if the user is clearly asking about a topic it covers. For greetings, small talk, acknowledgments, and general questions — answer naturally from your own intelligence. Do NOT force RAG content into every response.`,
-    ``,
-    `5. **RESPONSE LENGTH:**`,
-    `   - 1–5 word input (greetings, "ok", "thanks") → max 1–2 sentences`,
-    `   - General question → 2–4 sentences`,
-    `   - Specific / complex question → structured answer with bullets if helpful`,
-    ``,
-    `6. **INFORMATION LAYERING:** When asked "What information do you have?", give a SHORT bulleted summary of available topics. Give details only when specifically asked.`,
-    ``,
-    `7. **CONTEXTUAL MEMORY:** Use chat history to avoid re-explaining things. If you already covered a topic, reference it briefly and move on.`,
+    `4. **RESPONSE LENGTH:**`,
+    `   - Short/general input → max 2 sentences`,
+    `   - Specific question → 2–4 sentences or bullets if needed`,
+    `   - Complex question → structured answer`,
     ``,
   ];
 
-  // Inject intent-specific hint for the model
-  if (intent === 'greeting') {
-    lines.push(`**INTENT HINT:** The user is greeting you. Respond warmly and ask how you can help. Do NOT reference any documents or knowledge base.`);
-    lines.push(``);
-  } else if (intent === 'closing') {
-    lines.push(`**INTENT HINT:** The user is wrapping up or acknowledging your last message. Give a brief, warm sign-off. Do NOT repeat any prior content.`);
-    if (lastBotMessage) {
-      lines.push(`**Your last message was:** "${lastBotMessage.slice(0, 200)}..."`);
-      lines.push(`Do NOT repeat or summarize this. Just say goodbye warmly.`);
-    }
-    lines.push(``);
-  } else if (intent === 'small_talk') {
-    lines.push(`**INTENT HINT:** The user is making small talk. Respond naturally and conversationally. No need to reference documents.`);
+  if (intent === 'small_talk') {
+    lines.push(`**INTENT:** User is making small talk. Respond naturally and warmly. Do NOT reference documents.`);
     lines.push(``);
   }
 
   if (customInstructions) {
-    lines.push(`**Custom Instructions (follow carefully):**`);
+    lines.push(`**Custom Instructions:**`);
     lines.push(customInstructions);
     lines.push(``);
   }
 
-  lines.push(`**Human Escalation:** If the user wants to speak to a human, provide: ${escalationContact}`);
+  lines.push(`**Human Escalation:** If the user wants to speak to a human: ${escalationContact}`);
   lines.push(``);
 
-  // Only include RAG context for actual questions
-  if (ragContext && intent === 'question') {
+  if (hasContext) {
     lines.push(`**Knowledge Base (use ONLY if directly relevant to the user's question):**`);
-    lines.push(ragContext);
-    lines.push(``);
-  } else if (intent === 'question') {
-    lines.push(`**Knowledge Base:** No specific documents available. Answer from general knowledge or let the user know you don't have that info.`);
+    lines.push(context);
     lines.push(``);
   }
 
@@ -139,7 +153,7 @@ const buildSystemPrompt = (
 };
 
 // ─────────────────────────────────────────────
-// Main chat function
+// Main export
 // ─────────────────────────────────────────────
 
 export async function generateChatResponse(
@@ -154,12 +168,26 @@ export async function generateChatResponse(
   orgId: string = ''
 ): Promise<GeminiResponse> {
 
-  // Classify what the user is actually doing
   const intent = classifyIntent(userMessage);
+  const indonesian = isLikelyIndonesian(userMessage);
 
-  // Grab last bot message to prevent repetition on closing
-  const lastBotMessage = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+  // ── BYPASS the LLM entirely for greetings and closings ──
+  // Root fix: LLM never sees "okay" / "halo" — can't hallucinate a summary
+  if (intent === 'closing') {
+    return {
+      message: getRandomResponse(indonesian ? CLOSING_RESPONSES_ID : CLOSING_RESPONSES_EN),
+      triggerLeadCapture: false,
+    };
+  }
 
+  if (intent === 'greeting') {
+    return {
+      message: getRandomResponse(indonesian ? GREETING_RESPONSES_ID : GREETING_RESPONSES_EN),
+      triggerLeadCapture: false,
+    };
+  }
+
+  // ── Questions and small talk go to the model ──
   const model = genai.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
     systemInstruction: buildSystemPrompt(
@@ -170,12 +198,11 @@ export async function generateChatResponse(
       customInstructions,
       adminWhatsApp,
       intent,
-      lastBotMessage
     ),
     generationConfig: {
       responseMimeType: 'application/json',
-      maxOutputTokens: intent === 'greeting' || intent === 'closing' ? 150 : 600,
-      temperature: intent === 'greeting' || intent === 'closing' || intent === 'small_talk' ? 0.7 : 0.3,
+      maxOutputTokens: 600,
+      temperature: intent === 'small_talk' ? 0.7 : 0.3,
       topP: 0.85,
     },
   });
