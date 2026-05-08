@@ -2,14 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Search,
-  Plus,
   Clock,
   Tag,
   FileText,
   BookOpen,
   Trash2,
   Upload,
-  Loader2,
+  Eye,
 } from 'lucide-react';
 import type { KnowledgeArticle } from '../types';
 import IngestModal from '../components/IngestModal';
