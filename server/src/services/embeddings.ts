@@ -9,7 +9,8 @@ if (!apiKey) {
 }
 
 const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+// Use v1 for stable models like text-embedding-004
+const model = genAI.getGenerativeModel({ model: "text-embedding-004" }, { apiVersion: "v1" });
 
 /**
  * Generates an embedding vector for a single text string.
