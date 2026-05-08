@@ -1,16 +1,19 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const apiKey = process.env.GOOGLE_AI_API_KEY;
-
 if (!apiKey) {
   throw new Error(
     'Missing GOOGLE_AI_API_KEY environment variable. Get your key from https://aistudio.google.com/apikey'
   );
 }
 
+// text-embedding-004 requires the stable v1 API, not v1beta.
+// Override the base URL to force v1.
 const genAI = new GoogleGenerativeAI(apiKey);
-// Use v1 for stable models like text-embedding-004
-const model = genAI.getGenerativeModel({ model: "text-embedding-004" }, { apiVersion: "v1" });
+const model = genAI.getGenerativeModel(
+  { model: 'text-embedding-004' },
+  { apiVersion: 'v1' }  
+);
 
 /**
  * Generates an embedding vector for a single text string.
@@ -22,13 +25,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       content: { role: 'user', parts: [{ text }] },
       taskType: 'RETRIEVAL_QUERY' as any,
     });
-    
+
     if (!result || !result.embedding) {
       throw new Error('Google Embedding API returned an empty result.');
     }
-    
-    const embedding = result.embedding;
-    return embedding.values;
+
+    return result.embedding.values;
   } catch (error: any) {
     console.error('[Embeddings] generation error:', error.message);
     throw new Error(`Embedding API failed: ${error.message}`);
@@ -37,7 +39,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 /**
  * Generates embeddings for multiple texts using the batch API.
- * This is much faster than individual calls and avoids Vercel timeouts.
+ * Much faster than individual calls — avoids Vercel timeouts.
  */
 export async function generateEmbeddingsBatch(
   texts: string[]
@@ -45,20 +47,20 @@ export async function generateEmbeddingsBatch(
   if (texts.length === 0) return [];
 
   try {
-    // Google supports batching up to 100 items per request
     const BATCH_SIZE = 100;
     const results: number[][] = [];
 
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE);
+
       const batchResult = await model.batchEmbedContents({
-        requests: batch.map(text => ({
+        requests: batch.map((text) => ({
           content: { role: 'user', parts: [{ text }] },
           taskType: 'RETRIEVAL_DOCUMENT' as any,
-        }))
+        })),
       });
 
-      const vectors = batchResult.embeddings.map(e => e.values);
+      const vectors = batchResult.embeddings.map((e) => e.values);
       results.push(...vectors);
     }
 
