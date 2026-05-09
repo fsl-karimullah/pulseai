@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useOrganization } from '../hooks/useOrganization';
 import {
   Settings2,
   Save,
@@ -16,7 +17,9 @@ import type { BotSetting } from '../types';
 
 const BotSettingsPage: React.FC = () => {
   const { session } = useAuth();
+  const { organization, updateName } = useOrganization();
   const [settings, setSettings] = useState<BotSetting[]>([]);
+  const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -105,6 +108,12 @@ const BotSettingsPage: React.FC = () => {
     fetchSettings();
   }, [fetchSettings]);
 
+  useEffect(() => {
+    if (organization?.name) {
+      setCompanyName(organization.name);
+    }
+  }, [organization]);
+
   const updateSetting = (id: string, value: BotSetting['value']) => {
     setSettings((prev) => prev.map((s) => (s.id === id ? { ...s, value } : s)));
     setSaved(false);
@@ -137,6 +146,12 @@ const BotSettingsPage: React.FC = () => {
       });
 
       const json = await res.json();
+      
+      // Save organization name
+      if (companyName && companyName !== organization?.name) {
+        await updateName(companyName);
+      }
+
       if (json.success) {
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
@@ -330,6 +345,29 @@ const BotSettingsPage: React.FC = () => {
         ))}
       </div>
 
+      {/* Company Info */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200">
+            <Bot size={18} className="text-slate-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Informasi Perusahaan</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Nama ini akan muncul di greeting awal widget chat.</p>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nama Perusahaan</label>
+          <input
+            type="text"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            placeholder="Contoh: PulseAI"
+            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
+          />
+        </div>
+      </div>
+
       {/* Integration Code */}
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mt-8">
         <div className="flex items-center gap-3 mb-4">
@@ -345,7 +383,7 @@ const BotSettingsPage: React.FC = () => {
         <div className="relative">
           <div className="bg-slate-900 rounded-xl p-4 pr-12 overflow-x-auto">
             <code className="text-xs text-emerald-400 whitespace-nowrap font-mono">
-              &lt;script src="{apiBase}/api/widget.js?botName={encodeURIComponent(String(settings.find((s) => s.id === 'bot-name')?.value ?? 'Aria'))}&amp;company=PulseAI"&gt;&lt;/script&gt;
+              &lt;script src="{apiBase}/api/widget.js?botName={encodeURIComponent(String(settings.find((s) => s.id === 'bot-name')?.value ?? 'Aria'))}&amp;company={encodeURIComponent(company)}"&gt;&lt;/script&gt;
             </code>
           </div>
           <button 

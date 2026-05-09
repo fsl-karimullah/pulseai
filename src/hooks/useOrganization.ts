@@ -66,5 +66,21 @@ export function useOrganization() {
     }
   };
 
-  return { organization, loading, error, updateDomains };
+  const updateName = async (name: string) => {
+    if (!organization) return;
+    try {
+      const { error: updateError } = await supabase
+        .from('organizations')
+        .update({ name })
+        .eq('id', organization.id);
+
+      if (updateError) throw updateError;
+      setOrganization({ ...organization, name });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  };
+
+  return { organization, loading, error, updateDomains, updateName };
 }
