@@ -4,23 +4,17 @@ import { useSubscription } from '../hooks/useSubscription';
 import { 
   Copy, 
   Check, 
-  Globe, 
   ShieldCheck, 
   Code2, 
-  ExternalLink, 
   Loader2,
-  Plus,
-  X,
   BadgeCheck,
   ShieldAlert
 } from 'lucide-react';
 
 const WidgetIntegrationPage: React.FC = () => {
-  const { organization, loading, updateDomains } = useOrganization();
+  const { organization, loading } = useOrganization();
   const { subscription } = useSubscription();
   const [copied, setCopied] = useState(false);
-  const [newDomain, setNewDomain] = useState('');
-  const [isUpdating, setIsUpdating] = useState(false);
 
   const botName = organization?.name || 'Aria';
   const company = 'PulseAI'; 
@@ -31,37 +25,6 @@ const WidgetIntegrationPage: React.FC = () => {
     navigator.clipboard.writeText(scriptTag);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleAddDomain = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDomain || !organization) return;
-    
-    // Simple domain validation
-    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
-    if (!domainRegex.test(newDomain)) {
-      alert('Mohon masukkan domain yang valid (contoh: myshop.com)');
-      return;
-    }
-
-    if (organization.allowed_domains.includes(newDomain)) {
-      setNewDomain('');
-      return;
-    }
-
-    setIsUpdating(true);
-    const updated = [...organization.allowed_domains, newDomain];
-    await updateDomains(updated);
-    setIsUpdating(false);
-    setNewDomain('');
-  };
-
-  const handleRemoveDomain = async (domain: string) => {
-    if (!organization) return;
-    setIsUpdating(true);
-    const updated = organization.allowed_domains.filter(d => d !== domain);
-    await updateDomains(updated);
-    setIsUpdating(false);
   };
 
   if (loading) {
@@ -142,69 +105,9 @@ const WidgetIntegrationPage: React.FC = () => {
             </button>
           </div>
 
-          <div className="mt-6 flex items-center gap-2 text-xs text-slate-500">
+        <div className="mt-6 flex items-center gap-2 text-xs text-slate-500">
             <ShieldCheck size={14} className="text-emerald-500" />
             Snippet ini unik untuk organisasi Anda dan aman untuk digunakan secara publik.
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
-            <Globe size={20} />
-          </div>
-          <h2 className="text-lg font-bold text-slate-900">Domain Berizin</h2>
-        </div>
-        <p className="text-slate-500 text-sm mb-8 ml-13">
-          Batasi penggunaan chatbot Anda hanya pada domain yang Anda percayai. Ini mencegah orang lain menggunakan chatbot Anda di website mereka tanpa izin.
-        </p>
-
-        <div className="space-y-6">
-          <form onSubmit={handleAddDomain} className="flex gap-3">
-            <input
-              type="text"
-              placeholder="contoh: myshop.com"
-              value={newDomain}
-              onChange={(e) => setNewDomain(e.target.value)}
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-            />
-            <button
-              type="submit"
-              disabled={isUpdating}
-              className="px-6 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isUpdating ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
-              Tambah Domain
-            </button>
-          </form>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {organization?.allowed_domains.map((domain) => (
-              <div 
-                key={domain}
-                className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200 group hover:border-emerald-200 transition-all"
-              >
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-emerald-500 transition-colors">
-                    <ExternalLink size={14} />
-                  </div>
-                  <span className="text-sm font-medium text-slate-700 truncate">{domain}</span>
-                </div>
-                <button 
-                  onClick={() => handleRemoveDomain(domain)}
-                  className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            ))}
-            {organization?.allowed_domains.length === 0 && (
-              <div className="col-span-full py-12 flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-3xl">
-                <Globe className="text-slate-200 mb-3" size={40} />
-                <p className="text-slate-400 text-sm">Belum ada domain yang didaftarkan.</p>
-              </div>
-            )}
           </div>
         </div>
       </div>

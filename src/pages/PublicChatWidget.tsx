@@ -184,13 +184,13 @@ const PublicChatWidget: React.FC = () => {
         style={{ backgroundColor: themeColor }}
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm border border-white/30 relative overflow-hidden">
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm border-2 border-white/40 relative flex-shrink-0 overflow-hidden">
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
+              <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-0.5 rounded-full" />
             ) : (
               <Bot size={22} className="text-white" />
             )}
-            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-slate-900 rounded-full" />
+            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-white rounded-full" />
           </div>
           <div>
             <h1 className="text-white font-bold text-sm leading-tight">{botName}</h1>
@@ -225,12 +225,18 @@ const PublicChatWidget: React.FC = () => {
           >
             <div className={`flex gap-2 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
               <div 
-                className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] ${
+                className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] overflow-hidden ${
                   msg.role === 'user' ? 'bg-slate-200 text-slate-600' : 'text-white'
                 }`}
-                style={msg.role === 'bot' ? { backgroundColor: themeColor } : {}}
+                style={msg.role === 'bot' && !logoUrl ? { backgroundColor: themeColor } : {}}
               >
-                {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+                {msg.role === 'user' ? (
+                  <User size={14} />
+                ) : logoUrl ? (
+                  <img src={logoUrl} alt="Bot" className="w-full h-full object-contain p-0.5" style={{ backgroundColor: themeColor }} />
+                ) : (
+                  <Bot size={14} />
+                )}
               </div>
               <div 
                 className={`p-3 rounded-2xl text-sm shadow-sm ${
@@ -253,10 +259,14 @@ const PublicChatWidget: React.FC = () => {
           <div className="flex justify-start animate-in fade-in duration-200">
             <div className="flex gap-2 max-w-[85%]">
               <div 
-                className="w-7 h-7 rounded-full text-white flex items-center justify-center"
-                style={{ backgroundColor: themeColor }}
+                className="w-7 h-7 rounded-full text-white flex items-center justify-center overflow-hidden"
+                style={!logoUrl ? { backgroundColor: themeColor } : {}}
               >
-                <Bot size={14} />
+                {logoUrl ? (
+                  <img src={logoUrl} alt="Bot" className="w-full h-full object-contain p-0.5" style={{ backgroundColor: themeColor }} />
+                ) : (
+                  <Bot size={14} />
+                )}
               </div>
               <div className="bg-white p-3 rounded-2xl rounded-tl-none border border-slate-100 shadow-sm">
                 <div className="flex gap-1">

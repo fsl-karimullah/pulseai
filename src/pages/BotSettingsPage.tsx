@@ -7,8 +7,6 @@ import {
   Bot,
   ToggleLeft,
   ToggleRight,
-  ChevronDown,
-  Sliders,
   CheckCircle2,
   Code2,
   Copy,
@@ -65,27 +63,12 @@ const BotSettingsPage: React.FC = () => {
             value: d.logo_url || ''
           },
           {
-            id: 'ai-model',
-            label: 'Model Kecerdasan AI',
-            description: 'Model saat ini yang menggerakkan asisten Anda (Teroptimasi).',
-            type: 'select',
-            value: d.ai_model,
-            options: ['Gemini 1.5 Flash']
-          },
-          {
             id: 'tone',
             label: 'Nada Percakapan',
             description: 'Kepribadian dan gaya bahasa dalam memberikan respons.',
             type: 'select',
             value: d.tone,
             options: ['Profesional', 'Ramah', 'Singkat', 'Jenaka']
-          },
-          {
-            id: 'response-delay',
-            label: 'Latensi Respons',
-            description: 'Jeda buatan untuk membuat respons terasa lebih manusiawi.',
-            type: 'range',
-            value: d.response_delay
           },
           {
             id: 'collect-leads',
@@ -138,9 +121,7 @@ const BotSettingsPage: React.FC = () => {
         if (s.id === 'is-active') body.is_active = s.value;
         if (s.id === 'color-theme') body.color_theme = s.value;
         if (s.id === 'logo-url') body.logo_url = s.value;
-        if (s.id === 'ai-model') body.ai_model = s.value;
         if (s.id === 'tone') body.tone = s.value;
-        if (s.id === 'response-delay') body.response_delay = s.value;
         if (s.id === 'collect-leads') body.collect_leads = s.value;
         if (s.id === 'custom-instructions') body.custom_instructions = s.value;
         if (s.id === 'admin-whatsapp') body.admin_whatsapp = s.value;
@@ -342,33 +323,7 @@ const BotSettingsPage: React.FC = () => {
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              </div>
-            )}
-
-            {/* Range */}
-            {setting.type === 'range' && (
-              <div className="mt-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 text-xs text-slate-500">
-                    <Sliders size={11} />
-                    Jeda
-                  </div>
-                  <span className="text-sm font-semibold text-slate-900">{Number(setting.value)}ms</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={3000}
-                  step={100}
-                  value={Number(setting.value)}
-                  onChange={(e) => updateSetting(setting.id, Number(e.target.value))}
-                  className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-emerald-500"
-                />
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>0ms</span>
-                  <span>3000ms</span>
-                </div>
+                <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </div>
             )}
           </div>
