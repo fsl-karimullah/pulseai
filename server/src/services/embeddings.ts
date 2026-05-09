@@ -7,13 +7,8 @@ if (!apiKey) {
   );
 }
 
-// text-embedding-004 requires the stable v1 API, not v1beta.
-// Override the base URL to force v1.
 const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel(
-  { model: 'text-embedding-004' },
-  { apiVersion: 'v1' }  
-);
+const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
 
 /**
  * Generates an embedding vector for a single text string.
