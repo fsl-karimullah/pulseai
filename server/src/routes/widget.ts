@@ -16,23 +16,36 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
   fastify.get('/widget.js', async (request: FastifyRequest, reply: FastifyReply) => {
     const { orgId, botName = 'Aria', company = 'PulseAI' } = request.query as Record<string, string>;
     
-    // Fetch branding from DB using orgId (preferred) or botName (legacy)
-    let query = supabase.from('bot_settings').select('color_theme, logo_url, org_id');
+    // Fetch branding and company info from DB
+    let query = supabase
+      .from('bot_settings')
+      .select('color_theme, logo_url, org_id, organizations(name)')
+      .single();
     
     if (orgId) {
-      query = query.eq('org_id', orgId);
+      query = supabase
+        .from('bot_settings')
+        .select('color_theme, logo_url, org_id, organizations(name)')
+        .eq('org_id', orgId)
+        .single();
     } else {
-      query = query.eq('bot_name', botName);
+      query = supabase
+        .from('bot_settings')
+        .select('color_theme, logo_url, org_id, organizations(name)')
+        .eq('bot_name', botName)
+        .single();
     }
 
-    const { data: settings } = await query.maybeSingle();
+    const { data: settings } = await query;
 
     const themeColor = settings?.color_theme || '#059669';
     const logoUrl = settings?.logo_url || '';
     const resolvedOrgId = orgId || settings?.org_id || '';
+    // Use DB company name if available, fallback to query param, then PulseAI
+    const resolvedCompany = (settings?.organizations as any)?.name || company || 'PulseAI';
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(company)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
+    const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(resolvedCompany)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
 
     const scriptContent = `
 (function() {
