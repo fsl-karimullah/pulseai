@@ -295,8 +295,8 @@ const PublicChatWidget: React.FC = () => {
               >
                 <X size={18} />
               </button>
-              <h3 className="text-xl font-bold mb-1">Interested in {company}?</h3>
-              <p className="text-white/80 text-sm">Leave your details and we'll get back to you shortly.</p>
+              <h3 className="text-xl font-bold mb-1">Tertarik dengan {company}?</h3>
+              <p className="text-white/80 text-sm">Tinggalkan kontak Anda dan tim kami akan segera menghubungi.</p>
             </div>
             
             <div className="p-6">
@@ -305,28 +305,28 @@ const PublicChatWidget: React.FC = () => {
                   <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
                     <CheckCircle size={32} />
                   </div>
-                  <h4 className="text-lg font-bold text-slate-900">Thank You!</h4>
-                  <p className="text-sm text-slate-500">Our team will contact you soon.</p>
+                  <h4 className="text-lg font-bold text-slate-900">Terima Kasih!</h4>
+                  <p className="text-sm text-slate-500">Tim kami akan segera menghubungi Anda.</p>
                 </div>
               ) : (
                 <form onSubmit={handleSubmitLead} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Full Name</label>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Nama Lengkap</label>
                     <input 
                       type="text"
                       required
-                      placeholder="e.g. John Doe"
+                      placeholder="contoh: Budi Santoso"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                       value={leadData.name}
                       onChange={e => setLeadData(prev => ({ ...prev, name: e.target.value }))}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">WhatsApp Number</label>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Nomor WhatsApp</label>
                     <input 
                       type="tel"
                       required
-                      placeholder="e.g. +62812345678"
+                      placeholder="contoh: 081234567890"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                       value={leadData.whatsapp}
                       onChange={e => setLeadData(prev => ({ ...prev, whatsapp: e.target.value }))}
@@ -340,13 +340,13 @@ const PublicChatWidget: React.FC = () => {
                   >
                     {isSubmittingLead ? <Loader2 size={18} className="animate-spin" /> : (
                       <>
-                        Connect with Sales
+                        Hubungi Tim Sales
                         <ArrowRight size={18} />
                       </>
                     )}
                   </button>
                   <p className="text-[10px] text-center text-slate-400 leading-relaxed px-4">
-                    By submitting, you agree to receive a follow-up via WhatsApp or Email.
+                    Dengan mengirimkan form ini, Anda bersedia untuk dihubungi melalui WhatsApp atau Email.
                   </p>
                 </form>
               )}
