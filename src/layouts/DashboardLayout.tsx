@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import { useSubscription } from '../hooks/useSubscription';
-import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, Monitor, CreditCard } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, CreditCard } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
