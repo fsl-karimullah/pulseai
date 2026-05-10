@@ -201,7 +201,7 @@ export async function generateChatResponse(
     ),
     generationConfig: {
       responseMimeType: 'application/json',
-      maxOutputTokens: 600,
+      maxOutputTokens: 1200,
       temperature: intent === 'small_talk' ? 0.7 : 0.3,
       topP: 0.85,
     },
@@ -231,18 +231,36 @@ export async function generateChatResponse(
 
       const raw = result.response.text().trim();
 
-      try {
-        const parsed = JSON.parse(raw) as GeminiResponse;
-        return {
-          message: parsed.message ?? 'Sorry, I could not generate a response.',
-          triggerLeadCapture: parsed.triggerLeadCapture === true,
-        };
-      } catch {
-        const match = raw.match(/\{[\s\S]*\}/);
-        if (match) {
-          const parsed = JSON.parse(match[0]) as GeminiResponse;
-          return { message: parsed.message ?? raw, triggerLeadCapture: false };
+      // Robust JSON extraction: handles truncation and trailing garbage
+      const sanitizeJson = (text: string): GeminiResponse | null => {
+        // 1. Try direct parse first (fastest path)
+        try { return JSON.parse(text); } catch {}
+        // 2. Extract first complete JSON object using brace depth counting
+        let depth = 0, start = -1;
+        for (let i = 0; i < text.length; i++) {
+          if (text[i] === '{') { if (depth === 0) start = i; depth++; }
+          else if (text[i] === '}') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+              try { return JSON.parse(text.slice(start, i + 1)); } catch {}
+            }
+          }
         }
+        return null;
+      };
+
+      try {
+        const parsed = sanitizeJson(raw);
+        if (parsed) {
+          return {
+            message: parsed.message ?? 'Sorry, I could not generate a response.',
+            triggerLeadCapture: parsed.triggerLeadCapture === true,
+          };
+        }
+        // Last resort: return raw text
+        console.warn(`[Gemini] [Org: ${orgId}] Could not parse JSON, returning raw text. Length: ${raw.length}`);
+        return { message: raw, triggerLeadCapture: false };
+      } catch {
         return { message: raw, triggerLeadCapture: false };
       }
     } catch (error: any) {
