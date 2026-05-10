@@ -11,6 +11,10 @@ import {
   Sparkles,
   ChevronRight,
   Trash2,
+  FileCheck,
+  XCircle,
+  Check,
+  Info,
 } from 'lucide-react';
 import { ingestPdf, type IngestResponse } from '../services/ingestService';
 
@@ -42,6 +46,7 @@ function formatBytes(bytes: number): string {
 const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) => {
   const { session } = useAuth();
   const [status, setStatus] = useState<IngestStatus>({ phase: 'idle' });
+  const [showGuide, setShowGuide] = useState(false);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pdfTitle, setPdfTitle] = useState('');
@@ -260,6 +265,14 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">Maks 25 MB · Hanya PDF</p>
                     </div>
+                    <button 
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowGuide(true); }}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors"
+                    >
+                      <Info size={14} />
+                      Panduan Optimasi PDF
+                    </button>
                   </>
                 )}
               </div>
@@ -337,6 +350,105 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
           )}
         </div>
       </div>
+
+      {showGuide && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300" onClick={(e) => { e.stopPropagation(); setShowGuide(false); }}>
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden font-sans" onClick={(e) => e.stopPropagation()} style={{ animation: 'modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+                  <FileCheck size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">Panduan Optimasi Dokumen</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">Agar AI merespon dengan lebih akurat</p>
+                </div>
+              </div>
+              <button onClick={() => setShowGuide(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* DOs Section */}
+              <div>
+                <h4 className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Check size={12} />
+                  Sangat Disarankan
+                </h4>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                      <Check size={12} className="text-emerald-500" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Digital Text Format:</strong> Gunakan PDF hasil export langsung dari Word/Docs, bukan scan gambar.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                      <Check size={12} className="text-emerald-500" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Clear Structure:</strong> Gunakan Heading (H1, H2) dan penomoran yang jelas.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                      <Check size={12} className="text-emerald-500" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Bullet Points:</strong> Gunakan poin-poin untuk daftar, mempermudah AI memahami konteks.</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* DON'Ts Section */}
+              <div>
+                <h4 className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <XCircle size={12} />
+                  Hindari Hal Berikut
+                </h4>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
+                      <XCircle size={12} className="text-amber-500" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Password Protected:</strong> Pastikan PDF tidak terkunci oleh kata sandi.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
+                      <XCircle size={12} className="text-amber-500" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Hand-written notes:</strong> Jangan gunakan tulisan tangan atau coretan manual.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+                      <XCircle size={12} className="text-red-500" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Blurry Photo Scans:</strong> Hindari foto buram dari kamera HP; AI kesulitan membacanya.</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Specs */}
+              <div className="flex gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Max File Size</p>
+                  <p className="text-sm font-bold text-slate-800">10MB</p>
+                </div>
+                <div className="w-px bg-slate-200"></div>
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Recommended Font</p>
+                  <p className="text-sm font-bold text-slate-800">10pt+</p>
+                </div>
+              </div>
+              
+              <button 
+                onClick={() => setShowGuide(false)}
+                className="w-full py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
+              >
+                Mengerti
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes modalIn {
