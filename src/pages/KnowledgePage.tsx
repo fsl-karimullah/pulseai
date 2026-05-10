@@ -9,6 +9,11 @@ import {
   Trash2,
   Upload,
   Eye,
+  FileCheck,
+  XCircle,
+  Check,
+  Info,
+  X,
 } from 'lucide-react';
 import type { KnowledgeArticle } from '../types';
 import IngestModal from '../components/IngestModal';
@@ -34,6 +39,7 @@ const KnowledgePage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [modalOpen, setModalOpen] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -130,6 +136,13 @@ const KnowledgePage: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGuide(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 text-slate-600 text-sm font-semibold rounded-xl transition-all duration-150 active:scale-95"
+          >
+            <Info size={15} />
+            Panduan Dokumen
+          </button>
           <button
             id="kb-add-source"
             onClick={() => setModalOpen(true)}
@@ -299,6 +312,122 @@ const KnowledgePage: React.FC = () => {
           fetchKnowledge();
         }}
       />
+
+      {/* Guide Modal Overlay */}
+      {showGuide && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300" onClick={(e) => { e.stopPropagation(); setShowGuide(false); }}>
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden font-sans flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()} style={{ animation: 'modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+                  <FileCheck size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">Panduan Optimasi Dokumen</h3>
+                  <p className="text-[12px] text-slate-500 font-medium mt-0.5">Agar asisten AI memberikan informasi akurat</p>
+                </div>
+              </div>
+              <button onClick={() => setShowGuide(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6">
+              <p className="text-sm text-slate-600 leading-relaxed bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
+                Mohon perhatikan ketentuan dokumen berikut agar proses "pembelajaran" AI berjalan optimal dan menghasilkan jawaban yang presisi.
+              </p>
+
+              {/* Section 1 */}
+              <div>
+                <h4 className="text-sm font-bold text-emerald-700 flex items-center gap-2 mb-3">
+                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 text-xs">1</span>
+                  Format Teks Digital (Wajib)
+                </h4>
+                <ul className="space-y-3 ml-2 border-l-2 border-emerald-50 pl-4">
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Gunakan PDF Berbasis Teks:</strong> Pastikan PDF bukan hasil foto/scan gambar. AI lebih mudah membaca teks digital langsung dari file Microsoft Word atau Canva yang di-export ke PDF.</li>
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Hindari Tulisan Tangan:</strong> Sistem tidak disarankan untuk membaca tulisan tangan karena risiko kesalahan interpretasi informasi sangat tinggi.</li>
+                </ul>
+              </div>
+
+              {/* Section 2 */}
+              <div>
+                <h4 className="text-sm font-bold text-emerald-700 flex items-center gap-2 mb-3">
+                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 text-xs">2</span>
+                  Struktur Informasi yang Jelas
+                </h4>
+                <ul className="space-y-3 ml-2 border-l-2 border-emerald-50 pl-4">
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Gunakan Judul & Sub-Judul:</strong> Kelompokkan informasi berdasarkan kategori (Contoh: Daftar Menu, Cara Pemesanan, Lokasi Cabang).</li>
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Gunakan Poin (Bullet Points):</strong> Informasi dalam bentuk daftar jauh lebih mudah dipahami oleh sistem dibandingkan paragraf panjang yang berbelit-belit.</li>
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Format Tabel Sederhana:</strong> Jika ada daftar harga, gunakan tabel yang bersih dan tidak terlalu kompleks secara desain.</li>
+                </ul>
+              </div>
+
+              {/* Section 3 */}
+              <div>
+                <h4 className="text-sm font-bold text-emerald-700 flex items-center gap-2 mb-3">
+                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 text-xs">3</span>
+                  Fokus pada Konten Relevan
+                </h4>
+                <ul className="space-y-3 ml-2 border-l-2 border-emerald-50 pl-4">
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Hapus Informasi Tidak Penting:</strong> Hilangkan gambar dekoratif besar, header/footer berulang, atau iklan tidak relevan agar memori AI fokus pada data inti.</li>
+                  <li className="text-sm text-slate-600 leading-relaxed"><strong className="text-slate-800">Satu Dokumen, Satu Topik:</strong> Lebih baik mengunggah 3 dokumen spesifik (Menu, SOP, Kontak) daripada 1 dokumen raksasa yang mencampuradukkan semua hal.</li>
+                </ul>
+              </div>
+
+              {/* Section 4 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Ukuran File Maksimal</p>
+                  <p className="text-sm font-bold text-slate-800">10MB per dokumen</p>
+                  <p className="text-xs text-slate-500 mt-1">Agar proses ekstraksi tetap cepat</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Bahasa Konsisten</p>
+                  <p className="text-sm font-bold text-slate-800">Indonesia atau Inggris</p>
+                  <p className="text-xs text-slate-500 mt-1">Hindari mencampur bahasa berlebihan</p>
+                </div>
+              </div>
+
+              {/* DON'Ts Section */}
+              <div className="bg-red-50/50 rounded-xl p-5 border border-red-100">
+                <h4 className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <XCircle size={14} />
+                  Yang Harus Dihindari (Don'ts)
+                </h4>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                      <XCircle size={12} className="text-red-600" />
+                    </div>
+                    <span className="text-sm text-slate-700 leading-relaxed"><strong className="text-slate-900">PDF Diproteksi Password:</strong> Sistem tidak akan bisa membaca dokumen jika file terkunci.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <XCircle size={12} className="text-amber-600" />
+                    </div>
+                    <span className="text-sm text-slate-700 leading-relaxed"><strong className="text-slate-900">Teks Terlalu Kecil:</strong> Gunakan ukuran font standar (minimal 10pt) agar karakter terbaca sempurna.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-0.5 w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <XCircle size={12} className="text-amber-600" />
+                    </div>
+                    <span className="text-sm text-slate-700 leading-relaxed"><strong className="text-slate-900">Gambar Tanpa Deskripsi:</strong> Jika ada gambar penting (misal: Denah Lokasi), pastikan ada penjelasan teks di bawahnya.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-white flex-shrink-0">
+              <button 
+                onClick={() => setShowGuide(false)}
+                className="w-full sm:w-auto sm:min-w-[120px] sm:ml-auto block py-2.5 px-6 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-500/20 active:scale-[0.98] text-center"
+              >
+                Mengerti
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
