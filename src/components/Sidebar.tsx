@@ -13,6 +13,7 @@ import {
   LogOut,
   CreditCard,
   Monitor,
+  X,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -23,6 +24,8 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   unreadLeads: number;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const navItems = [
@@ -34,164 +37,190 @@ const navItems = [
   { id: 'billing' as Page, path: '/billing', label: 'Tagihan', icon: CreditCard },
 ];
 
+const NavContent: React.FC<{
+  collapsed: boolean;
+  currentPath: string;
+  unreadLeads: number;
+  user: any;
+  subscription: any;
+  onNavigate: (path: string) => void;
+  onLogout: () => void;
+}> = ({ collapsed, currentPath, unreadLeads, user, subscription, onNavigate, onLogout }) => (
+  <>
+    {/* Logo / Brand */}
+    <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800 min-h-[72px]">
+      <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-500 shadow-lg shadow-emerald-500/30 flex-shrink-0">
+        <Bot className="w-5 h-5 text-white" />
+      </div>
+      {!collapsed && (
+        <div className="overflow-hidden">
+          <p className="text-white font-bold text-sm leading-tight whitespace-nowrap">PulseAI</p>
+          <p className="text-slate-500 text-xs whitespace-nowrap">Enterprise Suite</p>
+        </div>
+      )}
+    </div>
+
+    {/* Navigation */}
+    <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      {!collapsed && (
+        <p className="px-3 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
+          Menu Utama
+        </p>
+      )}
+      {navItems.map(({ id, path, label, icon: Icon, badge }) => {
+        const isActive = currentPath.startsWith(path);
+        return (
+          <button
+            key={id}
+            id={`nav-${id}`}
+            onClick={() => onNavigate(path)}
+            title={collapsed ? label : undefined}
+            className={`
+              w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+              transition-all duration-150 group relative
+              ${isActive
+                ? 'bg-emerald-500/15 text-emerald-400 shadow-sm'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+              }
+            `}
+          >
+            {isActive && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-emerald-400 rounded-full" />
+            )}
+            <Icon
+              className={`flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}`}
+              size={18}
+            />
+            {!collapsed && (
+              <span className="flex-1 text-left truncate">{label}</span>
+            )}
+            {!collapsed && badge && unreadLeads > 0 && (
+              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex-shrink-0">
+                {unreadLeads > 9 ? '9+' : unreadLeads}
+              </span>
+            )}
+            {collapsed && badge && unreadLeads > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400" />
+            )}
+          </button>
+        );
+      })}
+
+      {!collapsed && (
+        <>
+          <div className="pt-4 pb-2">
+            <p className="px-3 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
+              Statistik Cepat
+            </p>
+          </div>
+          <div className="mx-1 p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <TrendingUp size={13} className="text-emerald-400" />
+                <span>Percakapan</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-100">2,481</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Zap size={13} className="text-amber-400" />
+                <span>Tingkat Resolusi</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-100">87.4%</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Sparkles size={13} className="text-violet-400" />
+                <span>Akurasi AI</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-100">94.2%</span>
+            </div>
+          </div>
+        </>
+      )}
+    </nav>
+
+    {/* User Profile Footer */}
+    <div className={`border-t border-slate-800 p-3 ${collapsed ? 'flex justify-center' : ''}`}>
+      {collapsed ? (
+        <div className="relative">
+          <button
+            onClick={onLogout}
+            className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold"
+          >
+            {user?.email?.charAt(0) || 'U'}
+          </button>
+          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-slate-950 rounded-full" />
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <div className="relative flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold uppercase">
+              {user?.email?.charAt(0) || 'U'}
+            </div>
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-slate-950 rounded-full" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-100 truncate">{user?.email || 'User'}</p>
+            <p className="text-xs text-slate-500 capitalize truncate">
+              {subscription?.plan_type === 'free' ? 'Starter' : (subscription?.plan_type || 'User')}
+            </p>
+          </div>
+          <button
+            onClick={onLogout}
+            title="Sign Out"
+            className="text-slate-500 hover:text-red-400 flex-shrink-0 transition-colors"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
+      )}
+    </div>
+  </>
+);
+
 const Sidebar: React.FC<SidebarProps> = ({
   collapsed,
   onToggle,
   unreadLeads,
+  mobileOpen = false,
+  onMobileClose,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut, user } = useAuth();
   const { subscription } = useSubscription();
-  
-  // Try to use the path to figure out the active item instead of the prop
   const currentPath = location.pathname;
-
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
+
+  const handleNavigate = (path: string) => {
+    navigate(path);
+    onMobileClose?.();
+  };
+
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
 
   return (
     <>
+      {/* ── Desktop Sidebar ── */}
       <aside
         className={`
-          relative flex flex-col h-screen bg-slate-950 border-r border-slate-800
+          hidden lg:relative lg:flex flex-col h-screen bg-slate-950 border-r border-slate-800
           transition-all duration-300 ease-in-out flex-shrink-0
           ${collapsed ? 'w-16' : 'w-64'}
         `}
       >
-        {/* ... existing content ... */}
-        {/* Logo / Brand */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800 min-h-[72px]">
-          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-500 shadow-lg shadow-emerald-500/30 flex-shrink-0">
-            <Bot className="w-5 h-5 text-white" />
-          </div>
-          {!collapsed && (
-            <div className="overflow-hidden">
-              <p className="text-white font-bold text-sm leading-tight whitespace-nowrap">
-                PulseAI
-              </p>
-              <p className="text-slate-500 text-xs whitespace-nowrap">Enterprise Suite</p>
-            </div>
-          )}
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-          {!collapsed && (
-            <p className="px-3 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
-              Menu Utama
-            </p>
-          )}
-          {navItems.map(({ id, path, label, icon: Icon, badge }) => {
-            const isActive = currentPath.startsWith(path);
-            return (
-              <button
-                key={id}
-                id={`nav-${id}`}
-                onClick={() => navigate(path)}
-                title={collapsed ? label : undefined}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-                  transition-all duration-150 group relative
-                  ${isActive
-                    ? 'bg-emerald-500/15 text-emerald-400 shadow-sm'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
-                  }
-                `}
-              >
-                {/* Active indicator bar */}
-                {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-emerald-400 rounded-full" />
-                )}
-                <Icon
-                  className={`w-4.5 h-4.5 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}`}
-                  size={18}
-                />
-                {!collapsed && (
-                  <span className="flex-1 text-left truncate">{label}</span>
-                )}
-                {!collapsed && badge && unreadLeads > 0 && (
-                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex-shrink-0">
-                    {unreadLeads > 9 ? '9+' : unreadLeads}
-                  </span>
-                )}
-                {collapsed && badge && unreadLeads > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400" />
-                )}
-              </button>
-            );
-          })}
-
-          {!collapsed && (
-            <>
-              <div className="pt-4 pb-2">
-                <p className="px-3 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
-                  Statistik Cepat
-                </p>
-              </div>
-              <div className="mx-1 p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <TrendingUp size={13} className="text-emerald-400" />
-                    <span>Percakapan</span>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-100">2,481</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <Zap size={13} className="text-amber-400" />
-                    <span>Tingkat Resolusi</span>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-100">87.4%</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <Sparkles size={13} className="text-violet-400" />
-                    <span>Akurasi AI</span>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-100">94.2%</span>
-                </div>
-              </div>
-            </>
-          )}
-        </nav>
-
-        {/* User Profile Footer */}
-        <div className={`border-t border-slate-800 p-3 ${collapsed ? 'flex justify-center' : ''}`}>
-          {collapsed ? (
-            <div className="relative">
-              <button 
-                onClick={() => setShowLogoutConfirm(true)}
-                className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold"
-              >
-                {user?.email?.charAt(0) || 'U'}
-              </button>
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-slate-950 rounded-full" />
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="relative flex-shrink-0">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold uppercase">
-                  {user?.email?.charAt(0) || 'U'}
-                </div>
-                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-slate-950 rounded-full" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-100 truncate">{user?.email || 'User'}</p>
-                <p className="text-xs text-slate-500 capitalize truncate">
-                  {subscription?.plan_type === 'free' ? 'Starter' : (subscription?.plan_type || 'User')}
-                </p>
-              </div>
-              <button 
-                onClick={() => setShowLogoutConfirm(true)}
-                title="Sign Out"
-                className="text-slate-500 hover:text-red-400 flex-shrink-0 transition-colors"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          )}
-        </div>
-
+        <NavContent
+          collapsed={collapsed}
+          currentPath={currentPath}
+          unreadLeads={unreadLeads}
+          user={user}
+          subscription={subscription}
+          onNavigate={handleNavigate}
+          onLogout={handleLogout}
+        />
         {/* Collapse Toggle */}
         <button
           id="sidebar-toggle"
@@ -208,7 +237,41 @@ const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </aside>
 
-      {/* Logout Confirmation Modal */}
+      {/* ── Mobile Drawer Overlay ── */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm"
+          onClick={onMobileClose}
+        />
+      )}
+
+      {/* ── Mobile Drawer ── */}
+      <aside
+        className={`
+          lg:hidden fixed left-0 top-0 z-50 h-full w-72 flex flex-col bg-slate-950 border-r border-slate-800
+          transition-transform duration-300 ease-in-out
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        {/* Close button */}
+        <button
+          onClick={onMobileClose}
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
+        >
+          <X size={16} />
+        </button>
+        <NavContent
+          collapsed={false}
+          currentPath={currentPath}
+          unreadLeads={unreadLeads}
+          user={user}
+          subscription={subscription}
+          onNavigate={handleNavigate}
+          onLogout={handleLogout}
+        />
+      </aside>
+
+      {/* Logout Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
