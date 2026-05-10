@@ -90,8 +90,16 @@ const buildSystemPrompt = (
   intent?: Intent,
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
-  const escalationContact = adminWhatsApp
-    ? `https://wa.me/${adminWhatsApp.replace(/\+/g, '').replace(/\s/g, '')}`
+  
+  let cleanWa = '';
+  if (adminWhatsApp) {
+    cleanWa = adminWhatsApp.replace(/\D/g, ''); // Strip non-digits
+    if (cleanWa.startsWith('0')) {
+      cleanWa = '62' + cleanWa.substring(1);
+    }
+  }
+  const escalationContact = cleanWa
+    ? `https://wa.me/${cleanWa}`
     : 'pulseaichat@gmail.com';
 
   const lines: string[] = [
