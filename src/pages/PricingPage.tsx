@@ -54,10 +54,15 @@ const PricingPage: React.FC = () => {
       };
       verifyPayment();
     }
-    // Dynamically load the Midtrans Snap script
+    // Dynamically load the Midtrans Snap script based on environment
+    const clientKey = import.meta.env.VITE_MIDTRANS_CLIENT_KEY || 'SB-Mid-client-J8N_M22E';
+    const isSandbox = clientKey.startsWith('SB-');
+    
     const script = document.createElement('script');
-    script.src = 'https://app.sandbox.midtrans.com/snap/snap.js';
-    script.setAttribute('data-client-key', import.meta.env.VITE_MIDTRANS_CLIENT_KEY || 'SB-Mid-client-J8N_M22E');
+    script.src = isSandbox 
+      ? 'https://app.sandbox.midtrans.com/snap/snap.js'
+      : 'https://app.midtrans.com/snap/snap.js';
+    script.setAttribute('data-client-key', clientKey);
     document.body.appendChild(script);
 
     return () => {
