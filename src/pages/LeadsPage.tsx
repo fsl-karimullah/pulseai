@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, Search, Edit2, Trash2, MessageCircle, Mail, Phone, X, Save, Clock, User } from 'lucide-react';
+import { Users, Search, Edit2, Trash2, MessageCircle, Mail, X, Save, Clock, User } from 'lucide-react';
 
 interface Lead {
   id: string;
