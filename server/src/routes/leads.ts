@@ -151,4 +151,45 @@ export default async function leadsRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ success: false, message: error.message });
     }
   });
+
+  /**
+   * PUT /api/leads/:id
+   */
+  fastify.put('/leads/:id', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const userId = (request as any).user?.id;
+      const { name, whatsapp } = request.body as { name?: string; whatsapp?: string };
+
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (!org) {
+        return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+      }
+
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (whatsapp !== undefined) updateData.whatsapp = whatsapp;
+
+      if (Object.keys(updateData).length === 0) {
+        return reply.status(400).send({ success: false, message: 'Tidak ada data untuk diperbarui' });
+      }
+
+      const { error } = await supabase
+        .from('leads')
+        .update(updateData)
+        .eq('id', id)
+        .eq('org_id', org.id);
+
+      if (error) throw error;
+      return reply.send({ success: true, message: 'Lead berhasil diperbarui' });
+    } catch (error: any) {
+      fastify.log.error(error, 'Failed to update lead');
+      return reply.status(500).send({ success: false, message: error.message });
+    }
+  });
 }

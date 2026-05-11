@@ -1,54 +1,262 @@
-import React from 'react';
-import { Users, Timer, Sparkles, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { Users, Search, Edit2, Trash2, MessageCircle, Mail, Phone, X, Save, Clock, User } from 'lucide-react';
+
+interface Lead {
+  id: string;
+  name: string;
+  whatsapp: string;
+  last_message: string | null;
+  metadata: any;
+  created_at: string;
+}
 
 const LeadsPage: React.FC = () => {
+  const { session } = useAuth();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [currentEdit, setCurrentEdit] = useState<Lead | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    fetchLeads();
+  }, []);
+
+  const fetchLeads = async () => {
+    try {
+      const res = await fetch('/api/leads', {
+        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLeads(data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch leads', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Yakin ingin menghapus data lead ini?')) return;
+    try {
+      const res = await fetch(`/api/leads/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLeads(leads.filter(l => l.id !== id));
+      } else {
+        alert(data.message || 'Gagal menghapus');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openEditModal = (lead: Lead) => {
+    setCurrentEdit(lead);
+    setEditName(lead.name);
+    setEditWhatsapp(lead.whatsapp);
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!currentEdit) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/leads/${currentEdit.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ name: editName, whatsapp: editWhatsapp })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLeads(leads.map(l => l.id === currentEdit.id ? { ...l, name: editName, whatsapp: editWhatsapp } : l));
+        setEditModalOpen(false);
+      } else {
+        alert(data.message || 'Gagal menyimpan');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const filtered = leads.filter(l => 
+    l.name.toLowerCase().includes(search.toLowerCase()) || 
+    l.whatsapp.includes(search)
+  );
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[70vh] px-4 text-center">
-      <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mb-8 relative">
-        <Users size={40} className="text-emerald-600" />
-        <div className="absolute -top-2 -right-2 w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center border-4 border-white">
-          <Timer size={16} className="text-white" />
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+            <Users size={20} className="text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 leading-tight">Data Leads</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Kelola prospek dari interaksi widget chat</p>
+          </div>
         </div>
       </div>
 
-      <h1 className="text-3xl font-extrabold text-slate-900 mb-4 tracking-tight">
-        Leads Management <span className="text-emerald-600">Coming Soon</span>
-      </h1>
-      
-      <p className="text-slate-500 max-w-md mx-auto mb-10 leading-relaxed">
-        Kami sedang membangun sistem manajemen lead yang canggih untuk membantu Anda mengonversi setiap chat menjadi penjualan dengan otomatisasi AI.
-      </p>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-3xl">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-emerald-200 group">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-all">
-            <Sparkles size={20} />
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Cari nama atau nomor WhatsApp..." 
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
+            />
           </div>
-          <h3 className="font-bold text-slate-900 text-sm mb-2">Auto Scoring</h3>
-          <p className="text-xs text-slate-400">Klasifikasi otomatis lead (Hot, Warm, Cold) berdasarkan interaksi AI.</p>
-        </div>
-        
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-emerald-200 group">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-all">
-            <Users size={20} />
-          </div>
-          <h3 className="font-bold text-slate-900 text-sm mb-2">Lead Profiling</h3>
-          <p className="text-xs text-slate-400">Dapatkan profil lengkap calon pembeli secara otomatis.</p>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-emerald-200 group">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-all">
-            <ArrowRight size={20} />
-          </div>
-          <h3 className="font-bold text-slate-900 text-sm mb-2">Direct Follow-up</h3>
-          <p className="text-xs text-slate-400">Terhubung langsung ke WhatsApp lead dalam satu klik.</p>
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex justify-center p-12">
+              <div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-16 text-slate-400">
+              <Users size={32} className="mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium">Belum ada data leads</p>
+              <p className="text-xs mt-1">Data akan muncul setelah user mengisi form di widget</p>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="px-6 py-4">Nama Prospek</th>
+                  <th className="px-6 py-4">Kontak</th>
+                  <th className="px-6 py-4 hidden md:table-cell">Pesan Terakhir</th>
+                  <th className="px-6 py-4">Tanggal</th>
+                  <th className="px-6 py-4 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filtered.map(lead => {
+                  // Format WhatsApp to wa.me link
+                  let cleanWa = lead.whatsapp.replace(/\D/g, '');
+                  if (cleanWa.startsWith('0')) cleanWa = '62' + cleanWa.substring(1);
+                  const waLink = `https://wa.me/${cleanWa}`;
+                  const email = lead.metadata?.email;
+                  const date = new Date(lead.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+                  return (
+                    <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                            <User size={14} />
+                          </div>
+                          <span className="font-bold text-slate-900 text-sm">{lead.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <a href={waLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-colors text-xs font-semibold">
+                            <MessageCircle size={14} />
+                            WhatsApp
+                          </a>
+                          {email ? (
+                            <a href={`mailto:${email}`} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors text-xs font-semibold">
+                              <Mail size={14} />
+                              Email
+                            </a>
+                          ) : (
+                            <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 text-slate-400 text-xs font-medium cursor-not-allowed" title="Email tidak tersedia">
+                              <Mail size={14} />
+                              Email
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden md:table-cell">
+                        <p className="text-sm text-slate-600 line-clamp-2 max-w-xs" title={lead.last_message || 'Tidak ada pesan'}>
+                          {lead.last_message ? `"${lead.last_message}"` : '-'}
+                        </p>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={12} className="text-slate-400" />
+                          {date}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openEditModal(lead)} className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Edit">
+                            <Edit2 size={16} />
+                          </button>
+                          <button onClick={() => handleDelete(lead.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Hapus">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      <div className="mt-12 inline-flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-sm font-bold shadow-xl shadow-slate-200">
-        <Sparkles size={16} className="text-amber-400" />
-        Nantikan Update Selanjutnya
-      </div>
+      {/* Edit Modal */}
+      {editModalOpen && currentEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-slate-900">Edit Lead</h3>
+              <button onClick={() => setEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nama Prospek</label>
+                <input 
+                  type="text" 
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nomor WhatsApp</label>
+                <input 
+                  type="tel" 
+                  value={editWhatsapp}
+                  onChange={e => setEditWhatsapp(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <button onClick={() => setEditModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">Batal</button>
+              <button onClick={handleSaveEdit} disabled={isSaving} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors disabled:opacity-50">
+                {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={16} />}
+                Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
