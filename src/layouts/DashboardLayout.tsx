@@ -69,7 +69,7 @@ const DashboardLayout: React.FC = () => {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((prev) => !prev)}
-        unreadLeads={3}
+        unreadLeads={0}
         mobileOpen={mobileDrawerOpen}
         onMobileClose={() => setMobileDrawerOpen(false)}
       />
