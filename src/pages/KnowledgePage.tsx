@@ -377,7 +377,7 @@ const KnowledgePage: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                   <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Ukuran File Maksimal</p>
-                  <p className="text-sm font-bold text-slate-800">10MB per dokumen</p>
+                  <p className="text-sm font-bold text-slate-800">4.5MB per dokumen</p>
                   <p className="text-xs text-slate-500 mt-1">Agar proses ekstraksi tetap cepat</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">

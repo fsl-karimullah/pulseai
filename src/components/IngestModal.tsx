@@ -69,6 +69,10 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
     if (file && file.type === 'application/pdf') {
+      if (file.size > 4.5 * 1024 * 1024) {
+        setStatus({ phase: 'error', message: 'Ukuran file maksimal 4.5MB. Silakan kompres PDF Anda terlebih dahulu.' });
+        return;
+      }
       setSelectedFile(file);
       setStatus({ phase: 'idle' });
     } else {
@@ -84,6 +88,10 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 4.5 * 1024 * 1024) {
+        setStatus({ phase: 'error', message: 'Ukuran file maksimal 4.5MB. Silakan kompres PDF Anda terlebih dahulu.' });
+        return;
+      }
       setSelectedFile(file);
       setStatus({ phase: 'idle' });
     }
@@ -263,7 +271,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                       <p className="text-sm font-semibold text-slate-700">
                         {isDragging ? 'Lepaskan PDF di sini' : 'Seret PDF atau klik untuk pilih file'}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">Maks 25 MB · Hanya PDF</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Maks 4.5 MB · Hanya PDF</p>
                     </div>
                     <button 
                       type="button"
