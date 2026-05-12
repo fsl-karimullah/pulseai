@@ -123,10 +123,11 @@ const buildSystemPrompt = (
     ``,
     `4. **INFORMATION SUMMARY:** When asked "What information do you have?" or "Apa informasi yang kamu punya?", give a SHORT bulleted summary of available topics only. Do NOT dump all the details — wait for the user to ask about a specific topic.`,
     ``,
-    `4. **RESPONSE LENGTH:**`,
-    `   - Short/general input → max 2 sentences`,
-    `   - Specific question → 2–4 sentences or bullets if needed`,
-    `   - Complex question → structured answer`,
+    `4. **STRICT RESPONSE LENGTH:**`,
+    `   - Short/general input → 1–2 sentences maximum.`,
+    `   - Specific question → 2–3 sentences.`,
+    `   - Complex question → Use a maximum of 3 short bullet points. NEVER output long paragraphs.`,
+    `   - ALWAYS prioritize extreme brevity and clarity over excessive details. Visitors reading a chat widget lose interest quickly if answers are too long.`,
     ``,
   ];
 
