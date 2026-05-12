@@ -70,15 +70,28 @@ const PublicChatWidget: React.FC = () => {
     });
   };
 
-  // Render inline markdown: **bold** and URLs
+  // Render inline markdown: **bold**, [text](url), and URLs
   const renderInline = (text: string): React.ReactNode[] => {
-    const parts = text.split(/(\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g);
+    const parts = text.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s)]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\/[^\s)]*)/g);
     return parts.map((part, i) => {
+      if (!part) return null;
       if (part.startsWith('**') && part.endsWith('**')) {
         return <strong key={i} className="font-bold text-slate-800">{part.slice(2, -2)}</strong>;
       }
+      if (part.startsWith('[') && part.includes('](')) {
+        const match = part.match(/\[([^\]]+)\]\(([^)]+)\)/);
+        if (match) {
+          let url = match[2];
+          if (!url.startsWith('http')) url = 'https://' + url;
+          return <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="underline font-bold text-emerald-600 hover:text-emerald-700 break-words">{match[1]}</a>;
+        }
+      }
       if (part.match(/^https?:\/\//)) {
         return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline font-bold text-emerald-600 hover:text-emerald-700 break-all">{part}</a>;
+      }
+      // Naked domains like pulseai.biz.id/menu/...
+      if (part.match(/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\//)) {
+        return <a key={i} href={`https://${part}`} target="_blank" rel="noopener noreferrer" className="underline font-bold text-emerald-600 hover:text-emerald-700 break-all">{part}</a>;
       }
       return <span key={i}>{part}</span>;
     });
