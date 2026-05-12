@@ -88,6 +88,7 @@ const buildSystemPrompt = (
   customInstructions: string,
   adminWhatsApp?: string,
   intent?: Intent,
+  isStreaming: boolean = false
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
   
@@ -151,14 +152,25 @@ const buildSystemPrompt = (
     lines.push(``);
   }
 
-  lines.push(`**LEAD CAPTURE** — set "triggerLeadCapture": true ONLY if user:`);
-  lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
-  lines.push(`- Asks about pricing, quotes, packages, or costs`);
-  lines.push(`- Requests a demo, trial, or callback`);
-  lines.push(`- Shows clear purchase intent or provides their contact details`);
-  lines.push(``);
-  lines.push(`**RESPONSE FORMAT** — respond with ONLY valid JSON, no markdown, no extra text:`);
-  lines.push(`{"message": "your response here", "triggerLeadCapture": false}`);
+  if (isStreaming) {
+    lines.push(`**LEAD CAPTURE** — If the user:`);
+    lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
+    lines.push(`- Asks about pricing, quotes, packages, or costs`);
+    lines.push(`- Requests a demo, trial, or callback`);
+    lines.push(`- Shows clear purchase intent or provides their contact details`);
+    lines.push(`THEN append the exact text "|||LEAD|||" at the very end of your response.`);
+    lines.push(``);
+    lines.push(`**RESPONSE FORMAT** — respond with raw conversational text and markdown. Do NOT use JSON format.`);
+  } else {
+    lines.push(`**LEAD CAPTURE** — set "triggerLeadCapture": true ONLY if user:`);
+    lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
+    lines.push(`- Asks about pricing, quotes, packages, or costs`);
+    lines.push(`- Requests a demo, trial, or callback`);
+    lines.push(`- Shows clear purchase intent or provides their contact details`);
+    lines.push(``);
+    lines.push(`**RESPONSE FORMAT** — respond with ONLY valid JSON, no markdown, no extra text:`);
+    lines.push(`{"message": "your response here", "triggerLeadCapture": false}`);
+  }
 
   return lines.join('\n');
 };
@@ -341,6 +353,7 @@ export async function generateChatResponseStream(
       customInstructions,
       adminWhatsApp,
       intent,
+      true // isStreaming
     ),
     generationConfig: {
       temperature: intent === 'small_talk' ? 0.7 : 0.3,

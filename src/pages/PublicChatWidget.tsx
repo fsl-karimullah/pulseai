@@ -156,9 +156,14 @@ const PublicChatWidget: React.FC = () => {
                 const data = JSON.parse(dataStr);
                 if (data.text) {
                   botContent += data.text;
+                  let displayText = botContent;
+                  if (displayText.includes('|||LEAD|||')) {
+                    displayText = displayText.replace('|||LEAD|||', '');
+                    if (!leadSubmitted) setTimeout(() => setShowLeadForm(true), 1000);
+                  }
                   setMessages(prev => {
                     const newMessages = [...prev];
-                    newMessages[newMessages.length - 1].content = botContent;
+                    newMessages[newMessages.length - 1].content = displayText;
                     return newMessages;
                   });
                 }
