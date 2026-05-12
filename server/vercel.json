@@ -2,6 +2,10 @@
   "version": 2,
   "routes": [
     {
+      "src": "/api/chat-stream",
+      "dest": "api/chat-stream.ts"
+    },
+    {
       "src": "/(.*)",
       "dest": "api/serverless.ts"
     }

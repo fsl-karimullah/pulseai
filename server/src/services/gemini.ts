@@ -278,20 +278,95 @@ export async function generateChatResponse(
       lastError = error;
       const is503 =
         error.message?.includes('503') ||
-        error.message?.includes('Service Unavailable') ||
-        error.message?.includes('high demand');
+        error.message?.includes('overloaded') ||
+        error.message?.includes('unavailable');
 
       if (is503 && attempt < MAX_RETRIES) {
-        const waitMs = attempt * 2000;
-        console.warn(`[Gemini] 503 on attempt ${attempt}/${MAX_RETRIES}. Retrying in ${waitMs}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        const delayMs = attempt * 1000;
+        console.warn(`[Gemini] Model overloaded. Retrying in ${delayMs}ms... (Attempt ${attempt}/${MAX_RETRIES})`);
+        await new Promise(res => setTimeout(res, delayMs));
         continue;
       }
 
-      console.error(`[Gemini] [Org: ${orgId}] Error on attempt ${attempt}:`, error.message || error);
-      throw error;
+      console.error(`[Gemini] [Org: ${orgId}] Crash on attempt ${attempt}:`, error.message);
+      break;
     }
   }
 
-  throw lastError;
+  console.error('[Gemini] All attempts failed. Last error:', lastError?.message);
+  return {
+    message: 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.',
+    triggerLeadCapture: false,
+  };
+}
+
+// ─────────────────────────────────────────────
+// Stream export (for Edge Runtime)
+// ─────────────────────────────────────────────
+
+export async function generateChatResponseStream(
+  userMessage: string,
+  history: ChatMessage[],
+  context: string,
+  botName: string,
+  company: string,
+  tone: string = 'Professional',
+  customInstructions: string = '',
+  adminWhatsApp: string = '',
+  orgId: string = ''
+): Promise<AsyncGenerator<string, void, unknown>> {
+
+  const intent = classifyIntent(userMessage);
+  const indonesian = isLikelyIndonesian(userMessage);
+
+  if (intent === 'closing') {
+    return (async function* () {
+      yield getRandomResponse(indonesian ? CLOSING_RESPONSES_ID : CLOSING_RESPONSES_EN);
+    })();
+  }
+
+  if (intent === 'greeting') {
+    return (async function* () {
+      yield getRandomResponse(indonesian ? GREETING_RESPONSES_ID : GREETING_RESPONSES_EN);
+    })();
+  }
+
+  const model = genai.getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    systemInstruction: buildSystemPrompt(
+      botName,
+      company,
+      context,
+      tone,
+      customInstructions,
+      adminWhatsApp,
+      intent,
+    ),
+    generationConfig: {
+      temperature: intent === 'small_talk' ? 0.7 : 0.3,
+      topP: 0.85,
+    },
+  });
+
+  const geminiHistory: Content[] = history.slice(-6).map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+
+  try {
+    const chat = model.startChat({ history: geminiHistory });
+    const resultStream = await chat.sendMessageStream(userMessage);
+    
+    return (async function* () {
+      for await (const chunk of resultStream.stream) {
+        const chunkText = chunk.text();
+        yield chunkText;
+      }
+    })();
+  } catch (error: any) {
+    console.error('[Gemini Stream] Crash:', error.message);
+    return (async function* () {
+      yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
+    })();
+  }
 }

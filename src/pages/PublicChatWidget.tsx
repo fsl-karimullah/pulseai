@@ -114,7 +114,7 @@ const PublicChatWidget: React.FC = () => {
     const apiBase = import.meta.env.VITE_API_URL || '';
     
     try {
-      const response = await fetch(`${apiBase}/api/chat`, {
+      const response = await fetch(`${apiBase}/api/chat-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -126,21 +126,56 @@ const PublicChatWidget: React.FC = () => {
         })
       });
 
-      const data = await response.json();
-      
-      if (data.success) {
-        setMessages(prev => [...prev, {
-          role: 'bot',
-          content: data.message,
-          timestamp: new Date()
-        }]);
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to get streaming response');
+      }
 
-        // If AI triggers lead capture, show the form
-        if (data.triggerLeadCapture && !leadSubmitted) {
-          setTimeout(() => setShowLeadForm(true), 1000);
+      setMessages(prev => [...prev, {
+        role: 'bot',
+        content: '',
+        timestamp: new Date()
+      }]);
+      setIsTyping(false); // turn off the bounce loader
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let botContent = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6).trim();
+              if (!dataStr) continue;
+              try {
+                const data = JSON.parse(dataStr);
+                if (data.text) {
+                  botContent += data.text;
+                  setMessages(prev => {
+                    const newMessages = [...prev];
+                    newMessages[newMessages.length - 1].content = botContent;
+                    return newMessages;
+                  });
+                }
+                if (data.done) {
+                  if (data.triggerLeadCapture && !leadSubmitted) {
+                    setTimeout(() => setShowLeadForm(true), 1000);
+                  }
+                }
+                if (data.error) {
+                  console.error('Stream error:', data.error);
+                }
+              } catch (e) {
+                // Ignore parse errors if chunks split JSON
+              }
+            }
+          }
         }
-      } else {
-        throw new Error(data.message || 'Failed to get response');
       }
     } catch (error) {
       console.error('Chat error:', error);
