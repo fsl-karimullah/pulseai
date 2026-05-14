@@ -13,6 +13,7 @@ import {
   LogOut,
   CreditCard,
   Monitor,
+  MessageCircle,
   X,
 } from 'lucide-react';
 import type { Page } from '../types';
@@ -34,6 +35,7 @@ const navItems = [
   { id: 'bot-settings' as Page, path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
   { id: 'leads' as Page, path: '/leads', label: 'Lead', icon: Users, badge: true },
   { id: 'widget' as Page, path: '/integration/widget', label: 'Widget', icon: Monitor },
+  { id: 'whatsapp' as Page, path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle, comingSoon: true },
   { id: 'billing' as Page, path: '/billing', label: 'Tagihan', icon: CreditCard },
 ];
 
@@ -101,6 +103,11 @@ const NavContent: React.FC<{
             )}
             {collapsed && badge && unreadLeads > 0 && (
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400" />
+            )}
+            {!collapsed && navItems.find(n => n.id === id)?.comingSoon && (
+              <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider ml-auto flex-shrink-0 border border-emerald-500/20">
+                SOON
+              </span>
             )}
           </button>
         );

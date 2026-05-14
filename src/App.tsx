@@ -14,6 +14,7 @@ import BotSettingsPage from './pages/BotSettingsPage';
 import LeadsPage from './pages/LeadsPage';
 import PricingPage from './pages/PricingPage';
 import WidgetIntegrationPage from './pages/WidgetIntegrationPage';
+import WhatsAppIntegrationPage from './pages/WhatsAppIntegrationPage';
 import PublicChatWidget from './pages/PublicChatWidget';
 
 import './index.css';
@@ -46,6 +47,7 @@ const App: React.FC = () => {
             <Route path="leads" element={<LeadsPage />} />
             <Route path="billing" element={<PricingPage />} />
             <Route path="integration/widget" element={<WidgetIntegrationPage />} />
+            <Route path="integration/whatsapp" element={<WhatsAppIntegrationPage />} />
           </Route>
 
           {/* Fallback */}
