@@ -53,23 +53,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Notification Section */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="flex-1 text-center md:text-left">
-          <h3 className="text-lg font-bold text-slate-800">Dapatkan Notifikasi Saat Rilis</h3>
-          <p className="text-slate-500 text-sm mt-1">Kami akan mengirimi Anda email saat fitur ini siap digunakan di akun PulseAI Anda.</p>
-        </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <input 
-            type="email" 
-            placeholder="nama@perusahaan.com" 
-            className="flex-1 md:w-64 px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all text-sm"
-          />
-          <button className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm transition-all shadow-lg shadow-emerald-600/20">
-            Beritahu Saya
-          </button>
-        </div>
-      </div>
+
     </div>
   );
 };
