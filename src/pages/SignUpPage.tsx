@@ -1,7 +1,27 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Bot, Loader2, Mail, Lock, ArrowRight, Eye, EyeOff, CheckCircle2, ShieldCheck, Zap, Sparkles, User } from 'lucide-react';
+import { Bot, Loader2, Mail, Lock, ArrowRight, Eye, EyeOff, CheckCircle2, ShieldCheck, Zap, Sparkles, User, AlertCircle, ExternalLink } from 'lucide-react';
+
+const getMailProviderUrl = (emailStr: string): string => {
+  const domain = emailStr.split('@')[1]?.toLowerCase();
+  if (!domain) return 'https://mail.google.com';
+  if (domain.includes('gmail')) return 'https://mail.google.com';
+  if (domain.includes('yahoo')) return 'https://mail.yahoo.com';
+  if (domain.includes('outlook') || domain.includes('hotmail') || domain.includes('live') || domain.includes('msn')) {
+    return 'https://outlook.live.com';
+  }
+  if (domain.includes('icloud') || domain.includes('me.com') || domain.includes('mac.com')) {
+    return 'https://www.icloud.com/mail';
+  }
+  if (domain.includes('proton')) {
+    return 'https://mail.proton.me';
+  }
+  if (domain.includes('zoho')) {
+    return 'https://mail.zoho.com';
+  }
+  return `https://${domain}`;
+};
 
 const SignUpPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,7 +30,6 @@ const SignUpPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const navigate = useNavigate();
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,29 +49,58 @@ const SignUpPage: React.FC = () => {
     } else {
       setSuccess(true);
       setLoading(false);
-      setTimeout(() => navigate('/login'), 4000);
     }
   };
 
   if (success) {
+    const mailProviderUrl = getMailProviderUrl(email);
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50/30 px-4 font-sans">
-        <div className="w-full max-w-sm text-center">
-          <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-100">
-            <CheckCircle2 size={40} className="text-emerald-500" />
+        <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-xl shadow-slate-100 border border-slate-100 text-center animate-fade-in">
+          <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-100/50">
+            <CheckCircle2 size={40} className="text-emerald-500 animate-pulse" />
           </div>
+          
           <h2 className="text-2xl font-black text-slate-900 mb-3">Cek email Anda!</h2>
-          <p className="text-slate-500 text-sm leading-relaxed mb-8">
+          
+          <p className="text-slate-500 text-sm leading-relaxed mb-6">
             Kami telah mengirim link verifikasi ke{' '}
-            <span className="font-bold text-slate-900">{email}</span>.{' '}
-            Silakan verifikasi email untuk mulai menggunakan PulseAI.
+            <span className="font-bold text-slate-900 block mt-1 text-base">{email}</span>
+            Silakan klik link tersebut untuk mengaktifkan akun PulseAI Anda.
           </p>
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+
+          {/* Email Provider Redirect Button */}
+          <a
+            href={mailProviderUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all hover:-translate-y-0.5 active:translate-y-0 mb-6"
           >
-            Kembali ke Login <ArrowRight size={16} />
-          </Link>
+            <Mail size={18} />
+            Buka Email Saya
+            <ExternalLink size={14} className="opacity-80" />
+          </a>
+
+          {/* Spam/Junk Alert Warning Box */}
+          <div className="bg-amber-50/50 border border-amber-200/60 rounded-2xl p-4 mb-8 text-left flex gap-3">
+            <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1">Tips Penting</h4>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                Tidak menerima email? Pastikan untuk memeriksa folder <span className="font-bold">Spam</span> atau <span className="font-bold">Promosi</span> Anda. Terkadang email verifikasi masuk ke sana.
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-center gap-4">
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 text-sm font-bold text-slate-600 hover:text-slate-800 transition-colors"
+            >
+              Kembali ke Login <ArrowRight size={16} />
+            </Link>
+          </div>
         </div>
       </div>
     );
