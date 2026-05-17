@@ -45,4 +45,4 @@ export type BotSetting = {
   options?: string[];
 };
 
-export type Page = 'dashboard' | 'knowledge' | 'bot-settings' | 'leads' | 'widget' | 'whatsapp' | 'billing';
+export type Page = 'dashboard' | 'knowledge' | 'bot-settings' | 'leads' | 'widget' | 'whatsapp' | 'billing' | 'pulse-internal' | 'pulse-hr';

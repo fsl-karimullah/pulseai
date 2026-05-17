@@ -16,6 +16,8 @@ import PricingPage from './pages/PricingPage';
 import WidgetIntegrationPage from './pages/WidgetIntegrationPage';
 import WhatsAppIntegrationPage from './pages/WhatsAppIntegrationPage';
 import PublicChatWidget from './pages/PublicChatWidget';
+import PulseInternalPage from './pages/PulseInternalPage';
+import PulseHRPage from './pages/PulseHRPage';
 
 import './index.css';
 
@@ -48,6 +50,8 @@ const App: React.FC = () => {
             <Route path="billing" element={<PricingPage />} />
             <Route path="integration/widget" element={<WidgetIntegrationPage />} />
             <Route path="integration/whatsapp" element={<WhatsAppIntegrationPage />} />
+            <Route path="dashboard/pulse-internal" element={<PulseInternalPage />} />
+            <Route path="dashboard/pulse-hr" element={<PulseHRPage />} />
           </Route>
 
           {/* Fallback */}

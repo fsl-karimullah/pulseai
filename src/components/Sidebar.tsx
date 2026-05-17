@@ -12,6 +12,8 @@ import {
   Monitor,
   MessageCircle,
   X,
+  Database,
+  UsersRound,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -33,6 +35,8 @@ const navItems = [
   { id: 'leads' as Page, path: '/leads', label: 'Lead', icon: Users, badge: true },
   { id: 'widget' as Page, path: '/integration/widget', label: 'Widget', icon: Monitor },
   { id: 'whatsapp' as Page, path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle, comingSoon: true },
+  { id: 'pulse-internal' as Page, path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
+  { id: 'pulse-hr' as Page, path: '/dashboard/pulse-hr', label: 'PulseHR', icon: UsersRound, comingSoon: true },
   { id: 'billing' as Page, path: '/billing', label: 'Tagihan', icon: CreditCard },
 ];
 
