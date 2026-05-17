@@ -7,9 +7,6 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
-  TrendingUp,
-  Zap,
   LogOut,
   CreditCard,
   Monitor,
@@ -113,38 +110,7 @@ const NavContent: React.FC<{
         );
       })}
 
-      {!collapsed && (
-        <>
-          <div className="pt-4 pb-2">
-            <p className="px-3 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
-              Statistik Cepat
-            </p>
-          </div>
-          <div className="mx-1 p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <TrendingUp size={13} className="text-emerald-400" />
-                <span>Percakapan</span>
-              </div>
-              <span className="text-xs font-semibold text-slate-100">2,481</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Zap size={13} className="text-amber-400" />
-                <span>Tingkat Resolusi</span>
-              </div>
-              <span className="text-xs font-semibold text-slate-100">87.4%</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Sparkles size={13} className="text-violet-400" />
-                <span>Akurasi AI</span>
-              </div>
-              <span className="text-xs font-semibold text-slate-100">94.2%</span>
-            </div>
-          </div>
-        </>
-      )}
+
     </nav>
 
     {/* User Profile Footer */}

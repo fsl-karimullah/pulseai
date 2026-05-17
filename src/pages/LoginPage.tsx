@@ -92,7 +92,7 @@ const LoginPage: React.FC = () => {
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold">A</div>
               <div>
                 <p className="text-white text-xs font-semibold">Amir Faisal</p>
-                <p className="text-slate-500 text-xs">CEO, Akademi UMKM</p>
+                <p className="text-slate-500 text-xs">CEO, Pulse Ai</p>
               </div>
             </div>
           </div>
