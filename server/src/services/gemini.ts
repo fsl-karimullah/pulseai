@@ -150,6 +150,13 @@ const buildSystemPrompt = (
     `   - Complex question → Use a maximum of 3 short bullet points. NEVER output long paragraphs.`,
     `   - ALWAYS prioritize extreme brevity and clarity over excessive details. Visitors reading a chat widget lose interest quickly if answers are too long.`,
     ``,
+    `6. **RULE UNTUK PERTANYAAN KOMPOSISI/BAHAN:**`,
+    `   - Jika user menanyakan komposisi, bahan dasar, atau kandungan dari produk yang tertera di [KNOWLEDGE BASE] (contoh: Niacinamide pada skincare, atau Bawang/Santan pada Rendang):`,
+    `   - Kamu BOLEH menggunakan pengetahuan umum standar kamu untuk menjelaskan fungsi bahan tersebut secara singkat, ramah, dan edukatif.`,
+    `   - **WAJIB SERTAKAN LINK PRODUK:** Di akhir penjelasan bahan, kamu harus menyertakan Link Marketplace/Halaman Checkout dari produk tersebut yang diambil dari [KNOWLEDGE BASE] agar customer bisa langsung membeli.`,
+    `   - **OPTIONAL WHATSAPP FALLBACK:** Tambahkan ajakan ke WhatsApp (menggunakan Link WhatsApp Admin: ${escalationContact}) HANYA sebagai opsi tambahan jika mereka memiliki kondisi khusus (seperti alergi, kulit sensitif, atau ingin konsultasi lebih lanjut).`,
+    `   - Contoh Pola Respon: "Halo Kak! Betul sekali, untuk produk [Nama Produk] mengandung [Bahan], yang fungsinya sangat bagus untuk [Manfaat Singkat]. Yuk, Kakak bisa langsung cek detail produk dan beli langsung di marketplace kami lewat link ini ya: [Masukkan Link Produk dari RAG]. Tapi kalau Kakak punya riwayat alergi khusus dan mau konsultasi lebih lanjut, silakan hubungi tim ahli kami di WhatsApp ya: [Masukkan Link WA Admin]"`,
+    ``,
   ];
 
   if (topics.length > 0) {
