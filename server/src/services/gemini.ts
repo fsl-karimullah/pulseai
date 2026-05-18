@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, type Content } from '@google/generative-ai';
+import { supabase } from '../config/supabase';
 
 const apiKey = process.env.GOOGLE_AI_API_KEY;
 if (!apiKey) {
@@ -76,6 +77,24 @@ function getRandomResponse(pool: string[]): string {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+async function fetchKnowledgeBaseTopics(orgId: string): Promise<string[]> {
+  if (!orgId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('knowledge_nodes')
+      .select('title')
+      .eq('org_id', orgId)
+      .limit(100);
+      
+    if (error || !data) return [];
+    const uniqueTitles = Array.from(new Set(data.map((item: any) => item.title).filter(Boolean)));
+    return uniqueTitles as string[];
+  } catch (err) {
+    console.error('[Gemini] Error fetching knowledge base topics:', err);
+    return [];
+  }
+}
+
 // ─────────────────────────────────────────────
 // System prompt — only built for real questions
 // ─────────────────────────────────────────────
@@ -88,7 +107,8 @@ const buildSystemPrompt = (
   customInstructions: string,
   adminWhatsApp?: string,
   intent?: Intent,
-  isStreaming: boolean = false
+  isStreaming: boolean = false,
+  topics: string[] = []
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
   
@@ -124,13 +144,27 @@ const buildSystemPrompt = (
     ``,
     `4. **INFORMATION SUMMARY:** When asked "What information do you have?" or "Apa informasi yang kamu punya?", give a SHORT bulleted summary of available topics only. Do NOT dump all the details — wait for the user to ask about a specific topic.`,
     ``,
-    `4. **STRICT RESPONSE LENGTH:**`,
+    `5. **STRICT RESPONSE LENGTH:**`,
     `   - Short/general input → 1–2 sentences maximum.`,
     `   - Specific question → 2–3 sentences.`,
     `   - Complex question → Use a maximum of 3 short bullet points. NEVER output long paragraphs.`,
     `   - ALWAYS prioritize extreme brevity and clarity over excessive details. Visitors reading a chat widget lose interest quickly if answers are too long.`,
     ``,
   ];
+
+  if (topics.length > 0) {
+    lines.push(`**Available Business Topics (Knowledge Base Index):**`);
+    lines.push(`The business has official documentation strictly covering ONLY the following topics: [${topics.join(', ')}].`);
+    lines.push(`- You must strictly validate what the business sells, offers, or does based ONLY on these topics and the provided context.`);
+    lines.push(`- The business name is "${company}". Do NOT assume, speculate, or say that they sell products or services typical to this name (e.g. if the name is 'Berl Cosmetics' but the topics are about food, do NOT say you sell cosmetics).`);
+    lines.push(`- If the user asks about a product, service, or topic that is not mentioned in these topics or in the provided context (e.g., "emas" / gold), you MUST state that the business does not sell or offer it.`);
+    lines.push(``);
+  } else {
+    lines.push(`**BUSINESS IDENTITY & PRODUCTS (STRICT RULES):**`);
+    lines.push(`- The business name is "${company}". Do NOT assume or say that they sell products or services typical to that name unless explicitly confirmed by the user or instructions.`);
+    lines.push(`- If the user asks about any product or service (like "emas" / gold), state that the business does not sell or offer it unless you have explicit custom instructions.`);
+    lines.push(``);
+  }
 
   if (intent === 'small_talk') {
     lines.push(`**INTENT:** User is making small talk. Respond naturally and warmly. Do NOT reference documents.`);
@@ -211,6 +245,7 @@ export async function generateChatResponse(
   }
 
   // ── Questions and small talk go to the model ──
+  const topics = await fetchKnowledgeBaseTopics(orgId);
   const model = genai.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
     systemInstruction: buildSystemPrompt(
@@ -221,6 +256,8 @@ export async function generateChatResponse(
       customInstructions,
       adminWhatsApp,
       intent,
+      false,
+      topics
     ),
     generationConfig: {
       responseMimeType: 'application/json',
@@ -343,6 +380,7 @@ export async function generateChatResponseStream(
     })();
   }
 
+  const topics = await fetchKnowledgeBaseTopics(orgId);
   const model = genai.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
     systemInstruction: buildSystemPrompt(
@@ -353,7 +391,8 @@ export async function generateChatResponseStream(
       customInstructions,
       adminWhatsApp,
       intent,
-      true // isStreaming
+      true, // isStreaming
+      topics
     ),
     generationConfig: {
       temperature: intent === 'small_talk' ? 0.7 : 0.3,
