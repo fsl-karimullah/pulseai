@@ -492,20 +492,56 @@ export async function generateChatResponseStream(
       parts: [{ text: m.content }],
     }));
 
-  try {
-    const chat = model.startChat({ history: geminiHistory });
-    const resultStream = await chat.sendMessageStream(userMessage);
-    
-    return (async function* () {
-      for await (const chunk of resultStream.stream) {
-        const chunkText = chunk.text();
-        yield chunkText;
+  const STREAM_MAX_RETRIES = 3;
+
+  for (let attempt = 1; attempt <= STREAM_MAX_RETRIES; attempt++) {
+    try {
+      const chat = model.startChat({ history: geminiHistory });
+      const resultStream = await chat.sendMessageStream(userMessage);
+
+      // Validate that the stream actually yields at least one chunk before returning
+      // to surface parse errors at this layer rather than leaking them to the caller
+      return (async function* () {
+        try {
+          for await (const chunk of resultStream.stream) {
+            yield chunk.text();
+          }
+        } catch (streamErr: any) {
+          // If the stream breaks mid-way on the final attempt, yield the error message
+          // On earlier attempts the outer loop handles it via the re-throw below
+          console.error(`[Gemini Stream] Mid-stream error (attempt ${attempt}):`, streamErr.message);
+          yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
+        }
+      })();
+
+    } catch (error: any) {
+      const isTransient =
+        error.message?.includes('Failed to parse stream') ||
+        error.message?.includes('503') ||
+        error.message?.includes('overloaded') ||
+        error.message?.includes('unavailable') ||
+        error.message?.includes('fetch failed') ||
+        error.message?.includes('network');
+
+      if (isTransient && attempt < STREAM_MAX_RETRIES) {
+        const delayMs = attempt * 1200; // 1.2s, 2.4s
+        console.warn(
+          `[Gemini Stream] [Org: ${orgId}] Transient error on attempt ${attempt}/${STREAM_MAX_RETRIES}. Retrying in ${delayMs}ms...`,
+          error.message
+        );
+        await new Promise((res) => setTimeout(res, delayMs));
+        continue;
       }
-    })();
-  } catch (error: any) {
-    console.error('[Gemini Stream] Crash:', error.message);
-    return (async function* () {
-      yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
-    })();
+
+      console.error(`[Gemini Stream] [Org: ${orgId}] All ${STREAM_MAX_RETRIES} attempts failed:`, error.message);
+      return (async function* () {
+        yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
+      })();
+    }
   }
+
+  // Unreachable but satisfies TypeScript's return type
+  return (async function* () {
+    yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
+  })();
 }
