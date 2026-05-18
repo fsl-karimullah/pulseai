@@ -123,7 +123,57 @@ const buildSystemPrompt = (
     ? `https://wa.me/${cleanWa}`
     : 'pulseaichat@gmail.com';
 
+  // ── Derive forbidden industry terms from the brand name that are absent from RAG topics
+  // e.g. "Berl Cosmetics" → candidate forbidden terms: ["kosmetik", "kecantikan", "skincare", "makeup"]
+  const BRAND_INDUSTRY_MAP: Record<string, string[]> = {
+    cosmetic:  ['kosmetik', 'kecantikan', 'skincare', 'makeup', 'beauty', 'serum', 'moisturizer'],
+    beauty:    ['kecantikan', 'kosmetik', 'skincare', 'makeup', 'serum'],
+    fashion:   ['fashion', 'pakaian', 'baju', 'outfit', 'clothing'],
+    food:      ['makanan', 'kuliner', 'restoran', 'menu', 'catering'],
+    tech:      ['elektronik', 'gadget', 'laptop', 'smartphone'],
+    gold:      ['emas', 'logam mulia', 'perhiasan', 'jewelry'],
+    jewelry:   ['perhiasan', 'emas', 'cincin', 'kalung', 'gelang'],
+    pharmacy:  ['obat', 'apotek', 'farmasi', 'suplemen'],
+  };
+  const companyLower = company.toLowerCase();
+  const ragText = topics.join(' ').toLowerCase();
+  const forbiddenTerms: string[] = [];
+  for (const [keyword, terms] of Object.entries(BRAND_INDUSTRY_MAP)) {
+    if (companyLower.includes(keyword)) {
+      // Only forbid terms NOT found in the actual RAG topics
+      for (const term of terms) {
+        if (!ragText.includes(term)) {
+          forbiddenTerms.push(term);
+        }
+      }
+    }
+  }
+
+  const outOfScopeReply = `Mohon maaf Kak, saat ini ${company} tidak menyediakan produk tersebut. Kami hanya melayani produk dan informasi yang tertera pada katalog resmi kami. Ada yang bisa kami bantu terkait katalog yang tersedia? 😊`;
+
   const lines: string[] = [
+    // ── ANTI-HALLUCINATION GATE — placed FIRST so it overrides everything below ──
+    `⚠️ ABSOLUTE OVERRIDE — READ THIS FIRST BEFORE ANYTHING ELSE:`,
+    `You are "${botName}", an AI Sales Assistant operating under MAXIMUM RESTRICTION MODE.`,
+    ``,
+    `INDEPENDENT IDENTITY RULE:`,
+    `- You do NOT know what "${company}" sells until you read the [KNOWLEDGE BASE] section below.`,
+    `- Do NOT use the business name "${company}" as a clue to guess the industry. The name is just a label.`,
+    `- You must derive ALL knowledge of what this business sells SOLELY from the [KNOWLEDGE BASE] data provided below.`,
+    ``,
+    forbiddenTerms.length > 0
+      ? `FORBIDDEN WORDS (these industry terms do NOT appear in the Knowledge Base, so this business does NOT sell them):
+- You are STRICTLY FORBIDDEN from mentioning: ${forbiddenTerms.join(', ')}.
+- If those words are not in the [KNOWLEDGE BASE] below, you have ZERO knowledge of them for this business.`
+      : `SCOPE RULE: You may only discuss products and services that explicitly appear in the [KNOWLEDGE BASE] below.`,
+    ``,
+    `OUT-OF-SCOPE RULE (MANDATORY):`,
+    `When a user asks for any product, service, or topic that is NOT explicitly mentioned in the [KNOWLEDGE BASE] below, you MUST reply with EXACTLY this message (translated to match the user's language):`,
+    `"${outOfScopeReply}"`,
+    ``,
+    `── END OF OVERRIDE ──`,
+    ``,
+    // ── Normal persona ──
     `**Role:** You are ${botName}, a warm and conversational AI assistant for ${company}.`,
     `You talk like a friendly, knowledgeable human — not a robot reading a manual.`,
     ``,
@@ -136,40 +186,33 @@ const buildSystemPrompt = (
     ``,
     `**CRITICAL RULES:**`,
     ``,
-    `1. **KNOWLEDGE BASE USAGE:** Only use the knowledge base when the user is clearly asking about a specific topic it covers. For general questions or small talk, answer from your own intelligence. Do NOT force knowledge base content into responses unprompted.`,
+    `1. **KNOWLEDGE BASE USAGE:** Answer questions ONLY about topics explicitly present in the [KNOWLEDGE BASE] below. For general/small talk, reply naturally but never invent product or service details.`,
     ``,
-    `2. **PRODUCT LINKS (IMPORTANT):** If the knowledge base contains a checkout link, URL, or "Product Link" for a specific product/menu item, you MUST include that exact link in your response when the user asks about or shows interest in that product. Format it nicely so the user can easily click and purchase/view it.`,
+    `2. **PRODUCT LINKS (IMPORTANT):** If the knowledge base contains a checkout link, URL, or "Product Link" for a specific product/menu item, you MUST include that exact link in your response when the user asks about or shows interest in that product.`,
     ``,
     `3. **NEVER REPEAT YOURSELF:** Check the chat history carefully. If you already explained something, do NOT say it again. Move forward.`,
     ``,
-    `4. **INFORMATION SUMMARY:** When asked "What information do you have?" or "Apa informasi yang kamu punya?", give a SHORT bulleted summary of available topics only. Do NOT dump all the details — wait for the user to ask about a specific topic.`,
+    `4. **INFORMATION SUMMARY:** When asked "What information do you have?" or "Apa informasi yang kamu punya?", give a SHORT bulleted summary of available topics only. Do NOT dump all the details.`,
     ``,
     `5. **STRICT RESPONSE LENGTH:**`,
     `   - Short/general input → 1–2 sentences maximum.`,
     `   - Specific question → 2–3 sentences.`,
     `   - Complex question → Use a maximum of 3 short bullet points. NEVER output long paragraphs.`,
-    `   - ALWAYS prioritize extreme brevity and clarity over excessive details. Visitors reading a chat widget lose interest quickly if answers are too long.`,
     ``,
     `6. **RULE UNTUK PERTANYAAN KOMPOSISI/BAHAN:**`,
-    `   - Jika user menanyakan komposisi, bahan dasar, atau kandungan dari produk yang tertera di [KNOWLEDGE BASE] (contoh: Niacinamide pada skincare, atau Bawang/Santan pada Rendang):`,
-    `   - Kamu BOLEH menggunakan pengetahuan umum standar kamu untuk menjelaskan fungsi bahan tersebut secara singkat, ramah, dan edukatif.`,
-    `   - **WAJIB SERTAKAN LINK PRODUK:** Di akhir penjelasan bahan, kamu harus menyertakan Link Marketplace/Halaman Checkout dari produk tersebut yang diambil dari [KNOWLEDGE BASE] agar customer bisa langsung membeli.`,
-    `   - **OPTIONAL WHATSAPP FALLBACK:** Tambahkan ajakan ke WhatsApp (menggunakan Link WhatsApp Admin: ${escalationContact}) HANYA sebagai opsi tambahan jika mereka memiliki kondisi khusus (seperti alergi, kulit sensitif, atau ingin konsultasi lebih lanjut).`,
-    `   - Contoh Pola Respon: "Halo Kak! Betul sekali, untuk produk [Nama Produk] mengandung [Bahan], yang fungsinya sangat bagus untuk [Manfaat Singkat]. Yuk, Kakak bisa langsung cek detail produk dan beli langsung di marketplace kami lewat link ini ya: [Masukkan Link Produk dari RAG]. Tapi kalau Kakak punya riwayat alergi khusus dan mau konsultasi lebih lanjut, silakan hubungi tim ahli kami di WhatsApp ya: [Masukkan Link WA Admin]"`,
+    `   - Jika user menanyakan komposisi atau bahan dari produk yang ADA di [KNOWLEDGE BASE], kamu BOLEH menjelaskan fungsinya secara singkat menggunakan pengetahuan umum.`,
+    `   - WAJIB sertakan link produk dari [KNOWLEDGE BASE] di akhir penjelasan.`,
+    `   - OPTIONAL: Tambahkan ajakan WhatsApp (${escalationContact}) hanya jika user punya kondisi khusus (alergi, dll).`,
     ``,
   ];
 
   if (topics.length > 0) {
-    lines.push(`**Available Business Topics (Knowledge Base Index):**`);
-    lines.push(`The business has official documentation strictly covering ONLY the following topics: [${topics.join(', ')}].`);
-    lines.push(`- You must strictly validate what the business sells, offers, or does based ONLY on these topics and the provided context.`);
-    lines.push(`- The business name is "${company}". Do NOT assume, speculate, or say that they sell products or services typical to this name (e.g. if the name is 'Berl Cosmetics' but the topics are about food, do NOT say you sell cosmetics).`);
-    lines.push(`- If the user asks about a product, service, or topic that is not mentioned in these topics or in the provided context (e.g., "emas" / gold), you MUST state that the business does not sell or offer it.`);
+    lines.push(`**Knowledge Base Topic Index (what this business actually sells/covers):**`);
+    lines.push(`[${topics.join(', ')}]`);
+    lines.push(`- This is the ONLY scope of this business. Anything outside this list = OUT-OF-SCOPE.`);
     lines.push(``);
   } else {
-    lines.push(`**BUSINESS IDENTITY & PRODUCTS (STRICT RULES):**`);
-    lines.push(`- The business name is "${company}". Do NOT assume or say that they sell products or services typical to that name unless explicitly confirmed by the user or instructions.`);
-    lines.push(`- If the user asks about any product or service (like "emas" / gold), state that the business does not sell or offer it unless you have explicit custom instructions.`);
+    lines.push(`**SCOPE:** No knowledge base uploaded yet. Do not assume any products or services. If asked about specific products, say the catalog is being updated.`);
     lines.push(``);
   }
 
@@ -274,11 +317,31 @@ export async function generateChatResponse(
     },
   });
 
-  // Keep last 6 messages for context (3 pairs)
-  const geminiHistory: Content[] = history.slice(-6).map((m) => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+  // Keep last 6 messages — scrub any assistant turns that contain the company name
+  // to prevent hallucinated brand responses from bleeding into the current session
+  const companyScrubPattern = new RegExp(company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const geminiHistory: Content[] = history
+    .slice(-6)
+    .filter((m) => {
+      // Drop assistant messages that hallucinated company-specific industry claims
+      // (i.e. any model turn that mentions the company name in a product claim context)
+      if (m.role === 'assistant') {
+        const lower = m.content.toLowerCase();
+        // If the message mentions the company AND any forbidden/out-of-scope industry pattern, drop it
+        const hasBrandName = companyScrubPattern.test(m.content);
+        companyScrubPattern.lastIndex = 0; // reset regex state after test
+        const hasInvalidClaim = /\b(menjual|kami jual|produk kami|kami di|kami menyediakan)\b/i.test(lower);
+        if (hasBrandName && hasInvalidClaim) {
+          console.warn(`[Gemini] [Org: ${orgId}] Scrubbed hallucinated history turn: "${m.content.slice(0, 80)}..."`);
+          return false;
+        }
+      }
+      return true;
+    })
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
 
   const MAX_RETRIES = 3;
   let lastError: any;
@@ -407,10 +470,27 @@ export async function generateChatResponseStream(
     },
   });
 
-  const geminiHistory: Content[] = history.slice(-6).map((m) => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+  // Scrub hallucinated assistant turns (same logic as non-streaming path)
+  const companyScrubPatternStream = new RegExp(company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const geminiHistory: Content[] = history
+    .slice(-6)
+    .filter((m) => {
+      if (m.role === 'assistant') {
+        const lower = m.content.toLowerCase();
+        const hasBrandName = companyScrubPatternStream.test(m.content);
+        companyScrubPatternStream.lastIndex = 0;
+        const hasInvalidClaim = /\b(menjual|kami jual|produk kami|kami di|kami menyediakan)\b/i.test(lower);
+        if (hasBrandName && hasInvalidClaim) {
+          console.warn(`[Gemini Stream] [Org: ${orgId}] Scrubbed hallucinated history turn.`);
+          return false;
+        }
+      }
+      return true;
+    })
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
 
   try {
     const chat = model.startChat({ history: geminiHistory });
