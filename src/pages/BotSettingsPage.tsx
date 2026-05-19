@@ -27,6 +27,9 @@ const BotSettingsPage: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const adminWhatsAppVal = String(settings.find((s) => s.id === 'admin-whatsapp')?.value ?? '').trim();
+  const hasWhatsAppError = adminWhatsAppVal.startsWith('08') || adminWhatsAppVal.startsWith('0') || adminWhatsAppVal.startsWith('+0');
+
   const fetchSettings = useCallback(async () => {
     try {
       setLoading(true);
@@ -216,12 +219,12 @@ const BotSettingsPage: React.FC = () => {
           <button
             id="bot-save"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || hasWhatsAppError}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl shadow-sm transition-all duration-150 active:scale-95 ${
               saved
                 ? 'bg-emerald-500 text-white shadow-emerald-500/30'
                 : 'bg-slate-900 text-white hover:bg-slate-800 shadow-slate-900/20'
-            } ${saving ? 'opacity-70 cursor-not-allowed' : ''}`}
+            } ${saving || hasWhatsAppError ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {saving ? <Loader2 className="animate-spin" size={14} /> : (saved ? <CheckCircle2 size={14} /> : <Save size={14} />)}
             {saved ? 'Tersimpan!' : (saving ? 'Menyimpan...' : 'Simpan Perubahan')}
@@ -321,12 +324,43 @@ const BotSettingsPage: React.FC = () => {
                     placeholder="contoh: Anda adalah asisten penjualan yang ramah untuk PulseAI..."
                   />
                 ) : (
-                  <input
-                    type="text"
-                    value={String(setting.value)}
-                    onChange={(e) => updateSetting(setting.id, e.target.value)}
-                    className={`w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all ${setting.id === 'color-theme' ? 'pr-10' : ''}`}
-                  />
+                  <>
+                    <input
+                      type="text"
+                      value={String(setting.value)}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (setting.id === 'admin-whatsapp') {
+                          // Auto replace leading 08 or +08 with 628
+                          const trimmed = val.trim();
+                          if (trimmed.startsWith('08')) {
+                            val = '628' + trimmed.substring(2);
+                          } else if (trimmed.startsWith('+08')) {
+                            val = '628' + trimmed.substring(3);
+                          }
+                        }
+                        updateSetting(setting.id, val);
+                      }}
+                      className={`w-full px-3 py-2.5 text-sm border rounded-xl text-slate-900 bg-slate-50 focus:outline-none transition-all ${
+                        setting.id === 'color-theme' ? 'pr-10' : ''
+                      } ${
+                        setting.id === 'admin-whatsapp' &&
+                        (String(setting.value).trim().startsWith('08') ||
+                          String(setting.value).trim().startsWith('0') ||
+                          String(setting.value).trim().startsWith('+0'))
+                          ? 'border-rose-300 focus:ring-rose-400/40 focus:border-rose-500'
+                          : 'border-slate-200 focus:ring-emerald-400/40 focus:border-emerald-400'
+                      }`}
+                    />
+                    {setting.id === 'admin-whatsapp' &&
+                      (String(setting.value).trim().startsWith('08') ||
+                        String(setting.value).trim().startsWith('0') ||
+                        String(setting.value).trim().startsWith('+0')) && (
+                        <p className="text-xs text-rose-500 mt-1.5 font-medium ml-1">
+                          Nomor WhatsApp tidak boleh dimulai dengan '08' atau '0'. Silakan gunakan format kode negara '62' (misal: 628xxxxxxxx).
+                        </p>
+                      )}
+                  </>
                 )}
               </div>
             )}
