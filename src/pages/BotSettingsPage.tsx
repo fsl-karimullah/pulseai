@@ -11,7 +11,9 @@ import {
   CheckCircle2,
   Code2,
   Copy,
-  Loader2
+  Loader2,
+  PanelRightClose,
+  PanelLeftClose
 } from 'lucide-react';
 import type { BotSetting } from '../types';
 
@@ -19,6 +21,7 @@ const BotSettingsPage: React.FC = () => {
   const { session } = useAuth();
   const { organization, updateName } = useOrganization();
   const [settings, setSettings] = useState<BotSetting[]>([]);
+  const [widgetPlacement, setWidgetPlacement] = useState<'bottom-right' | 'bottom-left'>('bottom-right');
   const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
@@ -96,6 +99,7 @@ const BotSettingsPage: React.FC = () => {
           }
         ];
         setSettings(mappedSettings);
+        setWidgetPlacement(d.widget_placement || 'bottom-right');
       }
     } catch (err) {
       console.error('Gagal mengambil pengaturan:', err);
@@ -135,6 +139,7 @@ const BotSettingsPage: React.FC = () => {
         if (s.id === 'custom-instructions') body.custom_instructions = s.value;
         if (s.id === 'admin-whatsapp') body.admin_whatsapp = s.value;
       });
+      body.widget_placement = widgetPlacement;
 
       const res = await fetch('/api/settings/bot', {
         method: 'POST',
@@ -343,6 +348,99 @@ const BotSettingsPage: React.FC = () => {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Widget Placement */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200 flex-shrink-0 mt-0.5">
+            <PanelRightClose size={16} className="text-slate-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Posisi Widget Chat</p>
+            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">Pilih di sudut mana tombol chat akan muncul di website pelanggan Anda.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          {/* Bottom-Right Option */}
+          <button
+            id="placement-bottom-right"
+            type="button"
+            onClick={() => { setWidgetPlacement('bottom-right'); setSaved(false); }}
+            className={`relative group rounded-2xl border-2 p-4 transition-all duration-200 text-left ${
+              widgetPlacement === 'bottom-right'
+                ? 'border-violet-500 bg-violet-50 shadow-md shadow-violet-100'
+                : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
+            }`}
+          >
+            {/* Mini browser mockup */}
+            <div className="w-full h-20 bg-white rounded-xl border border-slate-200 relative overflow-hidden mb-3 shadow-inner">
+              {/* Browser bar */}
+              <div className="absolute top-0 inset-x-0 h-4 bg-slate-100 border-b border-slate-200 flex items-center px-2 gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              </div>
+              {/* Chat button indicator — bottom right */}
+              <div className={`absolute bottom-2 right-2 w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-colors ${
+                widgetPlacement === 'bottom-right' ? 'bg-violet-500' : 'bg-slate-300'
+              }`}>
+                <PanelRightClose size={10} className="text-white" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`text-xs font-bold ${ widgetPlacement === 'bottom-right' ? 'text-violet-700' : 'text-slate-700' }`}>Kanan Bawah</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Default</p>
+              </div>
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                widgetPlacement === 'bottom-right' ? 'border-violet-500 bg-violet-500' : 'border-slate-300'
+              }`}>
+                {widgetPlacement === 'bottom-right' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </div>
+            </div>
+          </button>
+
+          {/* Bottom-Left Option */}
+          <button
+            id="placement-bottom-left"
+            type="button"
+            onClick={() => { setWidgetPlacement('bottom-left'); setSaved(false); }}
+            className={`relative group rounded-2xl border-2 p-4 transition-all duration-200 text-left ${
+              widgetPlacement === 'bottom-left'
+                ? 'border-violet-500 bg-violet-50 shadow-md shadow-violet-100'
+                : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
+            }`}
+          >
+            {/* Mini browser mockup */}
+            <div className="w-full h-20 bg-white rounded-xl border border-slate-200 relative overflow-hidden mb-3 shadow-inner">
+              {/* Browser bar */}
+              <div className="absolute top-0 inset-x-0 h-4 bg-slate-100 border-b border-slate-200 flex items-center px-2 gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              </div>
+              {/* Chat button indicator — bottom left */}
+              <div className={`absolute bottom-2 left-2 w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-colors ${
+                widgetPlacement === 'bottom-left' ? 'bg-violet-500' : 'bg-slate-300'
+              }`}>
+                <PanelLeftClose size={10} className="text-white" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`text-xs font-bold ${ widgetPlacement === 'bottom-left' ? 'text-violet-700' : 'text-slate-700' }`}>Kiri Bawah</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Alternatif</p>
+              </div>
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                widgetPlacement === 'bottom-left' ? 'border-violet-500 bg-violet-500' : 'border-slate-300'
+              }`}>
+                {widgetPlacement === 'bottom-left' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </div>
+            </div>
+          </button>
+        </div>
       </div>
 
       {/* Company Info */}

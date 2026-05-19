@@ -19,19 +19,19 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     // Fetch branding and company info from DB
     let query = supabase
       .from('bot_settings')
-      .select('color_theme, logo_url, org_id, organizations(name)')
+      .select('color_theme, logo_url, org_id, widget_placement, organizations(name)')
       .single();
     
     if (orgId) {
       query = supabase
         .from('bot_settings')
-        .select('color_theme, logo_url, org_id, organizations(name)')
+        .select('color_theme, logo_url, org_id, widget_placement, organizations(name)')
         .eq('org_id', orgId)
         .single();
     } else {
       query = supabase
         .from('bot_settings')
-        .select('color_theme, logo_url, org_id, organizations(name)')
+        .select('color_theme, logo_url, org_id, widget_placement, organizations(name)')
         .eq('bot_name', botName)
         .single();
     }
@@ -43,6 +43,10 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     const resolvedOrgId = orgId || settings?.org_id || '';
     // Use DB company name if available, fallback to query param, then PulseAI
     const resolvedCompany = (settings?.organizations as any)?.name || company || 'PulseAI';
+    // Widget placement: 'bottom-right' (default) or 'bottom-left'
+    const placement: 'bottom-right' | 'bottom-left' = (settings as any)?.widget_placement === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+    const hSide = placement === 'bottom-left' ? 'left' : 'right';
+    const hValue = '20px';
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(resolvedCompany)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
@@ -61,7 +65,7 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     container.id = 'pulseai-chat-widget-container';
     container.style.position = 'fixed';
     container.style.bottom = '20px';
-    container.style.right = '20px';
+    container.style.${hSide} = '${hValue}';
     container.style.display = 'block';
     container.style.visibility = 'visible';
     container.style.zIndex = '2147483647';
@@ -91,7 +95,7 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     iframeContainer.style.display = 'none';
     iframeContainer.style.position = 'absolute';
     iframeContainer.style.bottom = '80px';
-    iframeContainer.style.right = '0';
+    iframeContainer.style.${hSide} = '0';
     iframeContainer.style.width = '360px';
     iframeContainer.style.height = '600px';
     iframeContainer.style.backgroundColor = '#ffffff';
@@ -104,7 +108,7 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
 
     // Handle small screens
     var style = document.createElement('style');
-    style.innerHTML = '@media (max-width: 450px) { #pulseai-chat-widget-container { bottom: 10px !important; right: 10px !important; } #pulseai-chat-widget-container > div { position: fixed !important; bottom: 80px !important; right: 10px !important; left: 10px !important; width: auto !important; height: calc(100vh - 100px) !important; } }';
+    style.innerHTML = '@media (max-width: 450px) { #pulseai-chat-widget-container { bottom: 10px !important; ${hSide}: 10px !important; } #pulseai-chat-widget-container > div { position: fixed !important; bottom: 80px !important; ${hSide}: 10px !important; left: 10px !important; width: auto !important; height: calc(100vh - 100px) !important; } }';
     document.head.appendChild(style);
 
     var iframe = document.createElement('iframe');
