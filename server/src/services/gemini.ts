@@ -296,26 +296,7 @@ export async function generateChatResponse(
 
   // ── Questions and small talk go to the model ──
   const topics = await fetchKnowledgeBaseTopics(orgId);
-  const model = genai.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
-    systemInstruction: buildSystemPrompt(
-      botName,
-      company,
-      context,
-      tone,
-      customInstructions,
-      adminWhatsApp,
-      intent,
-      false,
-      topics
-    ),
-    generationConfig: {
-      responseMimeType: 'application/json',
-      maxOutputTokens: 1200,
-      temperature: intent === 'small_talk' ? 0.7 : 0.3,
-      topP: 0.85,
-    },
-  });
+  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite-preview'];
 
   // Keep last 6 messages — scrub any assistant turns that contain the company name
   // to prevent hallucinated brand responses from bleeding into the current session
@@ -347,7 +328,29 @@ export async function generateChatResponse(
   let lastError: any;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
     try {
+      const model = genai.getGenerativeModel({
+        model: currentModelName,
+        systemInstruction: buildSystemPrompt(
+          botName,
+          company,
+          context,
+          tone,
+          customInstructions,
+          adminWhatsApp,
+          intent,
+          false,
+          topics
+        ),
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 1200,
+          temperature: intent === 'small_talk' ? 0.7 : 0.3,
+          topP: 0.85,
+        },
+      });
+
       const chat = model.startChat({ history: geminiHistory });
       const result = await chat.sendMessage(userMessage);
 
@@ -413,8 +416,18 @@ export async function generateChatResponse(
   }
 
   console.error('[Gemini] All attempts failed. Last error:', lastError?.message);
+  let waLinkMessage = '';
+  if (adminWhatsApp) {
+    let cleanWa = adminWhatsApp.replace(/\D/g, ''); // Strip non-digits
+    if (cleanWa.startsWith('0')) {
+      cleanWa = '62' + cleanWa.substring(1);
+    }
+    if (cleanWa) {
+      waLinkMessage = ` Hubungi kami langsung via WhatsApp di wa.me/${cleanWa} 😊`;
+    }
+  }
   return {
-    message: 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.',
+    message: `Maaf, asisten AI sedang sangat sibuk.${waLinkMessage || ' Silakan coba lagi sebentar.'}`,
     triggerLeadCapture: false,
   };
 }
@@ -451,24 +464,7 @@ export async function generateChatResponseStream(
   }
 
   const topics = await fetchKnowledgeBaseTopics(orgId);
-  const model = genai.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
-    systemInstruction: buildSystemPrompt(
-      botName,
-      company,
-      context,
-      tone,
-      customInstructions,
-      adminWhatsApp,
-      intent,
-      true, // isStreaming
-      topics
-    ),
-    generationConfig: {
-      temperature: intent === 'small_talk' ? 0.7 : 0.3,
-      topP: 0.85,
-    },
-  });
+  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-1.5-flash'];
 
   // Scrub hallucinated assistant turns (same logic as non-streaming path)
   const companyScrubPatternStream = new RegExp(company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -495,7 +491,27 @@ export async function generateChatResponseStream(
   const STREAM_MAX_RETRIES = 3;
 
   for (let attempt = 1; attempt <= STREAM_MAX_RETRIES; attempt++) {
+    const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
     try {
+      const model = genai.getGenerativeModel({
+        model: currentModelName,
+        systemInstruction: buildSystemPrompt(
+          botName,
+          company,
+          context,
+          tone,
+          customInstructions,
+          adminWhatsApp,
+          intent,
+          true, // isStreaming
+          topics
+        ),
+        generationConfig: {
+          temperature: intent === 'small_talk' ? 0.7 : 0.3,
+          topP: 0.85,
+        },
+      });
+
       const chat = model.startChat({ history: geminiHistory });
       const resultStream = await chat.sendMessageStream(userMessage);
 
@@ -534,14 +550,34 @@ export async function generateChatResponseStream(
       }
 
       console.error(`[Gemini Stream] [Org: ${orgId}] All ${STREAM_MAX_RETRIES} attempts failed:`, error.message);
+      let waLinkMessage = '';
+      if (adminWhatsApp) {
+        let cleanWa = adminWhatsApp.replace(/\D/g, ''); // Strip non-digits
+        if (cleanWa.startsWith('0')) {
+          cleanWa = '62' + cleanWa.substring(1);
+        }
+        if (cleanWa) {
+          waLinkMessage = ` Hubungi kami langsung via WhatsApp di wa.me/${cleanWa} 😊`;
+        }
+      }
       return (async function* () {
-        yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
+        yield `Maaf, asisten AI sedang sangat sibuk.${waLinkMessage || ' Silakan coba lagi sebentar.'}`;
       })();
     }
   }
 
   // Unreachable but satisfies TypeScript's return type
   return (async function* () {
-    yield 'Maaf, saya sedang mengalami kendala jaringan. Silakan coba lagi sebentar.';
+    let waLinkMessage = '';
+    if (adminWhatsApp) {
+      let cleanWa = adminWhatsApp.replace(/\D/g, '');
+      if (cleanWa.startsWith('0')) {
+        cleanWa = '62' + cleanWa.substring(1);
+      }
+      if (cleanWa) {
+        waLinkMessage = ` Hubungi kami langsung via WhatsApp di wa.me/${cleanWa} 😊`;
+      }
+    }
+    yield `Maaf, asisten AI sedang sangat sibuk.${waLinkMessage || ' Silakan coba lagi sebentar.'}`;
   })();
 }
