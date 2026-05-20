@@ -5,6 +5,7 @@ import { generateChatResponse } from '../services/gemini';
 import axios from 'axios';
 
 export default async function whatsappRoutes(fastify: FastifyInstance) {
+  const gatewayUrl = process.env.WHATSAPP_GATEWAY_URL;
   
   // Endpoint to receive incoming WhatsApp messages from the Gateway
   fastify.post('/whatsapp/incoming', async (request, reply) => {
@@ -62,7 +63,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         fastify.log.warn({ userId, sender }, 'Trial expired. Blocking WhatsApp response.');
         // Send a polite fallback message to the user
         try {
-          await axios.post('http://localhost:4000/api/session/send', {
+          await axios.post(`${gatewayUrl}/api/session/send`, {
             userId,
             to: sender,
             message: 'Mohon maaf bot sedang ditangguhkan'
@@ -124,7 +125,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           if (cleanAdminWa && cleanAdminWa !== sender) {
             const adminMsg = `🚨 *PulseAI Handover Request*\n\nUser: wa.me/${sender}\nLast Message: "${message}"\n\nSilakan hubungi user ini segera.`;
             try {
-              await axios.post('http://localhost:4000/api/session/send', {
+              await axios.post(`${gatewayUrl}/api/session/send`, {
                 userId,
                 to: cleanAdminWa,
                 message: adminMsg
@@ -146,7 +147,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
       // 6. Send the reply back via the WhatsApp Gateway
       try {
-        await axios.post('http://localhost:4000/api/session/send', {
+        await axios.post(`${gatewayUrl}/api/session/send`, {
           userId,
           to: sender,
           message: botReply

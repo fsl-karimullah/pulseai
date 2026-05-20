@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 
-// Hardcoded for local testing, in production use environment variables
-const GATEWAY_URL = 'http://localhost:4000';
+// Use environment variables for the gateway URL, fall back to localhost for local testing
+const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL;
 
 type ConnectionStatus = 'checking' | 'disconnected' | 'qr' | 'open';
 
