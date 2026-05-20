@@ -61,41 +61,45 @@ app.use((err, req, res, next) => {
 });
 
 // ─── Startup ─────────────────────────────────────────────────────────────────
-const server = app.listen(config.port, async () => {
-  logger.info({ port: config.port, env: config.nodeEnv }, '[Server] PulseAI WhatsApp Gateway running');
+if (!process.env.VERCEL) {
+  const server = app.listen(config.port, async () => {
+    logger.info({ port: config.port, env: config.nodeEnv }, '[Server] PulseAI WhatsApp Gateway running');
 
-  // Recover active user sessions from storage on boot (no session loss on reboot)
-  try {
-    await restoreAllSessions();
-  } catch (err) {
-    logger.error({ err: err.message }, '[Server] Session recovery failed');
-  }
-});
-
-// ─── Graceful Shutdown ───────────────────────────────────────────────────────
-let isShuttingDown = false;
-
-async function handleShutdown(signal) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-
-  logger.warn({ signal }, '[Server] Shutdown signal received. Closing resources...');
-
-  // 1. Stop accepting new HTTP requests
-  server.close(() => {
-    logger.info('[Server] HTTP server closed.');
+    // Recover active user sessions from storage on boot (no session loss on reboot)
+    try {
+      await restoreAllSessions();
+    } catch (err) {
+      logger.error({ err: err.message }, '[Server] Session recovery failed');
+    }
   });
 
-  // 2. Close and logout active WhatsApp socket connections gracefully
-  try {
-    await destroyAllSessions();
-  } catch (err) {
-    logger.error({ err: err.message }, '[Server] Error during session destruction');
+  // ─── Graceful Shutdown ───────────────────────────────────────────────────────
+  let isShuttingDown = false;
+
+  async function handleShutdown(signal) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    logger.warn({ signal }, '[Server] Shutdown signal received. Closing resources...');
+
+    // 1. Stop accepting new HTTP requests
+    server.close(() => {
+      logger.info('[Server] HTTP server closed.');
+    });
+
+    // 2. Close and logout active WhatsApp socket connections gracefully
+    try {
+      await destroyAllSessions();
+    } catch (err) {
+      logger.error({ err: err.message }, '[Server] Error during session destruction');
+    }
+
+    logger.info('[Server] Graceful shutdown completed. Exiting.');
+    process.exit(0);
   }
 
-  logger.info('[Server] Graceful shutdown completed. Exiting.');
-  process.exit(0);
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-process.on('SIGINT', () => handleShutdown('SIGINT'));
+export default app;
