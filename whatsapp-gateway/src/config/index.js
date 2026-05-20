@@ -22,7 +22,7 @@ export const config = {
   isProduction: (process.env.NODE_ENV ?? 'production') === 'production',
 
   // Directory where per-user Baileys auth state is persisted
-  sessionsDir: path.resolve(process.env.SESSIONS_DIR ?? './sessions'),
+  sessionsDir: process.env.VERCEL ? '/tmp/sessions' : path.resolve(process.env.SESSIONS_DIR ?? './sessions'),
 
   // PulseAI Fastify webhook endpoint that receives incoming WA messages
   fastifyWebhookUrl: required('FASTIFY_WEBHOOK_URL'),
