@@ -9,6 +9,7 @@ import widgetRoutes from './routes/widget';
 import paymentsRoutes from './routes/payments';
 import settingsRoutes from './routes/settings';
 import knowledgeRoutes from './routes/knowledge';
+import whatsappRoutes from './routes/whatsapp';
 
 const MAX_FILE_SIZE_MB = 25;
 
@@ -49,6 +50,7 @@ export async function createServer() {
   await server.register(paymentsRoutes, { prefix: '/api' });
   await server.register(settingsRoutes, { prefix: '/api' });
   await server.register(knowledgeRoutes, { prefix: '/api' });
+  await server.register(whatsappRoutes, { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({

@@ -34,7 +34,7 @@ const navItems = [
   { id: 'bot-settings' as Page, path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
   { id: 'leads' as Page, path: '/leads', label: 'Lead', icon: Users, badge: true },
   { id: 'widget' as Page, path: '/integration/widget', label: 'Widget', icon: Monitor },
-  { id: 'whatsapp' as Page, path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle, comingSoon: true },
+  { id: 'whatsapp' as Page, path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle },
   { id: 'pulse-internal' as Page, path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
   { id: 'pulse-hr' as Page, path: '/dashboard/pulse-hr', label: 'PulseHR', icon: UsersRound, comingSoon: true },
   { id: 'billing' as Page, path: '/billing', label: 'Tagihan', icon: CreditCard },

@@ -1,0 +1,136 @@
+/**
+ * routes/sessionRoutes.js
+ * ─────────────────────────────────────────────────────────────────────────────
+ * HTTP controller routes for session creation, status, and message sending.
+ */
+
+import express from 'express';
+import { startSession, getSessionStatus, sendMessage, destroySession } from '../session/sessionManager.js';
+import { logger } from '../utils/logger.js';
+
+const router = express.Router();
+
+/**
+ * GET /api/session/start?userId=XXXX
+ * Initializes/gets QR code or connection status for a specific user ID.
+ */
+router.get('/start', async (req, res) => {
+  const { userId } = req.query;
+
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing 'userId' query parameter.",
+    });
+  }
+
+  try {
+    const sessionInfo = await startSession(userId);
+    return res.json({
+      success: true,
+      userId,
+      ...sessionInfo, // status: 'qr' | 'open', qrBase64: 'data:image/png;base64,...' | null
+    });
+  } catch (error) {
+    logger.error({ userId, error: error.message }, '[SessionRoute] Start session failed');
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to initialize session.',
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/session/status?userId=XXXX
+ * Checks current connection state of a specific session.
+ */
+router.get('/status', (req, res) => {
+  const { userId } = req.query;
+
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing 'userId' query parameter.",
+    });
+  }
+
+  const session = getSessionStatus(userId);
+  if (!session) {
+    return res.status(404).json({
+      success: false,
+      userId,
+      status: 'disconnected',
+      qrBase64: null,
+    });
+  }
+
+  return res.json({
+    success: true,
+    userId,
+    status: session.status,
+    qrBase64: session.qrBase64,
+  });
+});
+
+/**
+ * POST /api/session/send
+ * Sends a WhatsApp message from a connected session.
+ * Body: { userId: "XXXX", to: "628123456789", message: "Hello world" }
+ */
+router.post('/send', async (req, res) => {
+  const { userId, to, message } = req.body;
+
+  if (!userId || !to || !message) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing required body fields: 'userId', 'to', and 'message'.",
+    });
+  }
+
+  try {
+    await sendMessage(userId, to, message);
+    return res.json({
+      success: true,
+      message: 'Message sent successfully.',
+    });
+  } catch (error) {
+    logger.error({ userId, to, error: error.message }, '[SessionRoute] Failed to send message');
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /api/session/logout?userId=XXXX
+ * Logs out and removes local session state for a user.
+ */
+router.delete('/logout', async (req, res) => {
+  const { userId } = req.query;
+
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing 'userId' query parameter.",
+    });
+  }
+
+  try {
+    await destroySession(userId, true);
+    return res.json({
+      success: true,
+      message: `Logged out and destroyed session for ${userId}.`,
+    });
+  } catch (error) {
+    logger.error({ userId, error: error.message }, '[SessionRoute] Logout failed');
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to logout session.',
+      error: error.message,
+    });
+  }
+});
+
+export default router;

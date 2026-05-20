@@ -6,6 +6,9 @@ export interface Organization {
   id: string;
   name: string;
   allowed_domains: string[];
+  is_premium?: boolean;
+  trial_started_at?: string;
+  subscription_expires_at?: string;
 }
 
 export function useOrganization() {
