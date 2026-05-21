@@ -16,7 +16,7 @@ const ForgotPasswordPage: React.FC = () => {
     setSuccess(false);
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: 'https://dashboard.pulseai.biz.id/reset-password',
     });
 
     if (error) {
@@ -45,10 +45,10 @@ const ForgotPasswordPage: React.FC = () => {
           </Link>
         </div>
         <h2 className="text-center text-3xl font-extrabold text-slate-900 tracking-tight">
-          Reset password
+          Reset Password
         </h2>
         <p className="mt-2 text-center text-sm text-slate-500">
-          We'll send you instructions to reset your password
+          Kami akan mengirimkan instruksi untuk mengatur ulang kata sandi Anda
         </p>
       </div>
 
@@ -61,23 +61,23 @@ const ForgotPasswordPage: React.FC = () => {
                   <CheckCircle2 size={32} />
                 </div>
               </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Email Sent</h3>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Email Terkirim</h3>
               <p className="text-sm text-slate-500 mb-8 leading-relaxed">
-                Check your inbox for a link to reset your password. If you don't see it, check your spam folder.
+                Cek kotak masuk Anda untuk tautan reset password. Jika tidak ada, periksa folder spam.
               </p>
               <Link
                 to="/login"
                 className="inline-flex items-center text-emerald-600 font-bold hover:text-emerald-700 transition-colors"
               >
                 <ArrowLeft size={18} className="mr-2" />
-                Back to login
+                Kembali ke login
               </Link>
             </div>
           ) : (
             <form className="space-y-6" onSubmit={handleResetRequest}>
               <div>
                 <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-2">
-                  Email address
+                  Alamat email
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -91,7 +91,7 @@ const ForgotPasswordPage: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@company.com"
+                    placeholder="nama@perusahaan.com"
                     className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-2xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 sm:text-sm transition-all bg-white/50"
                   />
                 </div>
@@ -109,7 +109,7 @@ const ForgotPasswordPage: React.FC = () => {
                 disabled={loading}
                 className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-2xl shadow-lg shadow-emerald-500/20 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : 'Send reset link'}
+                {loading ? <Loader2 className="animate-spin" size={20} /> : 'Kirim tautan reset'}
               </button>
 
               <div className="text-center mt-6">
@@ -118,7 +118,7 @@ const ForgotPasswordPage: React.FC = () => {
                   className="inline-flex items-center text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
                 >
                   <ArrowLeft size={16} className="mr-2" />
-                  Back to login
+                  Kembali ke login
                 </Link>
               </div>
             </form>

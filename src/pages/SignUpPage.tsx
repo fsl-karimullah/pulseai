@@ -40,7 +40,7 @@ const SignUpPage: React.FC = () => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${window.location.origin}/login` }
+      options: { emailRedirectTo: 'https://dashboard.pulseai.biz.id/login' }
     });
 
     if (error) {
