@@ -34,7 +34,7 @@ export function useSubscription() {
 
       if (fetchError) throw fetchError;
 
-      console.log('DEBUG: Fetched subscription:', data);
+      // console.log('DEBUG: Fetched subscription:', data);
       setSubscription(data as Subscription);
       setError(null);
     } catch (err: any) {
