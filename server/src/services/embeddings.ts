@@ -8,10 +8,13 @@ if (!apiKey) {
 }
 
 const genAI = new GoogleGenerativeAI(apiKey);
+const requestOptions = process.env.GEMINI_BASE_URL
+  ? { baseUrl: process.env.GEMINI_BASE_URL }
+  : undefined;
 // gemini-embedding-001 is the recommended replacement for the deprecated
 // text-embedding-004 model. It uses the default v1beta endpoint and
 // produces 3072-dimensional vectors, matching our Supabase vector(3072) schema.
-const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' }, requestOptions);
 
 /**
  * Generates an embedding vector for a single text string.

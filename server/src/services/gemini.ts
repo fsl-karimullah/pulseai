@@ -330,6 +330,10 @@ export async function generateChatResponse(
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
     try {
+      const requestOptions = process.env.GEMINI_BASE_URL
+        ? { baseUrl: process.env.GEMINI_BASE_URL }
+        : undefined;
+
       const model = genai.getGenerativeModel({
         model: currentModelName,
         systemInstruction: buildSystemPrompt(
@@ -349,7 +353,7 @@ export async function generateChatResponse(
           temperature: intent === 'small_talk' ? 0.7 : 0.3,
           topP: 0.85,
         },
-      });
+      }, requestOptions);
 
       const chat = model.startChat({ history: geminiHistory });
       const result = await chat.sendMessage(userMessage);
@@ -493,6 +497,10 @@ export async function generateChatResponseStream(
   for (let attempt = 1; attempt <= STREAM_MAX_RETRIES; attempt++) {
     const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
     try {
+      const requestOptions = process.env.GEMINI_BASE_URL
+        ? { baseUrl: process.env.GEMINI_BASE_URL }
+        : undefined;
+
       const model = genai.getGenerativeModel({
         model: currentModelName,
         systemInstruction: buildSystemPrompt(
@@ -510,7 +518,7 @@ export async function generateChatResponseStream(
           temperature: intent === 'small_talk' ? 0.7 : 0.3,
           topP: 0.85,
         },
-      });
+      }, requestOptions);
 
       const chat = model.startChat({ history: geminiHistory });
       const resultStream = await chat.sendMessageStream(userMessage);
