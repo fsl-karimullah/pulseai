@@ -282,6 +282,9 @@ export async function sendMessage(userId, recipientPhone, text) {
  * Sends a "typing..." presence indicator to a recipient, then waits for a
  * natural-feeling delay before the caller sends the actual message.
  *
+ * ⚠️  Baileys REQUIRES presenceSubscribe(jid) to be called first — without it,
+ *     sendPresenceUpdate is silently ignored by the WA server.
+ *
  * Delay is capped at 4 000 ms so long replies don't feel awkward.
  *
  * @param {string} userId
@@ -300,11 +303,22 @@ export async function sendTypingIndicator(userId, recipientPhone, durationMs = 2
   const clampedDuration = Math.min(Math.max(durationMs, 500), 4_000);
 
   try {
+    // Step 1: Subscribe to the contact's presence channel.
+    // This is MANDATORY — Baileys silently drops sendPresenceUpdate
+    // if the presence channel hasn't been opened first.
+    await session.socket.presenceSubscribe(jid);
+
+    // Step 2: Give WA server ~300ms to register the subscription
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Step 3: Send "composing" (typing...) indicator
     await session.socket.sendPresenceUpdate('composing', jid);
     logger.info({ userId, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing indicator started');
 
+    // Step 4: Hold for the natural typing duration
     await new Promise((resolve) => setTimeout(resolve, clampedDuration));
 
+    // Step 5: Clear the typing indicator
     await session.socket.sendPresenceUpdate('paused', jid);
     logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Typing indicator stopped');
   } catch (err) {
