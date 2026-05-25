@@ -179,27 +179,16 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
         botReply += `\n\n---\n🤖 Powered by PulseAI.biz.id - Buat Bot WA Tokomu Gratis Sekarang!`;
       }
 
-      // 6. Simulate typing before sending — feels more human, proportional to reply length
+      // 6. Send the reply back via the WhatsApp Gateway (with typing simulation integrated)
       const typingDurationMs = Math.min(botReply.length * 28, 4_000);
-      try {
-        await axios.post(`${gatewayUrl}/api/session/typing`, {
-          userId,
-          to: sender,
-          durationMs: typingDurationMs,
-        });
-      } catch (typingErr: any) {
-        // Non-critical — do not block sending the reply if typing indicator fails
-        fastify.log.warn({ err: typingErr.message }, 'Typing indicator request failed (non-fatal)');
-      }
-
-      // 7. Send the reply back via the WhatsApp Gateway
       try {
         await axios.post(`${gatewayUrl}/api/session/send`, {
           userId,
           to: sender,
-          message: botReply
+          message: botReply,
+          typingDurationMs,
         });
-        fastify.log.info({ sender }, 'Successfully replied via WhatsApp Gateway');
+        fastify.log.info({ sender }, 'Successfully replied via WhatsApp Gateway (with typing simulation)');
       } catch (gatewayErr: any) {
         fastify.log.error({ err: gatewayErr.message }, 'Failed to send reply via Gateway');
       }

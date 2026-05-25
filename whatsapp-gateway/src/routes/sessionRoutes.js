@@ -77,10 +77,10 @@ router.get('/status', (req, res) => {
 /**
  * POST /api/session/send
  * Sends a WhatsApp message from a connected session.
- * Body: { userId: "XXXX", to: "628123456789", message: "Hello world" }
+ * Body: { userId: "XXXX", to: "628123456789", message: "Hello world", typingDurationMs: 2000 }
  */
 router.post('/send', async (req, res) => {
-  const { userId, to, message } = req.body;
+  const { userId, to, message, typingDurationMs } = req.body;
 
   if (!userId || !to || !message) {
     return res.status(400).json({
@@ -90,7 +90,7 @@ router.post('/send', async (req, res) => {
   }
 
   try {
-    await sendMessage(userId, to, message);
+    await sendMessage(userId, to, message, typingDurationMs);
     return res.json({
       success: true,
       message: 'Message sent successfully.',

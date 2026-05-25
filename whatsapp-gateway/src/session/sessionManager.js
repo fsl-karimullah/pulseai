@@ -264,16 +264,51 @@ export async function destroySession(userId, removeFromMap = true) {
 
 /**
  * Sends a text message from the authenticated session to a recipient JID.
+ * Optionally simulates a typing indicator before sending.
+ *
  * @param {string} userId
  * @param {string} recipientPhone  - e.g. "628123456789"
  * @param {string} text
+ * @param {number} [typingDurationMs] - optional delay in ms to simulate typing
  */
-export async function sendMessage(userId, recipientPhone, text) {
+export async function sendMessage(userId, recipientPhone, text, typingDurationMs = null) {
   const session = sessions.get(userId);
   if (!session || session.status !== 'open') {
     throw new Error(`Session for userId '${userId}' is not connected.`);
   }
   const jid = recipientPhone.includes('@') ? recipientPhone : `${recipientPhone}@s.whatsapp.net`;
+
+  if (typingDurationMs && typingDurationMs > 0) {
+    const clampedDuration = Math.min(Math.max(typingDurationMs, 500), 4_000);
+    try {
+      // Step 1: Subscribe to the contact's presence channel.
+      // This is MANDATORY — Baileys silently drops sendPresenceUpdate
+      // if the presence channel hasn't been opened first.
+      await session.socket.presenceSubscribe(jid);
+
+      // Step 2: Give WA server ~300ms to register the subscription
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Step 3: Send "composing" (typing...) indicator
+      await session.socket.sendPresenceUpdate('composing', jid);
+      logger.info({ userId, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing simulation started');
+
+      // Step 4: Hold for the typing duration
+      await new Promise((resolve) => setTimeout(resolve, clampedDuration));
+
+      // Step 5: Send the actual message
+      await session.socket.sendMessage(jid, { text });
+
+      // Step 6: Clear the typing indicator (reset presence to 'available')
+      await session.socket.sendPresenceUpdate('available', jid);
+      logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Message sent with typing simulation');
+      return;
+    } catch (err) {
+      logger.warn({ userId, err: err.message }, '[SessionManager] Typing simulation failed (non-fatal), falling back to direct send');
+    }
+  }
+
+  // Direct send (if no typing simulation requested or if it failed)
   await session.socket.sendMessage(jid, { text });
   logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Message sent');
 }
@@ -282,10 +317,7 @@ export async function sendMessage(userId, recipientPhone, text) {
  * Sends a "typing..." presence indicator to a recipient, then waits for a
  * natural-feeling delay before the caller sends the actual message.
  *
- * ⚠️  Baileys REQUIRES presenceSubscribe(jid) to be called first — without it,
- *     sendPresenceUpdate is silently ignored by the WA server.
- *
- * Delay is capped at 4 000 ms so long replies don't feel awkward.
+ * ⚠️  Baileys REQUIRES presenceSubscribe(jid) to be called first.
  *
  * @param {string} userId
  * @param {string} recipientPhone  - e.g. "628123456789"
@@ -293,36 +325,25 @@ export async function sendMessage(userId, recipientPhone, text) {
  */
 export async function sendTypingIndicator(userId, recipientPhone, durationMs = 2_000) {
   const session = sessions.get(userId);
-  if (!session || session.status !== 'open') return; // fail-safe: skip if disconnected
+  if (!session || session.status !== 'open') return;
 
   const jid = recipientPhone.includes('@')
     ? recipientPhone
     : `${recipientPhone}@s.whatsapp.net`;
 
-  // Clamp between 500 ms and 4 000 ms for a realistic feel
   const clampedDuration = Math.min(Math.max(durationMs, 500), 4_000);
 
   try {
-    // Step 1: Subscribe to the contact's presence channel.
-    // This is MANDATORY — Baileys silently drops sendPresenceUpdate
-    // if the presence channel hasn't been opened first.
     await session.socket.presenceSubscribe(jid);
-
-    // Step 2: Give WA server ~300ms to register the subscription
     await new Promise((resolve) => setTimeout(resolve, 300));
-
-    // Step 3: Send "composing" (typing...) indicator
     await session.socket.sendPresenceUpdate('composing', jid);
     logger.info({ userId, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing indicator started');
 
-    // Step 4: Hold for the natural typing duration
     await new Promise((resolve) => setTimeout(resolve, clampedDuration));
 
-    // Step 5: Clear the typing indicator
-    await session.socket.sendPresenceUpdate('paused', jid);
+    await session.socket.sendPresenceUpdate('available', jid);
     logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Typing indicator stopped');
   } catch (err) {
-    // Non-critical — do NOT let a presence failure block the actual reply
     logger.warn({ userId, err: err.message }, '[SessionManager] Typing indicator failed (non-fatal)');
   }
 }
