@@ -117,26 +117,60 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
             .eq('id', existingLead.id);
         }
 
-        // Notify Admin via WhatsApp
+        // ══ Notify Admin via WhatsApp — Rich Hot Leads Format ══
         if (adminWhatsApp) {
           let cleanAdminWa = adminWhatsApp.replace(/\D/g, '');
           if (cleanAdminWa.startsWith('0')) cleanAdminWa = '62' + cleanAdminWa.substring(1);
 
           if (cleanAdminWa && cleanAdminWa !== sender) {
-            const adminMsg = `🚨 *PulseAI Handover Request*\n\nUser: wa.me/${sender}\nLast Message: "${message}"\n\nSilakan hubungi user ini segera.`;
+            // Build WIB timestamp (UTC+7)
+            const now = new Date();
+            const wibOptions: Intl.DateTimeFormatOptions = {
+              timeZone: 'Asia/Jakarta',
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            };
+            const wibTimestamp = now.toLocaleString('id-ID', wibOptions) + ' WIB';
+
+            // Truncate last message for safety (WA has 4096 char limit)
+            const previewMessage = message.length > 200
+              ? message.slice(0, 200) + '...'
+              : message;
+
+            const adminMsg =
+`🚨 *NOTIFIKASI HOT LEADS - ${company.toUpperCase()}* 🚨
+
+Ada calon peserta yang butuh bantuan admin manusia segera!
+
+👤 *Kontak Leads:*
+   📱 WhatsApp: wa.me/${sender}
+
+💬 *Pesan Terakhir:*
+"_${previewMessage}_"
+
+🕐 *Waktu:* ${wibTimestamp}
+
+➡️ Silakan balas langsung ke nomor di atas ya Kak!`;
+
             try {
               await axios.post(`${gatewayUrl}/api/session/send`, {
                 userId,
                 to: cleanAdminWa,
                 message: adminMsg
               });
+              fastify.log.info({ adminWa: cleanAdminWa, leadsWa: sender }, 'Hot leads notification sent to admin');
             } catch (err: any) {
               fastify.log.error({ err: err.message }, 'Failed to notify admin via WhatsApp');
             }
           }
         }
 
-        // Append note to the user's reply
+        // Append note to the user’s reply
         botReply += `\n\n_(Info: Permintaan Anda telah diteruskan ke tim kami dan agen manusia akan segera membalas pesan ini ya Kak!)_`;
       }
 
@@ -145,7 +179,20 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         botReply += `\n\n---\n🤖 Powered by PulseAI.biz.id - Buat Bot WA Tokomu Gratis Sekarang!`;
       }
 
-      // 6. Send the reply back via the WhatsApp Gateway
+      // 6. Simulate typing before sending — feels more human, proportional to reply length
+      const typingDurationMs = Math.min(botReply.length * 28, 4_000);
+      try {
+        await axios.post(`${gatewayUrl}/api/session/typing`, {
+          userId,
+          to: sender,
+          durationMs: typingDurationMs,
+        });
+      } catch (typingErr: any) {
+        // Non-critical — do not block sending the reply if typing indicator fails
+        fastify.log.warn({ err: typingErr.message }, 'Typing indicator request failed (non-fatal)');
+      }
+
+      // 7. Send the reply back via the WhatsApp Gateway
       try {
         await axios.post(`${gatewayUrl}/api/session/send`, {
           userId,

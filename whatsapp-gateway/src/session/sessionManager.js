@@ -279,6 +279,41 @@ export async function sendMessage(userId, recipientPhone, text) {
 }
 
 /**
+ * Sends a "typing..." presence indicator to a recipient, then waits for a
+ * natural-feeling delay before the caller sends the actual message.
+ *
+ * Delay is capped at 4 000 ms so long replies don't feel awkward.
+ *
+ * @param {string} userId
+ * @param {string} recipientPhone  - e.g. "628123456789"
+ * @param {number} [durationMs=2000] - how long to show "composing"
+ */
+export async function sendTypingIndicator(userId, recipientPhone, durationMs = 2_000) {
+  const session = sessions.get(userId);
+  if (!session || session.status !== 'open') return; // fail-safe: skip if disconnected
+
+  const jid = recipientPhone.includes('@')
+    ? recipientPhone
+    : `${recipientPhone}@s.whatsapp.net`;
+
+  // Clamp between 500 ms and 4 000 ms for a realistic feel
+  const clampedDuration = Math.min(Math.max(durationMs, 500), 4_000);
+
+  try {
+    await session.socket.sendPresenceUpdate('composing', jid);
+    logger.info({ userId, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing indicator started');
+
+    await new Promise((resolve) => setTimeout(resolve, clampedDuration));
+
+    await session.socket.sendPresenceUpdate('paused', jid);
+    logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Typing indicator stopped');
+  } catch (err) {
+    // Non-critical — do NOT let a presence failure block the actual reply
+    logger.warn({ userId, err: err.message }, '[SessionManager] Typing indicator failed (non-fatal)');
+  }
+}
+
+/**
  * Restore all existing sessions from disk on gateway startup.
  * This prevents users from being logged out after a VPS reboot.
  */

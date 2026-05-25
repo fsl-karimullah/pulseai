@@ -5,7 +5,8 @@
  */
 
 import express from 'express';
-import { startSession, getSessionStatus, sendMessage, destroySession } from '../session/sessionManager.js';
+import { startSession, getSessionStatus, sendMessage, destroySession, sendTypingIndicator } from '../session/sessionManager.js';
+
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -130,6 +131,35 @@ router.delete('/logout', async (req, res) => {
       message: 'Failed to logout session.',
       error: error.message,
     });
+  }
+});
+
+/**
+ * POST /api/session/typing
+ * Triggers a "composing" presence update for a given session and recipient.
+ * Body: { userId: "XXXX", to: "628123456789", durationMs: 2000 }
+ *
+ * Called by the Fastify webhook server BEFORE sending the actual reply so the
+ * end-user sees a realistic "typing..." indicator on their WhatsApp.
+ */
+router.post('/typing', async (req, res) => {
+  const { userId, to, durationMs } = req.body;
+
+  if (!userId || !to) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing required body fields: 'userId' and 'to'.",
+    });
+  }
+
+  try {
+    // Run presence update — this function awaits the full duration internally
+    await sendTypingIndicator(userId, to, durationMs ?? 2_000);
+    return res.json({ success: true, message: 'Typing indicator sent.' });
+  } catch (error) {
+    logger.error({ userId, to, error: error.message }, '[SessionRoute] Typing indicator failed');
+    // Return 200 even on failure so the caller doesn’t retry — this is non-critical
+    return res.json({ success: false, message: error.message });
   }
 });
 
