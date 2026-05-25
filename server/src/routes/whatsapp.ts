@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { supabase } from '../config/supabase';
 import { retrieveContext, buildContextBlock } from '../services/rag';
-import { generateChatResponse } from '../services/gemini';
+import { generateChatResponse, type ChatMessage } from '../services/gemini';
 import axios from 'axios';
 
 export default async function whatsappRoutes(fastify: FastifyInstance) {
@@ -74,6 +74,16 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         return reply.send({ success: false, message: 'Trial expired. Upgrade required.' });
       }
 
+      // 1.5. Fetch existing lead to get conversation history
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('org_id', userId)
+        .eq('whatsapp', sender)
+        .maybeSingle();
+
+      const history: ChatMessage[] = (lead?.metadata as any)?.history || [];
+
       // 2. RAG: retrieve relevant knowledge chunks
       const chunks = await retrieveContext(message, userId, 5);
       const context = buildContextBlock(chunks);
@@ -81,7 +91,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       // 3. Generate response using Gemini
       let { message: botReply, triggerLeadCapture } = await generateChatResponse(
         message,
-        [], // WhatsApp doesn't send history yet (could implement DB-backed history later)
+        history,
         context,
         botName,
         company,
@@ -91,31 +101,40 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         userId
       );
 
-      // 4. Handle Handover / Lead Capture
+      // 4. Update or Insert Lead with History & Handover State
+      const newHistory = [
+        ...history,
+        { role: 'user', content: message },
+        { role: 'assistant', content: botReply }
+      ].slice(-10);
+
+      const metadata = {
+        ...(lead?.metadata as Record<string, any> || {}),
+        history: newHistory,
+        source: triggerLeadCapture
+          ? 'whatsapp_handover'
+          : ((lead?.metadata as any)?.source || 'whatsapp_chat')
+      };
+
+      if (!lead) {
+        await supabase.from('leads').insert({
+          org_id: userId,
+          name: `WhatsApp User`,
+          whatsapp: sender,
+          last_message: message,
+          metadata
+        });
+      } else {
+        await supabase.from('leads')
+          .update({
+            last_message: message,
+            metadata
+          })
+          .eq('id', lead.id);
+      }
+
       if (triggerLeadCapture) {
         fastify.log.info({ sender }, 'Lead capture triggered from WhatsApp');
-        
-        // Check if lead already exists to avoid duplicates
-        const { data: existingLead } = await supabase
-          .from('leads')
-          .select('id')
-          .eq('org_id', userId)
-          .eq('whatsapp', sender)
-          .maybeSingle();
-
-        if (!existingLead) {
-          await supabase.from('leads').insert({
-            org_id: userId,
-            name: `WhatsApp User`,
-            whatsapp: sender,
-            last_message: message,
-            metadata: { source: 'whatsapp_handover' }
-          });
-        } else {
-          await supabase.from('leads')
-            .update({ last_message: message, updated_at: new Date().toISOString() })
-            .eq('id', existingLead.id);
-        }
 
         // ══ Notify Admin via WhatsApp — Rich Hot Leads Format ══
         if (adminWhatsApp) {
