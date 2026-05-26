@@ -138,30 +138,33 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
         // ══ Notify Admin via WhatsApp — Rich Hot Leads Format ══
         if (adminWhatsApp) {
-          let cleanAdminWa = adminWhatsApp.replace(/\D/g, '');
-          if (cleanAdminWa.startsWith('0')) cleanAdminWa = '62' + cleanAdminWa.substring(1);
+          const adminNumbers = adminWhatsApp.split(/[,;]+/).map((num: string) => num.trim()).filter(Boolean);
 
-          if (cleanAdminWa && cleanAdminWa !== sender) {
-            // Build WIB timestamp (UTC+7)
-            const now = new Date();
-            const wibOptions: Intl.DateTimeFormatOptions = {
-              timeZone: 'Asia/Jakarta',
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false,
-            };
-            const wibTimestamp = now.toLocaleString('id-ID', wibOptions) + ' WIB';
+          for (const rawNum of adminNumbers) {
+            let cleanAdminWa = rawNum.replace(/\D/g, '');
+            if (cleanAdminWa.startsWith('0')) cleanAdminWa = '62' + cleanAdminWa.substring(1);
 
-            // Truncate last message for safety (WA has 4096 char limit)
-            const previewMessage = message.length > 200
-              ? message.slice(0, 200) + '...'
-              : message;
+            if (cleanAdminWa && cleanAdminWa !== sender) {
+              // Build WIB timestamp (UTC+7)
+              const now = new Date();
+              const wibOptions: Intl.DateTimeFormatOptions = {
+                timeZone: 'Asia/Jakarta',
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              };
+              const wibTimestamp = now.toLocaleString('id-ID', wibOptions) + ' WIB';
 
-            const adminMsg =
+              // Truncate last message for safety (WA has 4096 char limit)
+              const previewMessage = message.length > 200
+                ? message.slice(0, 200) + '...'
+                : message;
+
+              const adminMsg =
 `🚨 *NOTIFIKASI HOT LEADS - ${company.toUpperCase()}* 🚨
 
 Ada calon peserta yang butuh bantuan admin manusia segera!
@@ -176,15 +179,16 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
 
 ➡️ Silakan balas langsung ke nomor di atas ya Kak!`;
 
-            try {
-              await axios.post(`${gatewayUrl}/api/session/send`, {
-                userId,
-                to: cleanAdminWa,
-                message: adminMsg
-              });
-              fastify.log.info({ adminWa: cleanAdminWa, leadsWa: sender }, 'Hot leads notification sent to admin');
-            } catch (err: any) {
-              fastify.log.error({ err: err.message }, 'Failed to notify admin via WhatsApp');
+              try {
+                await axios.post(`${gatewayUrl}/api/session/send`, {
+                  userId,
+                  to: cleanAdminWa,
+                  message: adminMsg
+                });
+                fastify.log.info({ adminWa: cleanAdminWa, leadsWa: sender }, 'Hot leads notification sent to admin');
+              } catch (err: any) {
+                fastify.log.error({ err: err.message, adminWa: cleanAdminWa }, 'Failed to notify admin via WhatsApp');
+              }
             }
           }
         }

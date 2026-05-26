@@ -114,7 +114,8 @@ const buildSystemPrompt = (
   
   let cleanWa = '';
   if (adminWhatsApp) {
-    cleanWa = adminWhatsApp.replace(/\D/g, ''); // Strip non-digits
+    const firstAdmin = adminWhatsApp.split(/[,;]+/)[0]?.trim() || '';
+    cleanWa = firstAdmin.replace(/\D/g, ''); // Strip non-digits
     if (cleanWa.startsWith('0')) {
       cleanWa = '62' + cleanWa.substring(1);
     }
@@ -422,7 +423,8 @@ export async function generateChatResponse(
   console.error('[Gemini] All attempts failed. Last error:', lastError?.message);
   let waLinkMessage = '';
   if (adminWhatsApp) {
-    let cleanWa = adminWhatsApp.replace(/\D/g, ''); // Strip non-digits
+    const firstAdmin = adminWhatsApp.split(/[,;]+/)[0]?.trim() || '';
+    let cleanWa = firstAdmin.replace(/\D/g, ''); // Strip non-digits
     if (cleanWa.startsWith('0')) {
       cleanWa = '62' + cleanWa.substring(1);
     }
@@ -560,7 +562,8 @@ export async function generateChatResponseStream(
       console.error(`[Gemini Stream] [Org: ${orgId}] All ${STREAM_MAX_RETRIES} attempts failed:`, error.message);
       let waLinkMessage = '';
       if (adminWhatsApp) {
-        let cleanWa = adminWhatsApp.replace(/\D/g, ''); // Strip non-digits
+        const firstAdmin = adminWhatsApp.split(/[,;]+/)[0]?.trim() || '';
+        let cleanWa = firstAdmin.replace(/\D/g, ''); // Strip non-digits
         if (cleanWa.startsWith('0')) {
           cleanWa = '62' + cleanWa.substring(1);
         }
@@ -578,7 +581,8 @@ export async function generateChatResponseStream(
   return (async function* () {
     let waLinkMessage = '';
     if (adminWhatsApp) {
-      let cleanWa = adminWhatsApp.replace(/\D/g, '');
+      const firstAdmin = adminWhatsApp.split(/[,;]+/)[0]?.trim() || '';
+      let cleanWa = firstAdmin.replace(/\D/g, '');
       if (cleanWa.startsWith('0')) {
         cleanWa = '62' + cleanWa.substring(1);
       }
