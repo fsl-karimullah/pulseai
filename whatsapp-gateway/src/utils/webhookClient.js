@@ -43,13 +43,13 @@ axiosRetry(webhookClient, {
 /**
  * Sends an incoming WhatsApp message payload to the Fastify webhook.
  *
- * @param {{ sender: string, message: string, userId: string }} payload
+ * @param {{ sender: string, message: string, userId: string, phoneLabel: string, botNumber: string | null }} payload
  * @returns {Promise<void>}
  */
 export async function sendToFastifyWebhook(payload) {
   try {
-    await webhookClient.post('', payload); // baseURL is the full endpoint
-    logger.info({ sender: payload.sender, userId: payload.userId }, '[Webhook] Delivered successfully');
+    await webhookClient.post('', payload); // baseURL is the full /whatsapp/incoming endpoint
+    logger.info({ sender: payload.sender, userId: payload.userId, botNumber: payload.botNumber }, '[Webhook] Delivered successfully');
   } catch (error) {
     logger.error(
       {
@@ -61,5 +61,26 @@ export async function sendToFastifyWebhook(payload) {
       '[Webhook] FAILED — all retries exhausted'
     );
     // Do NOT rethrow — a webhook delivery failure should not crash the session
+  }
+}
+
+/**
+ * Pushes a session status update (CONNECTED / DISCONNECTED) to the Fastify server
+ * so the whatsapp_sessions table stays in sync in real-time.
+ *
+ * @param {{ userId: string, phoneLabel: string, botNumber: string, status: string }} params
+ * @returns {Promise<void>}
+ */
+export async function pushSessionStatus({ userId, phoneLabel, botNumber, status }) {
+  if (!botNumber) return; // Can't push without the actual WA number
+
+  try {
+    // Derive the session-status URL from the same base, replacing the path
+    const statusUrl = config.fastifyWebhookUrl.replace(/\/whatsapp\/incoming.*$/, '') + '/whatsapp/session-status';
+    await webhookClient.post(statusUrl, { userId, phoneLabel, botNumber, status }, { baseURL: undefined });
+    logger.info({ userId, phoneLabel, botNumber, status }, '[Webhook] Session status pushed');
+  } catch (err) {
+    // Non-fatal — the incoming message handler will upsert status on the next message
+    logger.warn({ err: err.message, botNumber, status }, '[Webhook] Session status push failed (non-fatal)');
   }
 }

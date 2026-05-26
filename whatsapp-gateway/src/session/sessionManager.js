@@ -28,7 +28,7 @@ import path from 'path';
 
 import { config } from '../config/index.js';
 import { silentLogger, logger } from '../utils/logger.js';
-import { sendToFastifyWebhook } from '../utils/webhookClient.js';
+import { sendToFastifyWebhook, pushSessionStatus } from '../utils/webhookClient.js';
 
 // ─── In-memory session registry ──────────────────────────────────────────────
 // Map<`${userId}:${phoneLabel}`, SessionEntry>
@@ -154,6 +154,9 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
       // Resolve the actual connected phone number from the Baileys socket user object
       session.phoneNumber = socket.user?.id?.split(':')[0] ?? null;
       logger.info({ userId, phoneLabel, phoneNumber: session.phoneNumber }, '[SessionManager] Session connected (OPEN)');
+
+      // Notify the Fastify server so whatsapp_sessions.status becomes 'CONNECTED'
+      pushSessionStatus({ userId, phoneLabel, botNumber: session.phoneNumber, status: 'CONNECTED' });
     }
 
     if (connection === 'close') {
@@ -164,12 +167,14 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
       logger.warn({ userId, phoneLabel, reason, loggedOut }, '[SessionManager] Connection closed');
 
       if (loggedOut) {
-        // User explicitly logged out from their phone — purge local state
+        // User explicitly logged out — notify server, then purge local state
+        pushSessionStatus({ userId, phoneLabel, botNumber: session.phoneNumber, status: 'DISCONNECTED' });
         logger.warn({ userId, phoneLabel }, '[SessionManager] Logged out — removing session state');
         sessions.delete(key);
         fs.rmSync(sessionDir(userId, phoneLabel), { recursive: true, force: true });
       } else {
-        // Transient disconnect (network error, VPS restart, etc.) — auto-reconnect
+        // Transient disconnect — notify server then auto-reconnect
+        pushSessionStatus({ userId, phoneLabel, botNumber: session.phoneNumber, status: 'DISCONNECTED' });
         logger.info({ userId, phoneLabel }, '[SessionManager] Transient disconnect — reconnecting in 3s');
         setTimeout(() => createSession(userId, phoneLabel, opts), 3_000);
       }
@@ -203,11 +208,16 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
       // Clean up sender: strip @s.whatsapp.net suffix
       const sender = remoteJid.replace('@s.whatsapp.net', '');
 
-      logger.info({ userId, phoneLabel, sender, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
+      // botNumber is the actual WhatsApp phone number of this bot instance.
+      // The Fastify server uses it to look up the owning tenant in whatsapp_sessions,
+      // enabling multiple bot numbers to share the same org knowledge base.
+      const botNumber = session.phoneNumber ?? null;
 
-      // Forward to Fastify webhook — include phoneLabel so the backend
-      // knows which WA number received this message and can route/reply accordingly
-      await sendToFastifyWebhook({ sender, message: text, userId, phoneLabel });
+      logger.info({ userId, phoneLabel, botNumber, sender, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
+
+      // Forward to Fastify webhook — include both phoneLabel and botNumber.
+      // botNumber lets the server resolve orgId via: SELECT org_id FROM whatsapp_sessions WHERE phone_number = botNumber
+      await sendToFastifyWebhook({ sender, message: text, userId, phoneLabel, botNumber });
     }
   });
 }
