@@ -1,15 +1,16 @@
 /**
  * session/sessionManager.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Core multi-tenant Baileys session manager.
+ * Core multi-tenant, multi-number Baileys session manager.
  *
  * Responsibilities:
- *  - Maintain an in-memory registry of active Baileys sockets keyed by userId
- *  - Persist auth state per-user under `config.sessionsDir/<userId>/`
+ *  - Maintain an in-memory registry keyed by `${userId}:${phoneLabel}`
+ *  - Support multiple WhatsApp numbers per org (multi-instance per tenant)
+ *  - Persist auth state under `config.sessionsDir/<userId>/<phoneLabel>/`
  *  - Emit QR codes (as Base64 PNG data URIs) to callers
- *  - Forward valid incoming messages to the Fastify webhook
- *  - Recover existing sessions on gateway startup (no logout on restart)
- *  - Gracefully destroy sockets on SIGTERM/SIGINT
+ *  - Forward valid incoming messages to the Fastify webhook (with phoneLabel)
+ *  - Recover all sessions on gateway startup (no logout on restart)
+ *  - Gracefully destroy all sockets on SIGTERM/SIGINT
  */
 
 import {
@@ -30,17 +31,31 @@ import { silentLogger, logger } from '../utils/logger.js';
 import { sendToFastifyWebhook } from '../utils/webhookClient.js';
 
 // ─── In-memory session registry ──────────────────────────────────────────────
-// Map<userId, { socket: WASocket, qrResolvers: Function[], status: string }>
+// Map<`${userId}:${phoneLabel}`, SessionEntry>
+// SessionEntry = { userId, phoneLabel, socket, status, qrBase64, phoneNumber }
 const sessions = new Map();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Returns the filesystem path for a user's Baileys auth state directory.
+ * Builds the composite session map key.
  * @param {string} userId
+ * @param {string} phoneLabel
+ * @returns {string}
  */
-function sessionDir(userId) {
-  return path.join(config.sessionsDir, userId);
+function buildKey(userId, phoneLabel) {
+  return `${userId}:${phoneLabel}`;
+}
+
+/**
+ * Returns the filesystem path for a session's Baileys auth state directory.
+ * Structure: <sessionsDir>/<userId>/<phoneLabel>/
+ * @param {string} userId
+ * @param {string} phoneLabel
+ * @returns {string}
+ */
+function sessionDir(userId, phoneLabel) {
+  return path.join(config.sessionsDir, userId, phoneLabel);
 }
 
 /**
@@ -65,22 +80,24 @@ async function qrToBase64(qrString) {
 // ─── Core session lifecycle ───────────────────────────────────────────────────
 
 /**
- * Creates (or re-creates) a Baileys socket for the given userId.
+ * Creates (or re-creates) a Baileys socket for a given userId + phoneLabel pair.
  *
  * @param {string} userId
+ * @param {string} [phoneLabel='default']  - Human label, e.g. 'sales', 'support', 'default'
  * @param {{ onQr?: (base64: string) => void }} [opts]
  * @returns {Promise<void>}
  */
-export async function createSession(userId, opts = {}) {
-  const dir = sessionDir(userId);
+export async function createSession(userId, phoneLabel = 'default', opts = {}) {
+  const key = buildKey(userId, phoneLabel);
+  const dir = sessionDir(userId, phoneLabel);
   fs.mkdirSync(dir, { recursive: true });
 
-  // If a socket already exists and is open, destroy it first
-  if (sessions.has(userId)) {
-    await destroySession(userId, false);
+  // If a socket already exists, destroy it cleanly before re-creating
+  if (sessions.has(key)) {
+    await destroySession(userId, phoneLabel, false);
   }
 
-  logger.info({ userId }, '[SessionManager] Initialising session');
+  logger.info({ userId, phoneLabel, key }, '[SessionManager] Initialising session');
 
   const { state, saveCreds } = await useMultiFileAuthState(dir);
   const { version } = await fetchLatestBaileysVersion();
@@ -88,8 +105,8 @@ export async function createSession(userId, opts = {}) {
   const socket = makeWASocket({
     version,
     auth: state,
-    logger: silentLogger, // suppress ALL Baileys internal logs
-    printQRInTerminal: false, // we handle QR ourselves
+    logger: silentLogger,           // suppress ALL Baileys internal logs
+    printQRInTerminal: false,        // we handle QR ourselves
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
     connectTimeoutMs: 30_000,
@@ -97,10 +114,13 @@ export async function createSession(userId, opts = {}) {
   });
 
   // Store session metadata
-  sessions.set(userId, {
+  sessions.set(key, {
+    userId,
+    phoneLabel,
     socket,
-    status: 'connecting', // 'connecting' | 'qr' | 'open' | 'closed'
+    status: 'connecting',  // 'connecting' | 'qr' | 'open' | 'closed'
     qrBase64: null,
+    phoneNumber: null,     // resolved once the socket successfully connects
   });
 
   // ── Event: credentials updated ────────────────────────────────────────────
@@ -109,7 +129,7 @@ export async function createSession(userId, opts = {}) {
   // ── Event: connection state changes ──────────────────────────────────────
   socket.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
-    const session = sessions.get(userId);
+    const session = sessions.get(key);
     if (!session) return;
 
     // New QR code received
@@ -118,19 +138,22 @@ export async function createSession(userId, opts = {}) {
         const base64 = await qrToBase64(qr);
         session.status = 'qr';
         session.qrBase64 = base64;
-        logger.info({ userId }, '[SessionManager] QR code generated');
+        logger.info({ userId, phoneLabel }, '[SessionManager] QR code generated');
 
-        // Call the optional onQr callback so the route handler can respond
+        // Invoke the optional onQr callback so the HTTP handler can respond
         opts.onQr?.(base64);
       } catch (err) {
-        logger.error({ userId, err: err.message }, '[SessionManager] Failed to generate QR');
+        logger.error({ userId, phoneLabel, err: err.message }, '[SessionManager] Failed to generate QR');
       }
     }
 
     if (connection === 'open') {
       session.status = 'open';
-      session.qrBase64 = null; // QR is no longer relevant
-      logger.info({ userId }, '[SessionManager] Session connected (OPEN)');
+      session.qrBase64 = null;
+
+      // Resolve the actual connected phone number from the Baileys socket user object
+      session.phoneNumber = socket.user?.id?.split(':')[0] ?? null;
+      logger.info({ userId, phoneLabel, phoneNumber: session.phoneNumber }, '[SessionManager] Session connected (OPEN)');
     }
 
     if (connection === 'close') {
@@ -138,29 +161,29 @@ export async function createSession(userId, opts = {}) {
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const loggedOut = reason === DisconnectReason.loggedOut;
 
-      logger.warn({ userId, reason, loggedOut }, '[SessionManager] Connection closed');
+      logger.warn({ userId, phoneLabel, reason, loggedOut }, '[SessionManager] Connection closed');
 
       if (loggedOut) {
         // User explicitly logged out from their phone — purge local state
-        logger.warn({ userId }, '[SessionManager] Logged out — removing session state');
-        sessions.delete(userId);
-        fs.rmSync(sessionDir(userId), { recursive: true, force: true });
+        logger.warn({ userId, phoneLabel }, '[SessionManager] Logged out — removing session state');
+        sessions.delete(key);
+        fs.rmSync(sessionDir(userId, phoneLabel), { recursive: true, force: true });
       } else {
-        // Transient disconnect (network, server restart, etc.) — auto-reconnect
-        logger.info({ userId }, '[SessionManager] Transient disconnect — reconnecting in 3s');
-        setTimeout(() => createSession(userId, opts), 3_000);
+        // Transient disconnect (network error, VPS restart, etc.) — auto-reconnect
+        logger.info({ userId, phoneLabel }, '[SessionManager] Transient disconnect — reconnecting in 3s');
+        setTimeout(() => createSession(userId, phoneLabel, opts), 3_000);
       }
     }
   });
 
   // ── Event: incoming messages ──────────────────────────────────────────────
   socket.ev.on('messages.upsert', async ({ messages, type }) => {
-    // Only process 'notify' events (real incoming messages, not history sync)
+    // Only process 'notify' type (real-time incoming messages, not history sync)
     if (type !== 'notify') return;
 
     for (const msg of messages) {
-      // ── State guards ────────────────────────────────────────────────────
-      // 1. Skip messages sent by this bot itself
+      // ── Guards — skip messages we should not process ─────────────────────
+      // 1. Skip messages sent by this bot itself (prevents echo/loop)
       if (msg.key.fromMe) continue;
 
       // 2. Skip group chats
@@ -175,16 +198,16 @@ export async function createSession(userId, opts = {}) {
         msg.message?.conversation ??
         msg.message?.extendedTextMessage?.text ??
         '';
-
       if (!text.trim()) continue;
 
       // Clean up sender: strip @s.whatsapp.net suffix
       const sender = remoteJid.replace('@s.whatsapp.net', '');
 
-      logger.info({ userId, sender, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
+      logger.info({ userId, phoneLabel, sender, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
 
-      // Forward to Fastify webhook (non-blocking, retried internally)
-      await sendToFastifyWebhook({ sender, message: text, userId });
+      // Forward to Fastify webhook — include phoneLabel so the backend
+      // knows which WA number received this message and can route/reply accordingly
+      await sendToFastifyWebhook({ sender, message: text, userId, phoneLabel });
     }
   });
 }
@@ -192,98 +215,129 @@ export async function createSession(userId, opts = {}) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Starts a new session or returns the current QR/status.
- * Resolves with the current Base64 QR (if pending) or null (if already open).
+ * Starts a new session or returns the current QR/status for a given number slot.
  *
  * @param {string} userId
- * @returns {Promise<{ status: string, qrBase64: string | null }>}
+ * @param {string} [phoneLabel='default']
+ * @returns {Promise<{ status: string, qrBase64: string | null, phoneLabel: string }>}
  */
-export async function startSession(userId) {
-  // If session already exists and is open, nothing to do
-  const existing = sessions.get(userId);
+export async function startSession(userId, phoneLabel = 'default') {
+  const key = buildKey(userId, phoneLabel);
+  const existing = sessions.get(key);
+
   if (existing?.status === 'open') {
-    return { status: 'open', qrBase64: null };
+    return { status: 'open', qrBase64: null, phoneLabel };
   }
 
-  // If we are mid-connection and already have a QR, return it immediately
   if (existing?.status === 'qr' && existing.qrBase64) {
-    return { status: 'qr', qrBase64: existing.qrBase64 };
+    return { status: 'qr', qrBase64: existing.qrBase64, phoneLabel };
   }
 
   // Otherwise, create a fresh session and wait for the first QR
   return new Promise((resolve) => {
-    createSession(userId, {
+    createSession(userId, phoneLabel, {
       onQr: (base64) => {
-        // Only resolve on the first QR emission
-        resolve({ status: 'qr', qrBase64: base64 });
+        resolve({ status: 'qr', qrBase64: base64, phoneLabel });
       },
     });
 
     // Safety timeout — resolve without QR if Baileys takes too long
     setTimeout(() => {
-      const s = sessions.get(userId);
+      const s = sessions.get(key);
       if (s?.status === 'open') {
-        resolve({ status: 'open', qrBase64: null });
+        resolve({ status: 'open', qrBase64: null, phoneLabel });
       } else {
-        resolve({ status: s?.status ?? 'connecting', qrBase64: s?.qrBase64 ?? null });
+        resolve({ status: s?.status ?? 'connecting', qrBase64: s?.qrBase64 ?? null, phoneLabel });
       }
     }, 25_000);
   });
 }
 
 /**
- * Returns live status of a session.
+ * Returns live status of a single session.
+ *
  * @param {string} userId
- * @returns {{ status: string, qrBase64: string | null } | null}
+ * @param {string} [phoneLabel='default']
+ * @returns {{ status: string, qrBase64: string | null, phoneLabel: string, phoneNumber: string | null } | null}
  */
-export function getSessionStatus(userId) {
-  const s = sessions.get(userId);
+export function getSessionStatus(userId, phoneLabel = 'default') {
+  const s = sessions.get(buildKey(userId, phoneLabel));
   if (!s) return null;
-  return { status: s.status, qrBase64: s.qrBase64 };
+  return {
+    status: s.status,
+    qrBase64: s.qrBase64,
+    phoneLabel: s.phoneLabel,
+    phoneNumber: s.phoneNumber ?? null,
+  };
 }
 
 /**
- * Gracefully closes a Baileys socket.
+ * Lists all active sessions belonging to a specific userId (org).
+ * Useful for the dashboard to show all connected WA numbers.
+ *
  * @param {string} userId
+ * @returns {Array<{ phoneLabel: string, status: string, phoneNumber: string | null }>}
+ */
+export function listSessions(userId) {
+  const result = [];
+  for (const [, session] of sessions.entries()) {
+    if (session.userId === userId) {
+      result.push({
+        phoneLabel: session.phoneLabel,
+        status: session.status,
+        phoneNumber: session.phoneNumber ?? null,
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Gracefully closes a single Baileys socket.
+ *
+ * @param {string} userId
+ * @param {string} [phoneLabel='default']
  * @param {boolean} [removeFromMap=true]
  */
-export async function destroySession(userId, removeFromMap = true) {
-  const session = sessions.get(userId);
+export async function destroySession(userId, phoneLabel = 'default', removeFromMap = true) {
+  const key = buildKey(userId, phoneLabel);
+  const session = sessions.get(key);
   if (!session) return;
 
   try {
     await session.socket.logout();
   } catch {
-    // socket.end() is the nuclear option if logout fails
+    // socket.end() is the nuclear option when logout fails
     session.socket.end(undefined);
   } finally {
-    if (removeFromMap) sessions.delete(userId);
-    logger.info({ userId }, '[SessionManager] Session destroyed');
+    if (removeFromMap) sessions.delete(key);
+    logger.info({ userId, phoneLabel }, '[SessionManager] Session destroyed');
   }
 }
 
 /**
  * Sends a text message from the authenticated session to a recipient JID.
- * Optionally simulates a typing indicator before sending.
+ * Optionally simulates a typing indicator before sending for a human-like feel.
  *
  * @param {string} userId
- * @param {string} recipientPhone  - e.g. "628123456789"
+ * @param {string} phoneLabel          - Which WA number slot to send from
+ * @param {string} recipientPhone      - e.g. "628123456789"
  * @param {string} text
- * @param {number} [typingDurationMs] - optional delay in ms to simulate typing
+ * @param {number} [typingDurationMs]  - optional composing duration in ms
  */
-export async function sendMessage(userId, recipientPhone, text, typingDurationMs = null) {
-  const session = sessions.get(userId);
+export async function sendMessage(userId, phoneLabel = 'default', recipientPhone, text, typingDurationMs = null) {
+  const session = sessions.get(buildKey(userId, phoneLabel));
   if (!session || session.status !== 'open') {
-    throw new Error(`Session for userId '${userId}' is not connected.`);
+    throw new Error(`Session for userId '${userId}' / phoneLabel '${phoneLabel}' is not connected.`);
   }
+
   const jid = recipientPhone.includes('@') ? recipientPhone : `${recipientPhone}@s.whatsapp.net`;
 
   if (typingDurationMs && typingDurationMs > 0) {
     const clampedDuration = Math.min(Math.max(typingDurationMs, 500), 4_000);
     try {
       // Step 1: Subscribe to the contact's presence channel.
-      // This is MANDATORY — Baileys silently drops sendPresenceUpdate
-      // if the presence channel hasn't been opened first.
+      // MANDATORY — Baileys silently drops sendPresenceUpdate without this.
       await session.socket.presenceSubscribe(jid);
 
       // Step 2: Give WA server ~300ms to register the subscription
@@ -291,7 +345,7 @@ export async function sendMessage(userId, recipientPhone, text, typingDurationMs
 
       // Step 3: Send "composing" (typing...) indicator
       await session.socket.sendPresenceUpdate('composing', jid);
-      logger.info({ userId, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing simulation started');
+      logger.info({ userId, phoneLabel, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing simulation started');
 
       // Step 4: Hold for the typing duration
       await new Promise((resolve) => setTimeout(resolve, clampedDuration));
@@ -301,30 +355,28 @@ export async function sendMessage(userId, recipientPhone, text, typingDurationMs
 
       // Step 6: Clear the typing indicator (reset presence to 'available')
       await session.socket.sendPresenceUpdate('available', jid);
-      logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Message sent with typing simulation');
+      logger.info({ userId, phoneLabel, recipient: recipientPhone }, '[SessionManager] Message sent with typing simulation');
       return;
     } catch (err) {
-      logger.warn({ userId, err: err.message }, '[SessionManager] Typing simulation failed (non-fatal), falling back to direct send');
+      logger.warn({ userId, phoneLabel, err: err.message }, '[SessionManager] Typing simulation failed (non-fatal) — falling back to direct send');
     }
   }
 
-  // Direct send (if no typing simulation requested or if it failed)
+  // Direct send (no typing simulation requested, or simulation failed)
   await session.socket.sendMessage(jid, { text });
-  logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Message sent');
+  logger.info({ userId, phoneLabel, recipient: recipientPhone }, '[SessionManager] Message sent');
 }
 
 /**
- * Sends a "typing..." presence indicator to a recipient, then waits for a
- * natural-feeling delay before the caller sends the actual message.
- *
- * ⚠️  Baileys REQUIRES presenceSubscribe(jid) to be called first.
+ * Sends a standalone "typing..." presence indicator without sending a message.
  *
  * @param {string} userId
- * @param {string} recipientPhone  - e.g. "628123456789"
- * @param {number} [durationMs=2000] - how long to show "composing"
+ * @param {string} [phoneLabel='default']
+ * @param {string} recipientPhone
+ * @param {number} [durationMs=2000]
  */
-export async function sendTypingIndicator(userId, recipientPhone, durationMs = 2_000) {
-  const session = sessions.get(userId);
+export async function sendTypingIndicator(userId, phoneLabel = 'default', recipientPhone, durationMs = 2_000) {
+  const session = sessions.get(buildKey(userId, phoneLabel));
   if (!session || session.status !== 'open') return;
 
   const jid = recipientPhone.includes('@')
@@ -337,58 +389,73 @@ export async function sendTypingIndicator(userId, recipientPhone, durationMs = 2
     await session.socket.presenceSubscribe(jid);
     await new Promise((resolve) => setTimeout(resolve, 300));
     await session.socket.sendPresenceUpdate('composing', jid);
-    logger.info({ userId, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing indicator started');
+    logger.info({ userId, phoneLabel, recipient: recipientPhone, durationMs: clampedDuration }, '[SessionManager] Typing indicator started');
 
     await new Promise((resolve) => setTimeout(resolve, clampedDuration));
 
     await session.socket.sendPresenceUpdate('available', jid);
-    logger.info({ userId, recipient: recipientPhone }, '[SessionManager] Typing indicator stopped');
+    logger.info({ userId, phoneLabel, recipient: recipientPhone }, '[SessionManager] Typing indicator stopped');
   } catch (err) {
-    logger.warn({ userId, err: err.message }, '[SessionManager] Typing indicator failed (non-fatal)');
+    logger.warn({ userId, phoneLabel, err: err.message }, '[SessionManager] Typing indicator failed (non-fatal)');
   }
 }
 
 /**
- * Restore all existing sessions from disk on gateway startup.
+ * Restores all existing sessions from disk on gateway startup.
+ * Walks a two-level directory: <sessionsDir>/<userId>/<phoneLabel>/
  * This prevents users from being logged out after a VPS reboot.
  */
 export async function restoreAllSessions() {
   ensureSessionsRoot();
-  let entries;
+
+  let userDirs;
   try {
-    entries = fs.readdirSync(config.sessionsDir, { withFileTypes: true });
+    userDirs = fs.readdirSync(config.sessionsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
   } catch {
     return;
   }
 
-  const userIds = entries
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
-
-  if (userIds.length === 0) {
+  if (userDirs.length === 0) {
     logger.info('[SessionManager] No existing sessions to restore');
     return;
   }
 
-  logger.info({ count: userIds.length }, '[SessionManager] Restoring existing sessions');
+  let totalRestored = 0;
 
-  for (const userId of userIds) {
-    // Check if creds.json exists (i.e. previously authenticated)
-    const credsPath = path.join(sessionDir(userId), 'creds.json');
-    if (!fs.existsSync(credsPath)) continue;
+  for (const userDir of userDirs) {
+    const userId = userDir.name;
+    const userPath = path.join(config.sessionsDir, userId);
 
-    // Restore silently — no QR callback needed (user already logged in)
-    createSession(userId).catch((err) =>
-      logger.error({ userId, err: err.message }, '[SessionManager] Failed to restore session')
-    );
+    let phoneDirs;
+    try {
+      phoneDirs = fs.readdirSync(userPath, { withFileTypes: true }).filter((e) => e.isDirectory());
+    } catch {
+      continue;
+    }
+
+    for (const phoneDir of phoneDirs) {
+      const phoneLabel = phoneDir.name;
+      // Only restore if creds.json exists (i.e. previously authenticated)
+      const credsPath = path.join(userPath, phoneLabel, 'creds.json');
+      if (!fs.existsSync(credsPath)) continue;
+
+      totalRestored++;
+      createSession(userId, phoneLabel).catch((err) =>
+        logger.error({ userId, phoneLabel, err: err.message }, '[SessionManager] Failed to restore session')
+      );
+    }
   }
+
+  logger.info({ count: totalRestored }, '[SessionManager] Restoring existing sessions');
 }
 
 /**
  * Gracefully destroys ALL active sessions. Called on SIGTERM/SIGINT.
  */
 export async function destroyAllSessions() {
-  const userIds = [...sessions.keys()];
-  logger.info({ count: userIds.length }, '[SessionManager] Destroying all sessions (graceful shutdown)');
-  await Promise.allSettled(userIds.map((id) => destroySession(id, true)));
+  const allSessions = [...sessions.values()];
+  logger.info({ count: allSessions.length }, '[SessionManager] Destroying all sessions (graceful shutdown)');
+  await Promise.allSettled(
+    allSessions.map((session) => destroySession(session.userId, session.phoneLabel, true))
+  );
 }

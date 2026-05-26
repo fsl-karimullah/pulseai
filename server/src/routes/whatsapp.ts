@@ -10,12 +10,17 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
   // Endpoint to receive incoming WhatsApp messages from the Gateway
   fastify.post('/whatsapp/incoming', async (request, reply) => {
     try {
-      const { sender, message, userId } = request.body as { sender: string; message: string; userId: string };
+      const { sender, message, userId, phoneLabel = 'default' } = request.body as {
+        sender: string;
+        message: string;
+        userId: string;
+        phoneLabel?: string;
+      };
       
       const secret = request.headers['x-gateway-secret'];
       // Optional: Validate gateway secret here
       
-      fastify.log.info({ sender, userId, preview: message?.slice(0, 20) }, 'Received WhatsApp Webhook');
+      fastify.log.info({ sender, userId, phoneLabel, preview: message?.slice(0, 20) }, 'Received WhatsApp Webhook');
 
       // 1. Fetch bot settings for this user/org
       let { data: settings } = await supabase
@@ -60,11 +65,12 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       const isExpired = !isPremium && new Date() > trialExpiryDate;
 
       if (isExpired) {
-        fastify.log.warn({ userId, sender }, 'Trial expired. Blocking WhatsApp response.');
-        // Send a polite fallback message to the user
+        fastify.log.warn({ userId, sender, phoneLabel }, 'Trial expired. Blocking WhatsApp response.');
+        // Send a polite fallback message to the user via the correct number slot
         try {
           await axios.post(`${gatewayUrl}/api/session/send`, {
             userId,
+            phoneLabel,
             to: sender,
             message: 'Mohon maaf bot sedang ditangguhkan'
           });
@@ -182,10 +188,11 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
               try {
                 await axios.post(`${gatewayUrl}/api/session/send`, {
                   userId,
+                  phoneLabel,  // use the same WA number that received the lead
                   to: cleanAdminWa,
                   message: adminMsg
                 });
-                fastify.log.info({ adminWa: cleanAdminWa, leadsWa: sender }, 'Hot leads notification sent to admin');
+                fastify.log.info({ adminWa: cleanAdminWa, leadsWa: sender, phoneLabel }, 'Hot leads notification sent to admin');
               } catch (err: any) {
                 fastify.log.error({ err: err.message, adminWa: cleanAdminWa }, 'Failed to notify admin via WhatsApp');
               }
@@ -203,15 +210,17 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
       }
 
       // 6. Send the reply back via the WhatsApp Gateway (with typing simulation integrated)
+      // Use phoneLabel so the reply comes from the same WA number that received the message
       const typingDurationMs = Math.min(botReply.length * 28, 4_000);
       try {
         await axios.post(`${gatewayUrl}/api/session/send`, {
           userId,
+          phoneLabel,
           to: sender,
           message: botReply,
           typingDurationMs,
         });
-        fastify.log.info({ sender }, 'Successfully replied via WhatsApp Gateway (with typing simulation)');
+        fastify.log.info({ sender, phoneLabel }, 'Successfully replied via WhatsApp Gateway (with typing simulation)');
       } catch (gatewayErr: any) {
         fastify.log.error({ err: gatewayErr.message }, 'Failed to send reply via Gateway');
       }
