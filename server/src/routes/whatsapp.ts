@@ -3,6 +3,73 @@ import { supabase } from '../config/supabase';
 import { retrieveContext, buildContextBlock } from '../services/rag';
 import { generateChatResponse, type ChatMessage } from '../services/gemini';
 import axios from 'axios';
+import { authenticate } from '../middleware/auth';
+
+// Helper to identify if a number is a WhatsApp Linked ID (LID)
+function isLidNumber(num: string): boolean {
+  // LIDs are typically 14-16 digits starting with '8'.
+  // Indonesian numbers start with '628' or '08' and won't match this criteria.
+  return num.startsWith('8') && num.length >= 14;
+}
+
+// Helper to extract phone number from message text or history
+function extractIndonesianPhoneNumber(text: string): string | null {
+  // Find all sequences that look like phone numbers
+  // Matches: +62 8..., 628..., 08... with optional spaces/hyphens/parentheses
+  const regex = /(?:\+?62|0)[0-9\-\s()]{8,20}/g;
+  const matches = text.match(regex);
+  if (!matches) return null;
+
+  for (const match of matches) {
+    // Clean all non-digit characters
+    let cleaned = match.replace(/\D/g, '');
+    
+    // Normalize 08... to 628...
+    if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1);
+    }
+    
+    // Validate length: Indonesian mobile numbers are usually 10-13 digits long (without country code)
+    // Which means 12-15 digits long with '62' prefix.
+    // Let's be flexible and allow 11 to 15 digits total.
+    if (cleaned.startsWith('628') && cleaned.length >= 11 && cleaned.length <= 15) {
+      return cleaned;
+    }
+  }
+  
+  return null;
+}
+
+function getLeadPhoneNumber(
+  currentMessage: string,
+  history: ChatMessage[],
+  fallbackSender: string,
+  existingPhone?: string | null
+): string {
+  // Combine all user messages from history and current message
+  const userMessages = history
+    .filter(m => m.role === 'user')
+    .map(m => m.content)
+    .concat(currentMessage);
+
+  // Try to find a phone number in any of these messages, starting from the most recent
+  for (let i = userMessages.length - 1; i >= 0; i--) {
+    const phone = extractIndonesianPhoneNumber(userMessages[i]);
+    if (phone) return phone;
+  }
+
+  // If no phone number is found in the chat, check if we have a valid (non-LID) phone number from the existing lead record
+  if (existingPhone && !isLidNumber(existingPhone)) {
+    return existingPhone;
+  }
+
+  // Fallback: use sender JID stripped of suffix
+  let clean = fallbackSender.replace(/@(s\.whatsapp\.net|lid)$/, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.substring(1);
+  }
+  return clean;
+}
 
 export default async function whatsappRoutes(fastify: FastifyInstance) {
   const gatewayUrl = process.env.WHATSAPP_GATEWAY_URL;
@@ -33,12 +100,14 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         userId,
         phoneLabel = 'default',
         botNumber,
+        replyJid, // Full JID with @lid or @s.whatsapp.net suffix — use for sending replies
       } = request.body as {
         sender: string;
         message: string;
         userId: string;
         phoneLabel?: string;
         botNumber?: string | null;
+        replyJid?: string; // May differ from sender when LIDs are involved
       };
 
       // ── Step 0: Basic input validation ─────────────────────────────────
@@ -46,6 +115,10 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         fastify.log.warn({ sender, userId, botNumber }, 'Incoming webhook missing required fields');
         return reply.status(400).send({ success: false, message: 'Missing required fields: sender, message, userId' });
       }
+
+      // The address we actually send replies TO — use replyJid when provided (handles @lid contacts)
+      // Falls back to raw sender if gateway didn't send replyJid (backward compat)
+      const replyTo = replyJid || sender;
 
       const secret = request.headers['x-gateway-secret'];
       // Optional: validate `secret` against process.env.GATEWAY_SECRET here
@@ -112,6 +185,19 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         );
       }
 
+      // ── Step 1.5: Log incoming customer message ────────────────────────
+      try {
+        await supabase.from('chat_logs').insert({
+          tenant_id: resolvedOrgId,
+          bot_number: botNumber ?? '',
+          customer_number: sender,
+          sender: 'customer',
+          message_text: message,
+        });
+      } catch (logErr: any) {
+        fastify.log.warn({ err: logErr.message }, 'Failed to log customer message to chat_logs');
+      }
+
       // ── Step 2: Mark session as CONNECTED (keep status fresh) ──────────
       // This is a no-op upsert if the row already exists with CONNECTED status.
       if (botNumber) {
@@ -175,10 +261,19 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         fastify.log.warn({ resolvedOrgId, sender, phoneLabel }, 'Trial expired — blocking response');
         try {
           await axios.post(`${gatewayUrl}/api/session/send`, {
-            userId,        // gateway session key — unchanged
+            userId,
             phoneLabel,
-            to: sender,
+            to: replyTo,
             message: 'Mohon maaf bot sedang ditangguhkan',
+          });
+
+          // Log bot suspension message to chat_logs
+          await supabase.from('chat_logs').insert({
+            tenant_id: resolvedOrgId,
+            bot_number: botNumber ?? '',
+            customer_number: sender,
+            sender: 'bot',
+            message_text: 'Mohon maaf bot sedang ditangguhkan',
           });
         } catch (err: any) {
           fastify.log.error({ err: err.message }, 'Failed to send expiration notice via Gateway');
@@ -187,11 +282,12 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       }
 
       // ── Step 5: Load conversation history from leads ────────────────────
+      const cleanSender = sender.replace(/@(s\.whatsapp\.net|lid)$/, '');
       const { data: lead } = await supabase
         .from('leads')
         .select('*')
         .eq('org_id', resolvedOrgId)    // ← scoped to this tenant
-        .eq('whatsapp', sender)
+        .or(`whatsapp.eq.${cleanSender},metadata->>jid.eq.${cleanSender}`)
         .maybeSingle();
 
       const history: ChatMessage[] = (lead?.metadata as any)?.history || [];
@@ -202,7 +298,11 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       const chunks  = await retrieveContext(message, resolvedOrgId, 5);
       const context = buildContextBlock(chunks);
 
-      // ── Step 7: Generate AI response ────────────────────────────────────
+      // ── Step 7: Determine if we have a valid phone number ───────────────
+      const leadPhone = getLeadPhoneNumber(message, history, cleanSender, lead?.whatsapp);
+      const hasValidPhone = !isLidNumber(leadPhone);
+
+      // ── Step 8: Generate AI response ────────────────────────────────────
       let { message: botReply, triggerLeadCapture } = await generateChatResponse(
         message,
         history,
@@ -212,10 +312,17 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         tone,
         instructions,
         adminWhatsApp,
-        resolvedOrgId
+        resolvedOrgId,
+        hasValidPhone
       );
 
-      // ── Step 8: Persist lead + conversation history ──────────────────────
+      // Programmatically enforce lead capture delay until phone number is known
+      // This prevents the LLM from hallucinating true prematurely
+      if (!hasValidPhone) {
+        triggerLeadCapture = false;
+      }
+
+      // ── Step 9: Persist lead + conversation history ──────────────────────
       const newHistory = [
         ...history,
         { role: 'user',      content: message  },
@@ -225,6 +332,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       const metadata = {
         ...(lead?.metadata as Record<string, any> || {}),
         history: newHistory,
+        jid: cleanSender,
         source: triggerLeadCapture
           ? 'whatsapp_handover'
           : ((lead?.metadata as any)?.source || 'whatsapp_chat'),
@@ -234,13 +342,17 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         await supabase.from('leads').insert({
           org_id:       resolvedOrgId,
           name:         'WhatsApp User',
-          whatsapp:     sender,
+          whatsapp:     leadPhone,
           last_message: message,
           metadata,
         });
       } else {
         await supabase.from('leads')
-          .update({ last_message: message, metadata })
+          .update({ 
+            whatsapp:     leadPhone,
+            last_message: message, 
+            metadata 
+          })
           .eq('id', lead.id);
       }
 
@@ -258,7 +370,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
             let cleanAdminWa = rawNum.replace(/\D/g, '');
             if (cleanAdminWa.startsWith('0')) cleanAdminWa = '62' + cleanAdminWa.substring(1);
 
-            if (cleanAdminWa && cleanAdminWa !== sender) {
+            if (cleanAdminWa && cleanAdminWa !== cleanSender) {
               const now = new Date();
               const wibTimestamp = now.toLocaleString('id-ID', {
                 timeZone: 'Asia/Jakarta',
@@ -274,7 +386,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 Ada calon peserta yang butuh bantuan admin manusia segera!
 
 👤 *Kontak Leads:*
-   📱 WhatsApp: wa.me/${sender}
+   📱 WhatsApp: wa.me/${leadPhone}
 
 💬 *Pesan Terakhir:*
 "_${previewMessage}_"
@@ -316,11 +428,20 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
         await axios.post(`${gatewayUrl}/api/session/send`, {
           userId,       // gateway session key — routes to the correct Baileys socket
           phoneLabel,   // identifies the exact number slot within that session
-          to: sender,
+          to: replyTo,  // full JID (with @lid or @s.whatsapp.net) — critical for LID users
           message: botReply,
           typingDurationMs,
         });
-        fastify.log.info({ sender, botNumber, resolvedOrgId }, 'Reply sent via WhatsApp Gateway');
+        fastify.log.info({ sender, replyTo, botNumber, resolvedOrgId }, 'Reply sent via WhatsApp Gateway');
+
+        // Log bot reply to chat_logs
+        await supabase.from('chat_logs').insert({
+          tenant_id: resolvedOrgId,
+          bot_number: botNumber ?? '',
+          customer_number: sender,
+          sender: 'bot',
+          message_text: botReply,
+        });
       } catch (gatewayErr: any) {
         fastify.log.error({ err: gatewayErr.message }, 'Failed to send reply via Gateway');
       }
@@ -392,6 +513,230 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
       return reply.status(500).send({ success: false, message: 'Internal Server Error' });
     }
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /api/chats
+  //
+  // Retrieves chat logs history between a bot number and a customer number.
+  // Ordered by created_at ASC. Only allows accessing chats of owned organizations.
+  // ──────────────────────────────────────────────────────────────────────────
+  fastify.get(
+    '/chats',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { botNumber, customerNumber } = request.query as {
+          botNumber?: string;
+          customerNumber?: string;
+        };
+
+        if (!botNumber || !customerNumber) {
+          return reply.status(400).send({
+            success: false,
+            message: "Missing required query parameters: 'botNumber' and 'customerNumber'.",
+          });
+        }
+
+        // Verify the organization owns this botNumber (tenant isolation check)
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        const { data: sessionCheck, error: checkError } = await supabase
+          .from('whatsapp_sessions')
+          .select('org_id')
+          .eq('phone_number', botNumber)
+          .eq('org_id', org.id)
+          .maybeSingle();
+
+        if (checkError || !sessionCheck) {
+          fastify.log.warn({ botNumber, orgId: org.id }, 'Unauthorized access attempt to chats');
+          return reply.status(403).send({ success: false, message: 'Akses ditolak.' });
+        }
+
+        // Look up lead to map phone number and original JID
+        const cleanCust = customerNumber.replace(/@(s\.whatsapp\.net|lid)$/, '');
+        const { data: leadData } = await supabase
+          .from('leads')
+          .select('whatsapp, metadata')
+          .eq('org_id', org.id)
+          .or(`whatsapp.eq.${cleanCust},metadata->>jid.eq.${cleanCust}`)
+          .maybeSingle();
+
+        const identifiers = [customerNumber, cleanCust];
+        if (leadData) {
+          if (leadData.whatsapp) {
+            identifiers.push(leadData.whatsapp);
+            identifiers.push(leadData.whatsapp.replace(/@(s\.whatsapp\.net|lid)$/, ''));
+          }
+          const jid = (leadData.metadata as any)?.jid;
+          if (jid) {
+            identifiers.push(jid);
+            identifiers.push(jid.replace(/@(s\.whatsapp\.net|lid)$/, ''));
+          }
+        }
+
+        // Generate full list of possible formats to query in chat_logs
+        const allIdentifiers = Array.from(new Set(
+          identifiers.flatMap(id => [
+            id,
+            `${id}@s.whatsapp.net`,
+            `${id}@lid`
+          ])
+        ));
+
+        const { data, error } = await supabase
+          .from('chat_logs')
+          .select('*')
+          .eq('bot_number', botNumber)
+          .in('customer_number', allIdentifiers)
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          fastify.log.error({ error: error.message }, 'Failed to fetch chat logs');
+          return reply.status(500).send({
+            success: false,
+            message: 'Gagal mengambil riwayat chat.',
+          });
+        }
+
+        return reply.send({
+          success: true,
+          messages: data,
+        });
+      } catch (error: any) {
+        fastify.log.error(error, 'Error fetching chats');
+        return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+      }
+    }
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /api/whatsapp-sessions
+  //
+  // Retrieves the list of WhatsApp sessions (bot numbers) registered for this tenant.
+  // ──────────────────────────────────────────────────────────────────────────
+  fastify.get(
+    '/whatsapp-sessions',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        const { data: sessionsList, error } = await supabase
+          .from('whatsapp_sessions')
+          .select('*')
+          .eq('org_id', org.id);
+
+        if (error) {
+          fastify.log.error(error, 'Failed to fetch whatsapp sessions');
+          return reply.status(500).send({ success: false, message: 'Gagal mengambil data WhatsApp sessions.' });
+        }
+
+        return reply.send({ success: true, sessions: sessionsList });
+      } catch (error: any) {
+        return reply.status(500).send({ success: false, message: error.message });
+      }
+    }
+  );
+
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // DELETE /api/whatsapp/disconnect
+  //
+  // Authenticated route called by the dashboard "Putuskan" button.
+  // Reliably disconnects a WhatsApp session: calls the gateway to close the
+  // Baileys socket AND updates the DB row — even if the socket is already gone.
+  //
+  // Query: { phoneLabel }
+  // Auth:  Bearer token (same user that owns the org)
+  // ──────────────────────────────────────────────────────────────────────────
+  fastify.delete(
+    '/whatsapp/disconnect',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { phoneLabel } = request.query as { phoneLabel?: string };
+
+        if (!phoneLabel) {
+          return reply.status(400).send({ success: false, message: "Missing required query parameter: 'phoneLabel'" });
+        }
+
+        // Resolve org for this authenticated user
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        const orgId = org.id;
+
+        // Fetch the session record so we know the gateway_user_id and phone_number
+        const { data: sessionRow } = await supabase
+          .from('whatsapp_sessions')
+          .select('phone_number, gateway_user_id, status')
+          .eq('org_id', orgId)
+          .eq('phone_label', phoneLabel)
+          .maybeSingle();
+
+        // Step 1: Tell the gateway to close the Baileys socket (best-effort — non-fatal)
+        const gatewayUserId = sessionRow?.gateway_user_id ?? orgId;
+        try {
+          await axios.delete(`${gatewayUrl}/api/session/logout`, {
+            params: { userId: gatewayUserId, phoneLabel },
+          });
+          fastify.log.info({ orgId, phoneLabel }, '[Disconnect] Gateway session closed');
+        } catch (gwErr: any) {
+          // Session may already be gone from gateway memory — that's fine, carry on
+          fastify.log.warn(
+            { err: gwErr.message, orgId, phoneLabel },
+            '[Disconnect] Gateway logout call failed (non-fatal — will still update DB)'
+          );
+        }
+
+        // Step 2: Always update the DB row to DISCONNECTED regardless of gateway result
+        if (sessionRow?.phone_number) {
+          await supabase
+            .from('whatsapp_sessions')
+            .update({
+              status: 'DISCONNECTED',
+              disconnected_at: new Date().toISOString(),
+            })
+            .eq('phone_number', sessionRow.phone_number);
+          fastify.log.info({ orgId, phoneLabel, phone: sessionRow.phone_number }, '[Disconnect] DB row marked DISCONNECTED');
+        } else {
+          fastify.log.warn({ orgId, phoneLabel }, '[Disconnect] No session row found in DB — nothing to update');
+        }
+
+        return reply.send({ success: true, message: `Sesi '${phoneLabel}' berhasil diputuskan.` });
+      } catch (error: any) {
+        fastify.log.error(error, '[Disconnect] Error during disconnect');
+        return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+      }
+    }
+  );
 
   // Health check
   fastify.get('/whatsapp/incoming', async (_request, reply) => {

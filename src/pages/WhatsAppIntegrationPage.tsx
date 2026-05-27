@@ -1,89 +1,164 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink, Plus, Settings2 } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
+import { useAuth } from '../contexts/AuthContext';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL;
 
-type ConnectionStatus = 'checking' | 'disconnected' | 'qr' | 'open';
+type ConnectionStatus = 'checking' | 'disconnected' | 'qr' | 'open' | 'connecting';
+
+interface WhatsAppSession {
+  phone_number: string;
+  org_id: string;
+  phone_label: string;
+  gateway_user_id: string;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING' | 'QR_PENDING';
+  connected_at: string | null;
+  disconnected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 const WhatsAppIntegrationPage: React.FC = () => {
-  const { organization } = useOrganization();
-  const [status, setStatus] = useState<ConnectionStatus>('checking');
+  const { organization, loading: orgLoading } = useOrganization();
+  const { session } = useAuth();
+  
+  const [sessions, setSessions] = useState<WhatsAppSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState<boolean>(true);
+  
+  const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [qrBase64, setQrBase64] = useState<string | null>(null);
+  
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTipsModal, setShowTipsModal] = useState<boolean>(false);
+  
+  const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  const [newLabel, setNewLabel] = useState<string>('');
 
-  const checkStatus = async () => {
-    if (!organization?.id) return;
+  const fetchSessions = async () => {
+    if (!organization?.id || !session?.access_token) {
+      setLoadingSessions(false);
+      return;
+    }
     try {
-      const res = await fetch(`${GATEWAY_URL}/api/session/status?userId=${organization.id}`);
+      const res = await fetch('/api/whatsapp-sessions', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
       const data = await res.json();
       if (data.success) {
-        setStatus(data.status);
-        if (data.qrBase64) setQrBase64(data.qrBase64);
-      } else {
-        setStatus('disconnected');
+        setSessions(data.sessions || []);
       }
-    } catch {
-      setStatus('disconnected');
+    } catch (err) {
+      console.error('Failed to fetch sessions', err);
+    } finally {
+      setLoadingSessions(false);
     }
   };
 
-  useEffect(() => { checkStatus(); }, [organization]);
+  useEffect(() => {
+    if (orgLoading) return;
+    fetchSessions();
+  }, [organization, session, orgLoading]);
+
+  const checkActiveStatus = async () => {
+    if (!organization?.id || !activeSession) return;
+    try {
+      const res = await fetch(`${GATEWAY_URL}/api/session/status?userId=${organization.id}&phoneLabel=${activeSession}`);
+      const data = await res.json();
+      if (data.success) {
+        setStatus(data.status);
+        if (data.qrBase64) {
+          setQrBase64(data.qrBase64);
+        } else {
+          setQrBase64(null);
+        }
+        
+        if (data.status === 'open') {
+          // Success: connected!
+          await fetchSessions();
+          setShowAddModal(false);
+          setActiveSession(null);
+          setQrBase64(null);
+          setNewLabel('');
+          setStatus('disconnected');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check active status', err);
+    }
+  };
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    if (status === 'qr') {
-      interval = setInterval(checkStatus, 3000);
+    if (activeSession && status !== 'open') {
+      interval = setInterval(checkActiveStatus, 3000);
     }
     return () => { if (interval) clearInterval(interval); };
-  }, [status, organization]);
+  }, [activeSession, status, organization]);
 
-  const handleConnect = async () => {
-    if (!organization?.id) return;
+  const handleStartConnection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!newLabel.trim()) return;
+    
+    if (!organization?.id) {
+      setError('Organisasi belum termuat atau tidak ditemukan. Coba muat ulang halaman.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setStatus('connecting');
+    setQrBase64(null);
+    setActiveSession(newLabel.trim());
+
     try {
-      const res = await fetch(`${GATEWAY_URL}/api/session/start?userId=${organization.id}`);
+      const res = await fetch(`${GATEWAY_URL}/api/session/start?userId=${organization.id}&phoneLabel=${newLabel.trim()}`);
       const data = await res.json();
       if (data.success) {
         setStatus(data.status);
         if (data.qrBase64) setQrBase64(data.qrBase64);
       } else {
         setError(data.message || 'Gagal memulai sesi WhatsApp.');
+        setActiveSession(null);
+        setStatus('disconnected');
       }
     } catch {
       setError('Gateway WhatsApp tidak dapat dihubungi.');
+      setActiveSession(null);
+      setStatus('disconnected');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!organization?.id) return;
+  const handleDisconnect = async (label: string) => {
+    if (!organization?.id || !session?.access_token) return;
+    if (!confirm(`Yakin ingin memutuskan koneksi sesi '${label}'? Semua kredensial dan riwayat cache akan dihapus.`)) return;
+    
     setLoading(true);
+    setError(null);
     try {
-      await fetch(`${GATEWAY_URL}/api/session/logout?userId=${organization.id}`, { method: 'DELETE' });
-      setStatus('disconnected');
-      setQrBase64(null);
+      // Go through Fastify (authenticated) — it calls the gateway AND updates the DB row.
+      // This works even when the session is already gone from gateway memory.
+      const res = await fetch(`/api/whatsapp/disconnect?phoneLabel=${encodeURIComponent(label)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchSessions();
+      } else {
+        setError(data.message || 'Gagal memutuskan koneksi sesi.');
+      }
     } catch {
       setError('Gagal memutuskan koneksi WhatsApp.');
     } finally {
       setLoading(false);
     }
   };
-
-  if (status === 'checking') {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[50vh]">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-7 h-7 text-emerald-500 animate-spin" />
-          <p className="text-slate-500 text-sm">Memeriksa status koneksi...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative min-h-screen bg-slate-50 flex flex-col overflow-hidden">
@@ -92,27 +167,35 @@ const WhatsAppIntegrationPage: React.FC = () => {
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-200/15 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 pointer-events-none" />
 
       {/* Main Content */}
-      <div className="relative flex-1 p-5 lg:p-8 max-w-5xl mx-auto w-full z-10">
+      <div className="relative flex-1 p-5 lg:p-8 max-w-6xl mx-auto w-full z-10">
 
         {/* ── Header ─────────────────────────────────────── */}
         <div className="flex items-start justify-between mb-6">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold mb-2">
               <Smartphone size={12} />
-              <span>Unofficial · Perangkat Taut</span>
+              <span>Multi-Instance · Perangkat Taut</span>
             </div>
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-              Hubungkan <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-teal-600">WhatsApp</span>
+              Integrasi <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-teal-600">WhatsApp</span>
             </h1>
-            <p className="text-slate-500 text-sm mt-1">AI PulseAI siap merespons pelanggan Anda 24/7.</p>
+            <p className="text-slate-500 text-sm mt-1">AI PulseAI siap merespons pelanggan Anda melalui banyak nomor sekaligus.</p>
           </div>
 
-          {status === 'open' && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Aktif
-            </div>
-          )}
+          <button
+            onClick={() => {
+              setNewLabel('');
+              setQrBase64(null);
+              setActiveSession(null);
+              setStatus('disconnected');
+              setError(null);
+              setShowAddModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all text-sm shadow-md"
+          >
+            <Plus size={16} />
+            Tambah Nomor Baru
+          </button>
         </div>
 
         {/* ── Error Banner ─────────────────────────────────── */}
@@ -125,113 +208,114 @@ const WhatsAppIntegrationPage: React.FC = () => {
         )}
 
         {/* ── Main Grid ─────────────────────────────────────── */}
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-          {/* Connection Panel — left/main */}
-          <div className="xl:col-span-3 bg-white/80 backdrop-blur-xl rounded-3xl border border-white/70 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
+          {/* Connected Sessions Table — left/main */}
+          <div className="lg:col-span-2 bg-white/80 backdrop-blur-xl rounded-3xl border border-white/70 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h2 className="font-bold text-slate-800 text-sm tracking-wide uppercase">Daftar Nomor WhatsApp Terhubung</h2>
+              <button 
+                onClick={fetchSessions} 
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Refresh Daftar"
+              >
+                <RefreshCw size={14} className={loadingSessions ? 'animate-spin' : ''} />
+              </button>
+            </div>
 
-            {/* ── CONNECTED ── */}
-            {status === 'open' ? (
-              <div className="p-8 flex flex-col items-center text-center">
-                <div className="relative mb-5">
-                  <div className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-20" />
-                  <div className="w-16 h-16 bg-gradient-to-br from-emerald-50 to-emerald-100 border-4 border-white rounded-full shadow-xl flex items-center justify-center relative z-10">
-                    <Smartphone className="text-emerald-500 w-7 h-7" />
-                    <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 border-2 border-white rounded-full flex items-center justify-center shadow">
-                      <ShieldCheck className="text-white w-3 h-3" />
-                    </div>
-                  </div>
+            <div className="overflow-x-auto flex-1">
+              {loadingSessions ? (
+                <div className="flex flex-col items-center justify-center p-12 gap-2">
+                  <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                  <p className="text-slate-500 text-xs">Memuat daftar nomor...</p>
                 </div>
-                <h2 className="text-xl font-bold text-slate-800 mb-2">Terhubung Penuh</h2>
-                <p className="text-slate-500 text-sm mb-6 max-w-xs leading-relaxed">
-                  AI PulseAI aktif sebagai asisten cerdas di WhatsApp Anda.
-                </p>
-                <button
-                  onClick={handleDisconnect}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-red-100 text-red-600 font-bold rounded-xl hover:bg-red-50 hover:border-red-200 transition-all disabled:opacity-50 text-sm shadow-sm"
-                >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
-                  Putuskan Koneksi
-                </button>
-              </div>
-
-            ) : status === 'qr' && qrBase64 ? (
-              /* ── QR STATE ── */
-              <div className="p-6 flex flex-col sm:flex-row gap-6 items-center">
-                <div className="flex-1 text-center sm:text-left">
-                  <h2 className="text-xl font-extrabold text-slate-800 mb-4">Pindai Kode QR</h2>
-                  <div className="space-y-3 text-slate-600 text-sm mb-5">
-                    {[
-                      'Buka WhatsApp di ponsel Anda',
-                      'Buka Pengaturan → Perangkat Tertaut',
-                      'Ketuk Tautkan Perangkat & pindai kode ini',
-                    ].map((step, i) => (
-                      <div key={i} className="flex items-start gap-3">
-                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center flex-shrink-0 text-xs mt-0.5">{i + 1}</div>
-                        <p dangerouslySetInnerHTML={{ __html: step.replace(/→/g, '<strong>→</strong>') }} />
-                      </div>
-                    ))}
-                  </div>
+              ) : sessions.length === 0 ? (
+                <div className="text-center py-16 text-slate-400 px-6">
+                  <Smartphone size={36} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-semibold text-slate-700">Belum ada nomor yang terhubung</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                    Hubungkan nomor WhatsApp asisten AI Anda untuk mulai melayani pelanggan secara otomatis.
+                  </p>
                   <button
-                    onClick={checkStatus}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors text-sm"
+                    onClick={() => setShowAddModal(true)}
+                    className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700 transition-colors text-xs font-bold rounded-lg"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" /> Muat Ulang Status
+                    <Plus size={14} /> Hubungkan Sekarang
                   </button>
                 </div>
-
-                {/* QR Image */}
-                <div className="relative flex-shrink-0 group">
-                  <div className="absolute -inset-1 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-2xl blur opacity-20 group-hover:opacity-35 transition duration-700" />
-                  <div className="relative w-52 h-52 p-3 bg-white rounded-2xl shadow-lg flex items-center justify-center border border-slate-100 overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-0.5 bg-emerald-400/60 animate-[scan_2s_ease-in-out_infinite] z-20" />
-                    <img src={qrBase64} alt="WhatsApp QR Code" className="w-full h-full object-contain relative z-10" />
-                  </div>
-                </div>
-              </div>
-
-            ) : (
-              /* ── DISCONNECTED ── */
-              <div className="p-10 text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-slate-100 to-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-white shadow-inner">
-                  <MessageCircle className="text-slate-400 w-8 h-8" />
-                </div>
-                <h2 className="text-xl font-extrabold text-slate-800 mb-2">Belum Terhubung</h2>
-                <p className="text-slate-500 text-sm mb-7 max-w-sm mx-auto leading-relaxed">
-                  Ubah WhatsApp Anda menjadi mesin CS cerdas 24/7. Hubungkan dalam hitungan detik.
-                </p>
-                <button
-                  onClick={handleConnect}
-                  disabled={loading}
-                  className="group relative inline-flex items-center gap-2.5 px-8 py-3.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg active:scale-[0.98] disabled:opacity-50 overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-0 group-hover:opacity-10 transition-opacity" />
-                  {loading ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /><span>Membuat Sesi...</span></>
-                  ) : (
-                    <><Zap className="w-5 h-5 text-emerald-400" /><span>Hubungkan WhatsApp</span></>
-                  )}
-                </button>
-              </div>
-            )}
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-4">Nama Sesi (Label)</th>
+                      <th className="px-6 py-4">Nomor WhatsApp</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {sessions.map((sessionItem) => (
+                      <tr key={sessionItem.phone_number} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                              <MessageCircle size={15} />
+                            </div>
+                            <span className="font-bold text-slate-900 text-sm capitalize">{sessionItem.phone_label}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-slate-600 font-mono text-sm">+{sessionItem.phone_number}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {sessionItem.status === 'CONNECTED' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Terhubung
+                            </span>
+                          ) : sessionItem.status === 'DISCONNECTED' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200 text-slate-500 text-xs font-medium">
+                              Terputus
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-100 text-amber-700 text-xs font-semibold animate-pulse">
+                              Proses
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <button
+                            onClick={() => handleDisconnect(sessionItem.phone_label)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
+                            title="Putuskan Koneksi"
+                          >
+                            <LogOut size={14} />
+                            <span className="hidden sm:inline">Putuskan</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
 
           {/* ── Side Panel — right ────────────────────────── */}
-          <div className="xl:col-span-2 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
 
             {/* Feature highlights */}
-            <div className="bg-gradient-to-b from-slate-900 to-slate-800 rounded-3xl p-6 text-white border border-slate-700/50 relative overflow-hidden flex-1">
+            <div className="bg-gradient-to-b from-slate-900 to-slate-800 rounded-3xl p-6 text-white border border-slate-700/50 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/15 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none" />
               <h3 className="font-bold text-base mb-5 flex items-center gap-2 relative z-10">
                 <Sparkles className="text-emerald-400" size={16} />
-                Nilai Tambah PulseAI
+                WhatsApp Multi-Number
               </h3>
               <div className="space-y-5 relative z-10">
                 {[
-                  { icon: <Zap size={16} />, title: 'Respon Kilat 24/7', desc: 'Balas pelanggan dalam detik, tanpa henti.' },
-                  { icon: <ShieldCheck size={16} />, title: 'Koneksi Aman', desc: 'Enkripsi end-to-end dari perangkat ke server.' },
-                  { icon: <MessageCircle size={16} />, title: 'Interaksi Humanis', desc: 'AI memahami bahasa natural layaknya manusia.' },
+                  { icon: <Zap size={16} />, title: 'Banyak Nomor, Satu Otak', desc: 'Hubungkan nomor CS, Sales, dan Support ke satu basis pengetahuan RAG yang sama.' },
+                  { icon: <ShieldCheck size={16} />, title: 'Enkripsi & Keamanan', desc: 'Gateway multi-tenant mengamankan autentikasi token WA di level sesi.' },
+                  { icon: <Settings2 size={16} />, title: 'Routing Gateway', desc: 'Atur label spesifik seperti sales/support untuk sinkronisasi webhook otomatis.' },
                 ].map((f, i) => (
                   <div key={i} className="flex gap-3.5 group">
                     <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 text-emerald-400 group-hover:bg-emerald-500/20 transition-all duration-300">
@@ -270,7 +354,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
         </div>
 
         {/* ── Official API Banner ─────────────────────────── */}
-        <div className="mt-5 flex flex-col sm:flex-row items-center gap-4 px-5 py-4 bg-white/70 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm">
+        <div className="mt-6 flex flex-col sm:flex-row items-center gap-4 px-5 py-4 bg-white/70 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm">
           <img
             src="/Logo-Mekari-Qontak.svg"
             alt="Mekari Qontak"
@@ -294,6 +378,101 @@ const WhatsAppIntegrationPage: React.FC = () => {
           </a>
         </div>
       </div>
+
+      {/* ── Add Number Modal (QR Code Wizard) ─────────────────────────────────── */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-400 to-blue-500" />
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+                <Smartphone className="text-emerald-500" size={20} />
+                Hubungkan Nomor WhatsApp
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setActiveSession(null);
+                  setQrBase64(null);
+                }}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {status === 'disconnected' ? (
+              <form onSubmit={handleStartConnection} className="space-y-4">
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Masukkan label identitas nomor Anda (misalnya: <code>default</code>, <code>sales</code>, atau <code>support</code>). Label ini membedakan routing log pesan gateway.
+                </p>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nama Label Sesi</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="contoh: sales"
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-semibold"
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={`w-full py-3 ${loading ? 'bg-slate-700 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-850'} text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2`}
+                >
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} className="text-emerald-400" />}
+                  Mulai Koneksi Sesi
+                </button>
+              </form>
+            ) : (
+              <div className="flex flex-col sm:flex-row gap-6 items-center py-2">
+                <div className="flex-1 text-center sm:text-left">
+                  <h4 className="text-base font-extrabold text-slate-800 mb-3 capitalize">Sesi: {activeSession}</h4>
+                  
+                  {status === 'connecting' ? (
+                    <div className="flex items-center gap-2 py-4">
+                      <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+                      <span className="text-slate-600 text-sm font-medium">Memulai koneksi Baileys...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-slate-600 text-xs mb-5">
+                      {[
+                        'Buka WhatsApp di ponsel Anda',
+                        'Buka Pengaturan → Perangkat Tertaut',
+                        'Ketuk Tautkan Perangkat & pindai kode ini',
+                      ].map((step, i) => (
+                        <div key={i} className="flex items-start gap-2.5">
+                          <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center flex-shrink-0 text-[10px] mt-0.5">{i + 1}</div>
+                          <p dangerouslySetInnerHTML={{ __html: step.replace(/→/g, '<strong>→</strong>') }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-500 font-bold animate-pulse uppercase tracking-wider">
+                      Status: {status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* QR Image */}
+                {status === 'qr' && qrBase64 && (
+                  <div className="relative flex-shrink-0 group">
+                    <div className="absolute -inset-1 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-2xl blur opacity-20 group-hover:opacity-35 transition duration-700" />
+                    <div className="relative w-44 h-44 p-2.5 bg-white rounded-2xl shadow-lg flex items-center justify-center border border-slate-100 overflow-hidden">
+                      <div className="absolute top-0 left-0 w-full h-0.5 bg-emerald-400/60 animate-[scan_2s_ease-in-out_infinite] z-20" />
+                      <img src={qrBase64} alt="WhatsApp QR Code" className="w-full h-full object-contain relative z-10" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Tips Modal ─────────────────────────────────────── */}
       {showTipsModal && (

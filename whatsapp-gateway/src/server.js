@@ -13,7 +13,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import sessionRoutes from './routes/sessionRoutes.js';
-import { restoreAllSessions, destroyAllSessions } from './session/sessionManager.js';
+import { restoreAllSessions, destroyAllSessions, getChatHistory } from './session/sessionManager.js';
 
 const app = express();
 
@@ -40,6 +40,32 @@ app.use('/api', limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/session', sessionRoutes);
+
+// Direct internal chat history endpoint
+app.get('/api/chat-history', (req, res) => {
+  const { phone, tenantId, phoneLabel = 'default' } = req.query;
+
+  if (!phone || !tenantId) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing required query parameters: 'phone' and 'tenantId'.",
+    });
+  }
+
+  try {
+    const messages = getChatHistory(tenantId, phoneLabel, phone);
+    return res.json({
+      success: true,
+      messages,
+    });
+  } catch (error) {
+    logger.error({ tenantId, phoneLabel, phone, error: error.message }, '[Server] Get chat history failed');
+    return res.status(404).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 
 // Health Check Route
 app.get('/health', (req, res) => {

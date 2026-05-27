@@ -108,7 +108,8 @@ const buildSystemPrompt = (
   adminWhatsApp?: string,
   intent?: Intent,
   isStreaming: boolean = false,
-  topics: string[] = []
+  topics: string[] = [],
+  hasValidPhone: boolean = true
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
   
@@ -171,6 +172,7 @@ const buildSystemPrompt = (
     `OUT-OF-SCOPE RULE (MANDATORY):`,
     `1. If the user asks for a product or service NOT listed in the [KNOWLEDGE BASE], politely explain that ${company} does not offer it, and offer what is available. Speak naturally, do NOT use robotic templates.`,
     `2. If the user asks a general knowledge question completely unrelated to ${company} (e.g., medical advice, random trivia), answer it briefly and warmly as a helpful human, then politely pivot back to asking if they need help with ${company}'s services.`,
+    `3. If you CANNOT answer a question because the information is not in the [KNOWLEDGE BASE], you MUST politely offer to connect them to a human admin (${escalationContact}).`,
     ``,
     `── END OF OVERRIDE ──`,
     ``,
@@ -217,6 +219,33 @@ const buildSystemPrompt = (
     lines.push(``);
   }
 
+  if (!hasValidPhone) {
+    lines.push(`**HUMAN ESCALATION & LEAD CAPTURE RULE (CRITICAL)**`);
+    lines.push(`The system currently DOES NOT know the user's phone number due to WhatsApp privacy settings.`);
+    lines.push(`If the user explicitly asks to speak to a human/agent, OR agrees to your offer to connect to an admin:`);
+    lines.push(`1. You MUST politely ask them to type their active WhatsApp phone number in the chat first.`);
+    lines.push(`2. Do NOT set "triggerLeadCapture": true YET.`);
+    lines.push(`3. ONLY set "triggerLeadCapture": true AFTER the user types their phone number in the chat.`);
+    lines.push(``);
+  } else {
+    lines.push(`**LEAD CAPTURE** — set "triggerLeadCapture": true ONLY if user:`);
+    lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
+    lines.push(`- Asks about pricing, quotes, packages, or costs`);
+    lines.push(`- Requests a demo, trial, or callback`);
+    lines.push(`- Shows clear purchase intent or provides their contact details`);
+    lines.push(``);
+  }
+
+  if (isStreaming) {
+    lines.push(`**RESPONSE FORMAT** — respond with raw conversational text and markdown. Do NOT use JSON format. If triggerLeadCapture is met, append "|||LEAD|||" at the end of the text.`);
+  } else {
+    lines.push(`**RESPONSE FORMAT** — respond strictly with valid JSON exactly matching this schema:`);
+    lines.push(`{`);
+    lines.push(`  "message": "your conversation response",`);
+    lines.push(`  "triggerLeadCapture": boolean`);
+    lines.push(`}`);
+  }
+
   if (intent === 'small_talk') {
     lines.push(`**INTENT:** User is making small talk. Respond naturally and warmly. Do NOT reference documents.`);
     lines.push(``);
@@ -237,15 +266,14 @@ const buildSystemPrompt = (
     lines.push(``);
   }
 
-  if (isStreaming) {
-    lines.push(`**LEAD CAPTURE** — If the user:`);
-    lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
-    lines.push(`- Asks about pricing, quotes, packages, or costs`);
-    lines.push(`- Requests a demo, trial, or callback`);
-    lines.push(`- Shows clear purchase intent or provides their contact details`);
-    lines.push(`THEN append the exact text "|||LEAD|||" at the very end of your response.`);
+  if (!hasValidPhone) {
+    lines.push(`**HUMAN ESCALATION & LEAD CAPTURE RULE (CRITICAL)**`);
+    lines.push(`The system currently DOES NOT know the user's phone number due to WhatsApp privacy settings.`);
+    lines.push(`If the user explicitly asks to speak to a human/agent, OR agrees to your offer to connect to an admin:`);
+    lines.push(`1. You MUST politely ask them to type their active WhatsApp phone number in the chat first.`);
+    lines.push(`2. Do NOT set "triggerLeadCapture": true YET.`);
+    lines.push(`3. ONLY set "triggerLeadCapture": true AFTER the user types their phone number in the chat.`);
     lines.push(``);
-    lines.push(`**RESPONSE FORMAT** — respond with raw conversational text and markdown. Do NOT use JSON format.`);
   } else {
     lines.push(`**LEAD CAPTURE** — set "triggerLeadCapture": true ONLY if user:`);
     lines.push(`- Explicitly asks to speak with a human, agent, or representative`);
@@ -253,11 +281,19 @@ const buildSystemPrompt = (
     lines.push(`- Requests a demo, trial, or callback`);
     lines.push(`- Shows clear purchase intent or provides their contact details`);
     lines.push(``);
-    lines.push(`**RESPONSE FORMAT** — respond with ONLY valid JSON, no markdown, no extra text:`);
-    lines.push(`{"message": "your response here", "triggerLeadCapture": false}`);
   }
 
-  return lines.join('\n');
+  if (isStreaming) {
+    lines.push(`**RESPONSE FORMAT** — respond with raw conversational text and markdown. Do NOT use JSON format. If triggerLeadCapture is met, append "|||LEAD|||" at the end of the text.`);
+  } else {
+    lines.push(`**RESPONSE FORMAT** — respond strictly with valid JSON exactly matching this schema:`);
+    lines.push(`{`);
+    lines.push(`  "message": "your conversation response",`);
+    lines.push(`  "triggerLeadCapture": boolean`);
+    lines.push(`}`);
+  }
+
+  return lines.join('\\n');
 };
 
 // ─────────────────────────────────────────────
@@ -273,7 +309,8 @@ export async function generateChatResponse(
   tone: string = 'Professional',
   customInstructions: string = '',
   adminWhatsApp: string = '',
-  orgId: string = ''
+  orgId: string = '',
+  hasValidPhone: boolean = true
 ): Promise<GeminiResponse> {
 
   const intent = classifyIntent(userMessage);
@@ -346,7 +383,8 @@ export async function generateChatResponse(
           adminWhatsApp,
           intent,
           false,
-          topics
+          topics,
+          hasValidPhone
         ),
         generationConfig: {
           responseMimeType: 'application/json',
@@ -451,7 +489,8 @@ export async function generateChatResponseStream(
   tone: string = 'Professional',
   customInstructions: string = '',
   adminWhatsApp: string = '',
-  orgId: string = ''
+  orgId: string = '',
+  hasValidPhone: boolean = true
 ): Promise<AsyncGenerator<string, void, unknown>> {
 
   const intent = classifyIntent(userMessage);
@@ -514,7 +553,8 @@ export async function generateChatResponseStream(
           adminWhatsApp,
           intent,
           true, // isStreaming
-          topics
+          topics,
+          hasValidPhone
         ),
         generationConfig: {
           temperature: intent === 'small_talk' ? 0.7 : 0.3,

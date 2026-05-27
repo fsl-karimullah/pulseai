@@ -35,6 +35,131 @@ import { sendToFastifyWebhook, pushSessionStatus } from '../utils/webhookClient.
 // SessionEntry = { userId, phoneLabel, socket, status, qrBase64, phoneNumber }
 const sessions = new Map();
 
+// Global flag to prevent session state purging during system shutdown/restarts
+let isSystemShuttingDown = false;
+
+// ─── Custom In-Memory Store for Baileys ──────────────────────────────────────
+export function makeInMemoryStore({ logger }) {
+  const store = {
+    chats: {},
+    messages: {},
+    contacts: {},
+    
+    bind(ev) {
+      ev.on('chats.set', ({ chats }) => {
+        for (const chat of chats) {
+          store.chats[chat.id] = { ...(store.chats[chat.id] || {}), ...chat };
+        }
+      });
+      
+      ev.on('chats.upsert', (newChats) => {
+        for (const chat of newChats) {
+          store.chats[chat.id] = { ...(store.chats[chat.id] || {}), ...chat };
+        }
+      });
+      
+      ev.on('chats.update', (updates) => {
+        for (const update of updates) {
+          if (store.chats[update.id]) {
+            store.chats[update.id] = { ...store.chats[update.id], ...update };
+          }
+        }
+      });
+
+      ev.on('contacts.set', ({ contacts }) => {
+        for (const contact of contacts) {
+          store.contacts[contact.id] = { ...(store.contacts[contact.id] || {}), ...contact };
+        }
+      });
+      
+      ev.on('contacts.upsert', (newContacts) => {
+        for (const contact of newContacts) {
+          store.contacts[contact.id] = { ...(store.contacts[contact.id] || {}), ...contact };
+        }
+      });
+      
+      ev.on('contacts.update', (updates) => {
+        for (const update of updates) {
+          if (store.contacts[update.id]) {
+            store.contacts[update.id] = { ...store.contacts[update.id], ...update };
+          }
+        }
+      });
+
+      ev.on('messages.set', ({ messages }) => {
+        for (const msg of messages) {
+          const jid = msg.key.remoteJid;
+          if (!jid) continue;
+          if (!store.messages[jid]) {
+            store.messages[jid] = [];
+          }
+          const exists = store.messages[jid].some(m => m.key.id === msg.key.id);
+          if (!exists) {
+            store.messages[jid].push(msg);
+          }
+        }
+      });
+
+      ev.on('messages.upsert', ({ messages, type }) => {
+        for (const msg of messages) {
+          const jid = msg.key.remoteJid;
+          if (!jid) continue;
+          if (!store.messages[jid]) {
+            store.messages[jid] = [];
+          }
+          const exists = store.messages[jid].some(m => m.key.id === msg.key.id);
+          if (!exists) {
+            store.messages[jid].push(msg);
+          }
+          if (store.messages[jid].length > 100) {
+            store.messages[jid] = store.messages[jid].slice(-100);
+          }
+        }
+      });
+
+      ev.on('messages.update', (updates) => {
+        for (const update of updates) {
+          const jid = update.key.remoteJid;
+          if (!jid || !store.messages[jid]) continue;
+          const index = store.messages[jid].findIndex(m => m.key.id === update.key.id);
+          if (index !== -1) {
+            store.messages[jid][index] = { ...store.messages[jid][index], ...update.update };
+          }
+        }
+      });
+    },
+
+    readFromFile(filePath) {
+      if (fs.existsSync(filePath)) {
+        try {
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const data = JSON.parse(content);
+          store.chats = data.chats || {};
+          store.messages = data.messages || {};
+          store.contacts = data.contacts || {};
+        } catch (err) {
+          if (logger) logger.error({ filePath, err: err.message }, '[InMemoryStore] Failed to read from file');
+        }
+      }
+    },
+
+    writeToFile(filePath) {
+      try {
+        const data = {
+          chats: store.chats,
+          messages: store.messages,
+          contacts: store.contacts,
+        };
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      } catch (err) {
+        if (logger) logger.error({ filePath, err: err.message }, '[InMemoryStore] Failed to write to file');
+      }
+    }
+  };
+
+  return store;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -102,6 +227,18 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
   const { state, saveCreds } = await useMultiFileAuthState(dir);
   const { version } = await fetchLatestBaileysVersion();
 
+  // Initialize store and read from file if it exists
+  const store = makeInMemoryStore({ logger: silentLogger });
+  const storePath = path.join(dir, 'store.json');
+  if (fs.existsSync(storePath)) {
+    try {
+      store.readFromFile(storePath);
+      logger.info({ userId, phoneLabel }, '[SessionManager] Restored chat store from file');
+    } catch (err) {
+      logger.error({ userId, phoneLabel, err: err.message }, '[SessionManager] Failed to read store from file');
+    }
+  }
+
   const socket = makeWASocket({
     version,
     auth: state,
@@ -113,6 +250,20 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
     defaultQueryTimeoutMs: 30_000,
   });
 
+  // Bind store to socket events
+  store.bind(socket.ev);
+
+  // Setup periodic save
+  const writeInterval = setInterval(() => {
+    try {
+      if (fs.existsSync(dir)) {
+        store.writeToFile(storePath);
+      }
+    } catch (err) {
+      logger.error({ userId, phoneLabel, err: err.message }, '[SessionManager] Failed to write store to file');
+    }
+  }, 10_000);
+
   // Store session metadata
   sessions.set(key, {
     userId,
@@ -121,6 +272,8 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
     status: 'connecting',  // 'connecting' | 'qr' | 'open' | 'closed'
     qrBase64: null,
     phoneNumber: null,     // resolved once the socket successfully connects
+    store,
+    writeInterval,
   });
 
   // ── Event: credentials updated ────────────────────────────────────────────
@@ -160,6 +313,10 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
     }
 
     if (connection === 'close') {
+      if (isSystemShuttingDown || socket._isGracefullyClosing) {
+        logger.info({ userId, phoneLabel }, '[SessionManager] System shutting down — ignoring connection close');
+        return;
+      }
       session.status = 'closed';
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const loggedOut = reason === DisconnectReason.loggedOut;
@@ -186,6 +343,9 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
     // Only process 'notify' type (real-time incoming messages, not history sync)
     if (type !== 'notify') return;
 
+    const session = sessions.get(key);
+    if (!session) return;
+
     for (const msg of messages) {
       // ── Guards — skip messages we should not process ─────────────────────
       // 1. Skip messages sent by this bot itself (prevents echo/loop)
@@ -205,19 +365,65 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
         '';
       if (!text.trim()) continue;
 
-      // Clean up sender: strip @s.whatsapp.net suffix
-      const sender = remoteJid.replace('@s.whatsapp.net', '');
+      // replyJid = full JID we must use to send a reply (may be @lid or @s.whatsapp.net)
+      // sender   = human-readable ID we use as the DB key (stripped of suffix)
+      let replyJid = remoteJid;
+      let sender = remoteJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
+
+      // Try to resolve real phone number if JID is an LID
+      if (remoteJid.endsWith('@lid')) {
+        // 1. Check if there's an Alt JID in the message key (supported by some Baileys versions)
+        const altJid = msg.key.remoteJidAlt || msg.key.participantAlt;
+        if (altJid && typeof altJid === 'string') {
+          const resolved = altJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
+          logger.info({ remoteJid, resolved }, '[SessionManager] Resolved phone JID from message Alt key');
+          // Use alt JID for sending but keep original remoteJid as replyJid so Baileys routes correctly
+          sender = resolved;
+          // Only upgrade replyJid if we got a real phone JID (not another LID)
+          if (!altJid.endsWith('@lid')) replyJid = altJid;
+        }
+
+        // 2. Check the signalRepository lidMapping (Baileys v7+)
+        if (sender === remoteJid.replace(/@(s\.whatsapp\.net|lid)$/, '') && socket.signalRepository?.lidMapping?.getPNForLID) {
+          try {
+            const pnJid = await socket.signalRepository.lidMapping.getPNForLID(remoteJid);
+            if (pnJid) {
+              const resolved = pnJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
+              logger.info({ remoteJid, resolved }, '[SessionManager] Resolved phone JID from signalRepository.lidMapping');
+              sender = resolved;
+              if (!pnJid.endsWith('@lid')) replyJid = pnJid;
+            }
+          } catch (err) {
+            logger.warn({ remoteJid, err: err.message }, '[SessionManager] Error querying lidMapping');
+          }
+        }
+
+        // 3. Fallback: Check the internal contact store
+        if (sender === remoteJid.replace(/@(s\.whatsapp\.net|lid)$/, '') && session.store && session.store.contacts) {
+          const contact = session.store.contacts[remoteJid];
+          if (contact) {
+            const resolvedJid = contact.jid || contact.phoneNumber;
+            if (resolvedJid) {
+              const resolved = resolvedJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
+              logger.info({ remoteJid, resolved }, '[SessionManager] Resolved phone JID from LID contact store (jid/phoneNumber)');
+              sender = resolved;
+              if (!resolvedJid.endsWith('@lid')) replyJid = resolvedJid;
+            }
+          }
+        }
+      }
 
       // botNumber is the actual WhatsApp phone number of this bot instance.
       // The Fastify server uses it to look up the owning tenant in whatsapp_sessions,
       // enabling multiple bot numbers to share the same org knowledge base.
       const botNumber = session.phoneNumber ?? null;
 
-      logger.info({ userId, phoneLabel, botNumber, sender, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
+      logger.info({ userId, phoneLabel, botNumber, sender, replyJid, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
 
       // Forward to Fastify webhook — include both phoneLabel and botNumber.
       // botNumber lets the server resolve orgId via: SELECT org_id FROM whatsapp_sessions WHERE phone_number = botNumber
-      await sendToFastifyWebhook({ sender, message: text, userId, phoneLabel, botNumber });
+      // replyJid is the full JID (with @lid or @s.whatsapp.net) that must be used to send the reply back.
+      await sendToFastifyWebhook({ sender, message: text, userId, phoneLabel, botNumber, replyJid });
     }
   });
 }
@@ -303,25 +509,93 @@ export function listSessions(userId) {
 }
 
 /**
+ * Retrieves chat history from the session's store for a given recipient phone.
+ *
+ * @param {string} userId
+ * @param {string} phoneLabel
+ * @param {string} recipientPhone
+ * @returns {Array} messages array
+ */
+export function getChatHistory(userId, phoneLabel = 'default', recipientPhone) {
+  const key = buildKey(userId, phoneLabel);
+  const session = sessions.get(key);
+  if (!session) {
+    throw new Error(`Session not found for userId '${userId}' and phoneLabel '${phoneLabel}'`);
+  }
+
+  if (!session.store) {
+    throw new Error(`Store not initialized for session '${phoneLabel}'`);
+  }
+
+  const jid = recipientPhone.includes('@') ? recipientPhone : `${recipientPhone}@s.whatsapp.net`;
+  const messages = session.store.messages[jid]?.toJSON() || session.store.messages[jid]?.array || [];
+  return messages;
+}
+
+/**
  * Gracefully closes a single Baileys socket.
  *
  * @param {string} userId
  * @param {string} [phoneLabel='default']
- * @param {boolean} [removeFromMap=true]
  */
-export async function destroySession(userId, phoneLabel = 'default', removeFromMap = true) {
+export async function destroySession(userId, phoneLabel = 'default', removeFromMap = true, isLogout = false) {
   const key = buildKey(userId, phoneLabel);
   const session = sessions.get(key);
   if (!session) return;
 
+  // Capture phone number before we lose the session reference
+  const botNumber = session.phoneNumber;
+
+  // Clear save interval
+  if (session.writeInterval) {
+    clearInterval(session.writeInterval);
+  }
+
+  // Final save if store exists (only when NOT logging out — on logout we wipe the dir)
+  if (session.store && !isLogout) {
+    try {
+      const dir = sessionDir(userId, phoneLabel);
+      const storePath = path.join(dir, 'store.json');
+      if (fs.existsSync(dir)) {
+        session.store.writeToFile(storePath);
+      }
+    } catch (err) {
+      logger.warn({ userId, phoneLabel, err: err.message }, '[SessionManager] Failed to save store on destroy');
+    }
+  }
+
   try {
-    await session.socket.logout();
+    if (isLogout) {
+      await session.socket.logout();
+    } else {
+      // Mark the socket as shutting down to prevent the connection.update close handler
+      // from treating this as a real logout and purging session credentials on disk.
+      session.socket._isGracefullyClosing = true;
+      session.socket.end(undefined);
+    }
   } catch {
     // socket.end() is the nuclear option when logout fails
-    session.socket.end(undefined);
+    if (session.socket) {
+      session.socket._isGracefullyClosing = true;
+      session.socket.end(undefined);
+    }
   } finally {
     if (removeFromMap) sessions.delete(key);
     logger.info({ userId, phoneLabel }, '[SessionManager] Session destroyed');
+
+    // When performing a real logout, wipe local credentials and notify the server
+    if (isLogout) {
+      try {
+        fs.rmSync(sessionDir(userId, phoneLabel), { recursive: true, force: true });
+        logger.info({ userId, phoneLabel }, '[SessionManager] Session directory removed on logout');
+      } catch (err) {
+        logger.warn({ userId, phoneLabel, err: err.message }, '[SessionManager] Failed to remove session directory');
+      }
+      // Notify the Fastify server so the DB row status becomes DISCONNECTED
+      if (botNumber) {
+        pushSessionStatus({ userId, phoneLabel, botNumber, status: 'DISCONNECTED' });
+      }
+    }
   }
 }
 
@@ -463,9 +737,10 @@ export async function restoreAllSessions() {
  * Gracefully destroys ALL active sessions. Called on SIGTERM/SIGINT.
  */
 export async function destroyAllSessions() {
+  isSystemShuttingDown = true;
   const allSessions = [...sessions.values()];
   logger.info({ count: allSessions.length }, '[SessionManager] Destroying all sessions (graceful shutdown)');
   await Promise.allSettled(
-    allSessions.map((session) => destroySession(session.userId, session.phoneLabel, true))
+    allSessions.map((session) => destroySession(session.userId, session.phoneLabel, true, false))
   );
 }

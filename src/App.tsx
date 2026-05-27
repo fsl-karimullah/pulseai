@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { AppDataProvider } from './contexts/AppDataContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import DashboardLayout from './layouts/DashboardLayout';
@@ -24,6 +25,7 @@ import './index.css';
 const App: React.FC = () => {
   return (
     <AuthProvider>
+      <AppDataProvider>
       <Router>
         <Routes>
           {/* Public Routes */}
@@ -58,6 +60,7 @@ const App: React.FC = () => {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
+      </AppDataProvider>
     </AuthProvider>
   );
 };

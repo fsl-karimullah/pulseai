@@ -16,6 +16,7 @@ import {
   sendMessage,
   destroySession,
   sendTypingIndicator,
+  getChatHistory,
 } from '../session/sessionManager.js';
 
 import { logger } from '../utils/logger.js';
@@ -166,7 +167,7 @@ router.delete('/logout', async (req, res) => {
   }
 
   try {
-    await destroySession(userId, phoneLabel, true);
+    await destroySession(userId, phoneLabel, true, true);
     return res.json({
       success: true,
       message: `Logged out session '${phoneLabel}' for userId '${userId}'.`,
@@ -204,6 +205,37 @@ router.post('/typing', async (req, res) => {
     logger.error({ userId, phoneLabel, to, error: error.message }, '[SessionRoute] Typing indicator failed');
     // Return 200 even on failure — typing is non-critical and callers should not retry
     return res.json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/session/chat-history
+ *
+ * Retrieves the message history for a specific phone number of a user/tenant.
+ * Query: { phone, tenantId, phoneLabel? }
+ */
+router.get('/chat-history', (req, res) => {
+  const { phone, tenantId, phoneLabel = 'default' } = req.query;
+
+  if (!phone || !tenantId) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing required query parameters: 'phone' and 'tenantId'.",
+    });
+  }
+
+  try {
+    const messages = getChatHistory(tenantId, phoneLabel, phone);
+    return res.json({
+      success: true,
+      messages,
+    });
+  } catch (error) {
+    logger.error({ tenantId, phoneLabel, phone, error: error.message }, '[SessionRoute] Get chat history failed');
+    return res.status(404).json({
+      success: false,
+      message: error.message,
+    });
   }
 });
 

@@ -71,7 +71,7 @@ create policy "Users can view own org whatsapp_sessions"
 
 -- ─── 5. Helper view for the dashboard ────────────────────────────────────
 -- Returns all connected sessions with org name for the admin panel.
-create or replace view whatsapp_sessions_summary as
+create or replace view whatsapp_sessions_summary with (security_invoker = on) as
   select
     ws.phone_number,
     ws.phone_label,

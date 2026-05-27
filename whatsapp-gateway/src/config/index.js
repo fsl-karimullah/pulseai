@@ -35,7 +35,7 @@ export const config = {
 
   // Axios retry config for the Fastify webhook target
   webhook: {
-    timeoutMs: 10_000,      // 10s per attempt
+    timeoutMs: 60_000,      // 60s per attempt to allow AI generation to finish
     maxRetries: 3,          // 3 retries after initial failure
     retryDelayMs: 2_000,    // 2s base delay (exponential back-off applied)
   },

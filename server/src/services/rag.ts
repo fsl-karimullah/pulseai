@@ -63,11 +63,11 @@ export async function retrieveContext(
     // The RPC function enforces `WHERE org_id = p_org_id` at the SQL level.
     // Passing p_org_id as a typed uuid parameter prevents any SQL injection
     // and ensures results are STRICTLY limited to this tenant's documents.
+    // We omit optional match_threshold and match_count to bypass PostgreSQL
+    // function overloading resolution ambiguity.
     const { data, error } = await supabase.rpc('match_knowledge_nodes', {
       query_embedding: embedding,
       p_org_id:        orgId,          // ← tenant boundary enforced here
-      match_threshold: matchThreshold,
-      match_count:     matchCount,
     });
 
     if (error) {
