@@ -366,52 +366,10 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
       if (!text.trim()) continue;
 
       // replyJid = full JID we must use to send a reply (may be @lid or @s.whatsapp.net)
-      // sender   = human-readable ID we use as the DB key (stripped of suffix)
       let replyJid = remoteJid;
-      let sender = remoteJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
-
-      // Try to resolve real phone number if JID is an LID
-      if (remoteJid.endsWith('@lid')) {
-        // 1. Check if there's an Alt JID in the message key (supported by some Baileys versions)
-        const altJid = msg.key.remoteJidAlt || msg.key.participantAlt;
-        if (altJid && typeof altJid === 'string') {
-          const resolved = altJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
-          logger.info({ remoteJid, resolved }, '[SessionManager] Resolved phone JID from message Alt key');
-          // Use alt JID for sending but keep original remoteJid as replyJid so Baileys routes correctly
-          sender = resolved;
-          // Only upgrade replyJid if we got a real phone JID (not another LID)
-          if (!altJid.endsWith('@lid')) replyJid = altJid;
-        }
-
-        // 2. Check the signalRepository lidMapping (Baileys v7+)
-        if (sender === remoteJid.replace(/@(s\.whatsapp\.net|lid)$/, '') && socket.signalRepository?.lidMapping?.getPNForLID) {
-          try {
-            const pnJid = await socket.signalRepository.lidMapping.getPNForLID(remoteJid);
-            if (pnJid) {
-              const resolved = pnJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
-              logger.info({ remoteJid, resolved }, '[SessionManager] Resolved phone JID from signalRepository.lidMapping');
-              sender = resolved;
-              if (!pnJid.endsWith('@lid')) replyJid = pnJid;
-            }
-          } catch (err) {
-            logger.warn({ remoteJid, err: err.message }, '[SessionManager] Error querying lidMapping');
-          }
-        }
-
-        // 3. Fallback: Check the internal contact store
-        if (sender === remoteJid.replace(/@(s\.whatsapp\.net|lid)$/, '') && session.store && session.store.contacts) {
-          const contact = session.store.contacts[remoteJid];
-          if (contact) {
-            const resolvedJid = contact.jid || contact.phoneNumber;
-            if (resolvedJid) {
-              const resolved = resolvedJid.replace(/@(s\.whatsapp\.net|lid)$/, '');
-              logger.info({ remoteJid, resolved }, '[SessionManager] Resolved phone JID from LID contact store (jid/phoneNumber)');
-              sender = resolved;
-              if (!resolvedJid.endsWith('@lid')) replyJid = resolvedJid;
-            }
-          }
-        }
-      }
+      
+      const cleanPhoneNumber = remoteJid.replace(/[^0-9]/g, '');
+      let sender = cleanPhoneNumber;
 
       // botNumber is the actual WhatsApp phone number of this bot instance.
       // The Fastify server uses it to look up the owning tenant in whatsapp_sessions,

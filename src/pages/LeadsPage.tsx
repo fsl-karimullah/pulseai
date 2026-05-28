@@ -269,7 +269,7 @@ const LeadsPage: React.FC = () => {
                             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors text-xs font-semibold"
                           >
                             <MessageSquare size={14} />
-                            Live Chat
+                            Riwayat Chat
                           </button>
                           
                           {!isLid ? (
