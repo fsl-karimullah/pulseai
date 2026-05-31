@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { retrieveContext, buildContextBlock } from '../services/rag';
-import { generateChatResponse, type ChatMessage } from '../services/gemini';
+import { generateChatResponse, generateChatResponseStream, type ChatMessage } from '../services/gemini';
 import { supabase } from '../config/supabase';
 
 interface ChatBody {
@@ -129,6 +129,99 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           message: 'Gagal memproses percakapan. Silakan coba lagi nanti.',
           error: error.message 
         });
+      }
+    }
+  );
+
+  /**
+   * POST /api/chat-stream
+   * Streaming version for local Fastify (matches Vercel Edge function)
+   */
+  fastify.post(
+    '/chat-stream',
+    async (
+      request: FastifyRequest<{ Body: ChatBody & { orgId?: string } }>,
+      reply: FastifyReply
+    ) => {
+      const {
+        message,
+        history = [],
+        conversationId,
+        orgId,
+        botName = 'Aria',
+        company = 'PulseAI',
+      } = request.body;
+
+      if (!message?.trim()) {
+        return reply.status(400).send({ success: false, message: 'message is required.' });
+      }
+
+      let query = supabase.from('bot_settings').select('*');
+      if (orgId) {
+        query = query.eq('org_id', orgId);
+      } else {
+        query = query.eq('bot_name', botName);
+      }
+      let { data: settings } = await query.maybeSingle();
+
+      if (!settings && orgId) {
+        const { data: newSettings } = await supabase
+          .from('bot_settings')
+          .insert({ org_id: orgId })
+          .select()
+          .single();
+        if (newSettings) settings = newSettings;
+      }
+
+      if (!settings) {
+        return reply.status(404).send({ success: false, message: 'Bot configuration not found.' });
+      }
+
+      const resolvedOrgId = settings.org_id;
+      const resolvedBotName = settings.bot_name || botName || 'Aria';
+      const resolvedCompany = settings.company_name || company || 'PulseAI';
+      const tone = settings.tone || 'Professional';
+      const instructions = settings.custom_instructions || '';
+      const adminWhatsApp = settings.admin_whatsapp || '';
+
+      const chunks = await retrieveContext(message, resolvedOrgId, 5);
+      const context = buildContextBlock(chunks);
+
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+
+      try {
+        const stream = await generateChatResponseStream(
+          message,
+          history,
+          context,
+          resolvedBotName,
+          resolvedCompany,
+          tone,
+          instructions,
+          adminWhatsApp,
+          resolvedOrgId
+        );
+
+        for await (const chunk of stream) {
+          reply.raw.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+        }
+
+        reply.raw.write(
+          `data: ${JSON.stringify({
+            done: true,
+            triggerLeadCapture: false,
+            sources: chunks.map((c) => ({ title: c.title, similarity: c.similarity })),
+          })}\n\n`
+        );
+      } catch (err: any) {
+        reply.raw.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      } finally {
+        reply.raw.end();
       }
     }
   );

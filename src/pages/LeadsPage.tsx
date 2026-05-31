@@ -42,6 +42,10 @@ const LeadsPage: React.FC = () => {
   const [editWhatsapp, setEditWhatsapp] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   // Live Chat Room states
   const [botSessions, setBotSessions] = useState<WhatsAppSession[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -193,6 +197,9 @@ const LeadsPage: React.FC = () => {
     l.whatsapp.includes(search)
   );
 
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginatedLeads = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="space-y-6 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -215,7 +222,7 @@ const LeadsPage: React.FC = () => {
               type="text" 
               placeholder="Cari nama atau nomor WhatsApp..." 
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
               className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
             />
           </div>
@@ -244,7 +251,7 @@ const LeadsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map(lead => {
+                {paginatedLeads.map(lead => {
                   let cleanWa = lead.whatsapp.replace(/\D/g, '');
                   if (cleanWa.startsWith('0')) cleanWa = '62' + cleanWa.substring(1);
                   const isLid = cleanWa.startsWith('8') && cleanWa.length >= 14;
@@ -323,6 +330,31 @@ const LeadsPage: React.FC = () => {
             </table>
           )}
         </div>
+
+        {/* Pagination Controls */}
+        {filtered.length > itemsPerPage && (
+          <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+            <span className="text-xs text-slate-500 font-medium">
+              Menampilkan {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filtered.length)} dari {filtered.length} leads
+            </span>
+            <div className="flex gap-2">
+              <button
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Sebelumnya
+              </button>
+              <button
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Berikutnya
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Edit Modal */}
