@@ -367,9 +367,22 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
 
       // replyJid = full JID we must use to send a reply (may be @lid or @s.whatsapp.net)
       let replyJid = remoteJid;
-      
-      const cleanPhoneNumber = remoteJid.replace(/[^0-9]/g, '');
-      let sender = cleanPhoneNumber;
+
+      // For LID contacts (Multi-Device), remoteJid looks like '220525532057759@lid'.
+      // Stripping non-digits gives a LID number (NOT a real phone), so we preserve the
+      // full JID as `sender` so the Fastify server's isLidNumber() / getLeadPhoneNumber()
+      // can detect it and gracefully handle the missing phone number scenario.
+      //
+      // For normal contacts, remoteJid looks like '6287826563458@s.whatsapp.net'.
+      // Here we strip the suffix to get a clean numeric phone number.
+      let sender;
+      if (remoteJid.endsWith('@lid')) {
+        // Multi-Device / LID contact — pass full JID so server can detect LID
+        sender = remoteJid;
+      } else {
+        // Standard contact — extract clean phone number from JID
+        sender = remoteJid.replace(/[^0-9]/g, '');
+      }
 
       // botNumber is the actual WhatsApp phone number of this bot instance.
       // The Fastify server uses it to look up the owning tenant in whatsapp_sessions,

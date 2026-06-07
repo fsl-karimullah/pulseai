@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Check, Loader2, Sparkles, Zap, Building2, Info } from 'lucide-react';
+import { Check, Loader2, Sparkles, Zap, Building2, Info, Tag, X, CheckCircle2 } from 'lucide-react';
 import { useSubscription } from '../hooks/useSubscription';
 import { useSearchParams } from 'react-router-dom';
 
@@ -31,6 +31,17 @@ const PricingPage: React.FC = () => {
   const { subscription } = useSubscription();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // ── Referral / Kupon state ─────────────────────────────────────────────
+  const [couponCode, setCouponCode] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponData, setCouponData] = useState<{
+    valid: true;
+    partner_id: string;
+    partner_name: string;
+    discount_rate: number; // e.g. 0.10
+  } | null>(null);
 
   useEffect(() => {
     // 1. Check for Midtrans redirect parameters
@@ -70,7 +81,45 @@ const PricingPage: React.FC = () => {
     };
   }, [searchParams, setSearchParams]);
 
-  const handleCheckout = async (plan: string, amount: number) => {
+  // ── Validate coupon via API ────────────────────────────────────────────
+  const validateCoupon = async () => {
+    const trimmed = couponCode.trim();
+    if (!trimmed) return;
+
+    setCouponLoading(true);
+    setCouponError(null);
+    setCouponData(null);
+
+    try {
+      const res = await fetch(`/api/referral/validate?code=${encodeURIComponent(trimmed)}`);
+      const json = await res.json();
+
+      if (json.valid) {
+        setCouponData(json);
+      } else {
+        setCouponError(json.message || 'Kode tidak valid.');
+      }
+    } catch {
+      setCouponError('Gagal memvalidasi kode. Periksa koneksi Anda.');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const clearCoupon = () => {
+    setCouponCode('');
+    setCouponData(null);
+    setCouponError(null);
+  };
+
+  /** Returns the final amount after applying any active coupon discount. */
+  const getFinalAmount = (basePrice: number): number => {
+    if (!couponData) return basePrice;
+    return Math.round(basePrice * (1 - couponData.discount_rate));
+  };
+
+  const handleCheckout = async (plan: string, baseAmount: number) => {
+    const finalAmount = getFinalAmount(baseAmount);
     try {
       setLoadingPlan(plan);
       const response = await fetch('/api/payments/create-transaction', {
@@ -81,14 +130,15 @@ const PricingPage: React.FC = () => {
         },
         body: JSON.stringify({
           plan,
-          amount,
+          amount: finalAmount,
           userEmail: user?.email,
+          referral_code: couponData ? couponCode.trim().toUpperCase() : undefined,
         }),
       });
 
       const data = await response.json();
 
-        if (data.success && data.token) {
+      if (data.success && data.token) {
         window.snap.pay(data.token, {
           onSuccess: async function (result: any) {
             console.log('Payment success:', result);
@@ -156,7 +206,66 @@ const PricingPage: React.FC = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-12 items-stretch">
+      {/* ── Coupon / Kode Referral Input ──────────────────────────────── */}
+      <div className="max-w-md mx-auto">
+        {couponData ? (
+          /* ✅ Coupon applied — success pill */
+          <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 shadow-sm">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-emerald-800">
+                  Kode <span className="font-black">{couponCode.toUpperCase()}</span> diterapkan!
+                </p>
+                <p className="text-xs text-emerald-600">
+                  Diskon {Math.round(couponData.discount_rate * 100)}% dari {couponData.partner_name}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={clearCoupon}
+              className="p-1 rounded-lg text-emerald-500 hover:text-emerald-700 hover:bg-emerald-100 transition-colors"
+              title="Hapus kode"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : (
+          /* Input field */
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Tag size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={(e) => {
+                    setCouponCode(e.target.value.toUpperCase());
+                    setCouponError(null);
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && validateCoupon()}
+                  placeholder="Punya kode voucher? Masukkan di sini"
+                  className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition"
+                />
+              </div>
+              <button
+                onClick={validateCoupon}
+                disabled={couponLoading || !couponCode.trim()}
+                className="px-4 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+              >
+                {couponLoading ? <Loader2 size={15} className="animate-spin" /> : 'Pakai'}
+              </button>
+            </div>
+            {couponError && (
+              <p className="text-xs text-red-500 flex items-center gap-1 pl-1">
+                <X size={12} /> {couponError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-6 items-stretch">
         {/* Starter Plan */}
         <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col transition-all hover:border-emerald-200">
           <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-6">
@@ -165,8 +274,22 @@ const PricingPage: React.FC = () => {
           <h3 className="text-xl font-bold text-slate-900">Paket Starter</h3>
           <p className="text-sm text-slate-500 mt-2">Durasi 1 Bulan</p>
           <div className="mt-6 flex flex-col">
-            <span className="text-4xl font-extrabold text-slate-900">Rp 69.000</span>
-            <span className="text-emerald-600 text-xs font-bold mt-1">Rp 69.000/bulan</span>
+            {couponData ? (
+              <>
+                <span className="text-sm text-slate-400 line-through">Rp 69.000</span>
+                <span className="text-4xl font-extrabold text-emerald-600">
+                  Rp {getFinalAmount(69000).toLocaleString('id-ID')}
+                </span>
+                <span className="text-emerald-600 text-xs font-bold mt-1">
+                  Hemat {Math.round(couponData.discount_rate * 100)}% dengan kode kupon
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-4xl font-extrabold text-slate-900">Rp 69.000</span>
+                <span className="text-emerald-600 text-xs font-bold mt-1">Rp 69.000/bulan</span>
+              </>
+            )}
           </div>
           <ul className="mt-8 space-y-4 flex-1">
             <FeatureWithTooltip text="Unlimited Pesan / bulan" />
@@ -199,10 +322,24 @@ const PricingPage: React.FC = () => {
           <h3 className="text-xl font-bold text-slate-900">Paket Pro</h3>
           <p className="text-sm text-slate-500 mt-2">Durasi 3 Bulan</p>
           <div className="mt-6 flex flex-col">
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-extrabold text-slate-900">Rp 149.000</span>
-            </div>
-            <span className="text-emerald-600 text-xs font-bold mt-1">Hanya ~Rp 49.700/bulan</span>
+            {couponData ? (
+              <>
+                <span className="text-sm text-slate-400 line-through">Rp 149.000</span>
+                <span className="text-4xl font-extrabold text-emerald-600">
+                  Rp {getFinalAmount(149000).toLocaleString('id-ID')}
+                </span>
+                <span className="text-emerald-600 text-xs font-bold mt-1">
+                  Hemat {Math.round(couponData.discount_rate * 100)}% dengan kode kupon
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-extrabold text-slate-900">Rp 149.000</span>
+                </div>
+                <span className="text-emerald-600 text-xs font-bold mt-1">Hanya ~Rp 49.700/bulan</span>
+              </>
+            )}
           </div>
           <ul className="mt-8 space-y-4 flex-1">
             <FeatureWithTooltip text="Unlimited Pesan / bulan" />
@@ -232,8 +369,22 @@ const PricingPage: React.FC = () => {
           <h3 className="text-xl font-bold text-slate-900">Paket Full Scale</h3>
           <p className="text-sm text-slate-500 mt-2">Durasi 12 Bulan</p>
           <div className="mt-6 flex flex-col">
-            <span className="text-4xl font-extrabold text-slate-900">Rp 249.000</span>
-            <span className="text-emerald-600 text-xs font-bold mt-1">Hanya ~Rp 20.750/bulan</span>
+            {couponData ? (
+              <>
+                <span className="text-sm text-slate-400 line-through">Rp 249.000</span>
+                <span className="text-4xl font-extrabold text-emerald-600">
+                  Rp {getFinalAmount(249000).toLocaleString('id-ID')}
+                </span>
+                <span className="text-emerald-600 text-xs font-bold mt-1">
+                  Hemat {Math.round(couponData.discount_rate * 100)}% dengan kode kupon
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-4xl font-extrabold text-slate-900">Rp 249.000</span>
+                <span className="text-emerald-600 text-xs font-bold mt-1">Hanya ~Rp 20.750/bulan</span>
+              </>
+            )}
           </div>
           <ul className="mt-8 space-y-4 flex-1">
             <FeatureWithTooltip text="Unlimited Pesan / bulan" />

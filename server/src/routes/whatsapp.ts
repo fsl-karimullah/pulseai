@@ -7,9 +7,12 @@ import { authenticate } from '../middleware/auth';
 
 // Helper to identify if a number is a WhatsApp Linked ID (LID)
 function isLidNumber(num: string): boolean {
-  // LIDs are typically 14-16 digits starting with '8'.
-  // Indonesian numbers start with '628' or '08' and won't match this criteria.
-  return num.startsWith('8') && num.length >= 14;
+  // LIDs are long numeric strings (14–20 digits) that do NOT look like
+  // Indonesian phone numbers (which always start with '62' or '0').
+  // Examples of real LIDs: '220525532057759' (starts with '2'), '8xxxxxxxxxxxxxxx'
+  if (num.length < 14) return false;                        // too short to be a LID
+  if (num.startsWith('62') || num.startsWith('0')) return false; // looks like a real phone
+  return true; // anything else this long is probably a LID
 }
 
 // Helper to extract phone number from message text or history
@@ -380,13 +383,19 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
               const previewMessage = message.length > 200 ? message.slice(0, 200) + '...' : message;
 
+              // Build the contact line using hasValidPhone — the authoritative flag
+              // computed at Step 7, so we don't re-evaluate LID logic here.
+              const displayContact = hasValidPhone
+                ? `📱 WhatsApp: wa.me/${leadPhone}`
+                : `📱 Multi-device (LID) — tidak ada nomor HP.\n   JID: ${replyTo}\n   ⚠️ Tidak bisa dibuka via wa.me`;
+
               const adminMsg =
 `🚨 *NOTIFIKASI HOT LEADS - ${company.toUpperCase()}* 🚨
 
 Ada calon peserta yang butuh bantuan admin manusia segera!
 
 👤 *Kontak Leads:*
-   📱 WhatsApp: wa.me/${leadPhone}
+   ${displayContact}
 
 💬 *Pesan Terakhir:*
 "_${previewMessage}_"

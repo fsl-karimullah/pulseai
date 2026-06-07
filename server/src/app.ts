@@ -10,6 +10,7 @@ import paymentsRoutes from './routes/payments';
 import settingsRoutes from './routes/settings';
 import knowledgeRoutes from './routes/knowledge';
 import whatsappRoutes from './routes/whatsapp';
+import referralRoutes from './routes/referral';
 
 const MAX_FILE_SIZE_MB = 25;
 
@@ -42,15 +43,16 @@ export async function createServer() {
   });
 
   // ── Routes ───────────────────────────────────────────────────────────────
-  await server.register(ingestRoutes, { prefix: '/api' });
-  await server.register(chatRoutes,   { prefix: '/api' });
-  await server.register(leadsRoutes,  { prefix: '/api' });
+  await server.register(ingestRoutes,    { prefix: '/api' });
+  await server.register(chatRoutes,      { prefix: '/api' });
+  await server.register(leadsRoutes,     { prefix: '/api' });
   await server.register(analyticsRoutes, { prefix: '/api' });
-  await server.register(widgetRoutes, { prefix: '/api' });
-  await server.register(paymentsRoutes, { prefix: '/api' });
-  await server.register(settingsRoutes, { prefix: '/api' });
+  await server.register(widgetRoutes,    { prefix: '/api' });
+  await server.register(paymentsRoutes,  { prefix: '/api' });
+  await server.register(settingsRoutes,  { prefix: '/api' });
   await server.register(knowledgeRoutes, { prefix: '/api' });
-  await server.register(whatsappRoutes, { prefix: '/api' });
+  await server.register(whatsappRoutes,  { prefix: '/api' });
+  await server.register(referralRoutes,  { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({

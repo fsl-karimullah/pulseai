@@ -4,11 +4,17 @@ import { supabase } from '../config/supabase';
 import midtransClient from 'midtrans-client';
 
 import { authenticate } from '../middleware/auth';
+import { findPartnerByCode, logReferralCommission } from '../services/referralService';
 
 export default async function paymentsRoutes(fastify: FastifyInstance) {
   fastify.post('/payments/create-transaction', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const { plan, amount, userEmail } = request.body as { plan: string; amount: number; userEmail: string };
+      const { plan, amount, userEmail, referral_code } = request.body as {
+        plan: string;
+        amount: number;
+        userEmail: string;
+        referral_code?: string; // Optional coupon code from checkout form
+      };
 
       if (!plan || !amount) {
         return reply.status(400).send({ success: false, message: 'Missing plan or amount' });
@@ -63,27 +69,56 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
 
       const orderId = `ORDER-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-      // 2. Save Pending Order to DB
+      // ── Referral / Kupon: Validate code and compute discounted amount ──────
+      let finalAmount = amount;          // amount user will actually pay
+      let referralPartnerId: string | null = null;
+
+      if (referral_code && referral_code.trim()) {
+        try {
+          const partner = await findPartnerByCode(referral_code);
+          if (partner) {
+            // Apply discount: finalAmount = originalPrice * (1 - discount_rate)
+            finalAmount = Math.round(amount * (1 - partner.discount_rate));
+            referralPartnerId = partner.id;
+            fastify.log.info(
+              { code: referral_code, partnerId: partner.id, originalAmount: amount, finalAmount },
+              '[Payment] Referral discount applied'
+            );
+          } else {
+            // Invalid code — do NOT block checkout, simply ignore the discount
+            fastify.log.warn({ referral_code }, '[Payment] Referral code not found — ignoring');
+          }
+        } catch (refErr: any) {
+          // Non-fatal: if the referral lookup fails, proceed at full price
+          fastify.log.error({ err: refErr.message }, '[Payment] Referral lookup error — proceeding at full price');
+        }
+      }
+
+      // 2. Save Pending Order to DB (include partner_id so the webhook can log commission)
       await supabase.from('payment_orders').insert({
-        order_id: orderId,
-        org_id: targetOrgId,
-        plan_type: plan,
-        amount: amount,
-        status: 'pending'
+        order_id:          orderId,
+        org_id:            targetOrgId,
+        plan_type:         plan,
+        amount:            finalAmount,       // discounted amount stored for Midtrans
+        original_amount:   amount,            // original price before discount
+        referral_partner_id: referralPartnerId, // null when no valid code was used
+        status:            'pending',
       });
 
       // Prepare Midtrans Transaction parameter
       const parameter = {
         transaction_details: {
           order_id: orderId,
-          gross_amount: amount,
+          gross_amount: finalAmount,   // ← discounted amount sent to payment gateway
         },
         item_details: [
           {
             id: plan,
-            price: amount,
+            price: finalAmount,
             quantity: 1,
-            name: `PulseAI ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+            name: `PulseAI ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan${
+              referralPartnerId ? ` (Kode Referral: ${referral_code?.toUpperCase()})` : ''
+            }`,
           },
         ],
         customer_details: {
@@ -104,8 +139,12 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
 
       return reply.send({
         success: true,
-        token: transaction.token,
+        token:        transaction.token,
         redirect_url: transaction.redirect_url,
+        // Echo back discount info so the frontend can display it
+        discount_applied: referralPartnerId !== null,
+        original_amount:  amount,
+        final_amount:     finalAmount,
       });
     } catch (error: any) {
       fastify.log.error(error, 'Failed to create Midtrans transaction');
@@ -177,6 +216,43 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
               .eq('org_id', order.org_id);
               
             fastify.log.info(`Successfully upgraded Org ${order.org_id} to ${order.plan_type}`);
+
+            // ── Referral Commission Logging ────────────────────────────────
+            // If this order used a referral code, look up the partner's current
+            // commission_rate and log the earned commission. Non-fatal: payment
+            // success must not be rolled back if this step fails.
+            if (order.referral_partner_id) {
+              try {
+                const { data: partner } = await supabase
+                  .from('referral_partners')
+                  .select('commission_rate')
+                  .eq('id', order.referral_partner_id)
+                  .maybeSingle();
+
+                if (partner) {
+                  // Use original_amount (pre-discount) as the commission base so
+                  // the partner is rewarded on the full package value.
+                  const commissionBase = Number(order.original_amount ?? order.amount);
+                  await logReferralCommission({
+                    partnerId:      order.referral_partner_id,
+                    buyerTenantId:  order.org_id,
+                    packagePrice:   commissionBase,
+                    commissionRate: Number(partner.commission_rate),
+                  });
+                  fastify.log.info(
+                    { orderId, partnerId: order.referral_partner_id, commissionBase },
+                    '[Referral] Commission logged successfully'
+                  );
+                }
+              } catch (commErr: any) {
+                // Log but do NOT re-throw — payment is already settled
+                fastify.log.error(
+                  { err: commErr.message, orderId, partnerId: order.referral_partner_id },
+                  '[Referral] Failed to log commission (non-fatal)'
+                );
+              }
+            }
+            // ──────────────────────────────────────────────────────────────
           }
         }
       } else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
