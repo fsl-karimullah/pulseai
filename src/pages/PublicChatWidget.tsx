@@ -198,6 +198,14 @@ const PublicChatWidget: React.FC = () => {
     e.preventDefault();
     if (!leadData.name || !leadData.whatsapp) return;
 
+    // Normalize WhatsApp number: strip non-digits, convert 0xxx → 62xxx
+    const rawNumber = leadData.whatsapp.replace(/\D/g, '');
+    const normalizedNumber = rawNumber.startsWith('0')
+      ? '62' + rawNumber.substring(1)
+      : rawNumber.startsWith('62')
+      ? rawNumber
+      : '62' + rawNumber;
+
     const apiBase = import.meta.env.VITE_API_URL || '';
 
     setIsSubmittingLead(true);
@@ -207,7 +215,7 @@ const PublicChatWidget: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: leadData.name,
-          whatsapp: leadData.whatsapp,
+          whatsapp: normalizedNumber,
           orgId,
           botName,
           lastMessage: messages[messages.length - 1]?.content

@@ -392,6 +392,7 @@ const PricingPage: React.FC = () => {
             <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
             <FeatureWithTooltip text="Integrasi Widget Web" />
             <FeatureWithTooltip text="Support Teknis 24/7 Setiap Hari" />
+            <FeatureWithTooltip text="🔥 BONUS: AI ATS CV Reader (Kuota 50 Scan CV / Bulan)" />
           </ul>
           <button 
             onClick={() => handleCheckout('full_scale', 249000)}

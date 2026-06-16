@@ -81,37 +81,33 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       const plan = sub?.plan_type || 'free';
 
       // 1. Document Count Limit
+      // Free plan: max 1 document. Any paid subscription: unlimited.
       const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
       const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-      
-      const docLimits: Record<string, number> = {
-        'free': 1,
-        'starter': 3,
-        'pro': 3,
-        'full_scale': 3
-      };
 
-      const currentDocLimit = docLimits[plan] || 1;
-      if (uniqueTitles.size >= currentDocLimit) {
+      const isFree = plan === 'free';
+      const freeDocLimit = 1;
+
+      if (isFree && uniqueTitles.size >= freeDocLimit) {
         return reply.status(403).send({
           success: false,
-          message: `Limit tercapai. Paket ${plan} Anda hanya mendukung ${currentDocLimit} dokumen. Silakan upgrade paket Anda atau hubungi support.`,
+          message: `Limit tercapai. Paket Free hanya mendukung ${freeDocLimit} dokumen. Silakan upgrade ke paket berbayar untuk upload tidak terbatas.`,
         });
       }
 
       // 2. File Size Limit
-      const sizeLimits: Record<string, number> = {
-        'free': 2 * 1024 * 1024,      // 2MB
-        'starter': 100 * 1024 * 1024,  // 100MB
-        'pro': 100 * 1024 * 1024,      // 100MB
-        'full_scale': 100 * 1024 * 1024 // 100MB
-      };
+      // Free plan: 4MB. Paid plans: 50MB.
+      const FREE_SIZE_LIMIT = 4 * 1024 * 1024;   // 4 MB
+      const PAID_SIZE_LIMIT = 50 * 1024 * 1024;  // 50 MB
+      const currentSizeLimit = isFree ? FREE_SIZE_LIMIT : PAID_SIZE_LIMIT;
 
-      const currentSizeLimit = sizeLimits[plan] || sizeLimits['free'];
       if (fileBuffer.length > currentSizeLimit) {
+        const limitMB = currentSizeLimit / (1024 * 1024);
         return reply.status(400).send({
           success: false,
-          message: `Ukuran file terlalu besar. Paket ${plan} Anda hanya mendukung maksimal ${currentSizeLimit / (1024 * 1024)}MB.`,
+          message: `Ukuran file terlalu besar. Paket ${isFree ? 'Free' : plan} Anda hanya mendukung maksimal ${limitMB}MB. ${
+            isFree ? 'Upgrade ke paket berbayar untuk batas 50MB.' : ''
+          }`.trim(),
         });
       }
 
@@ -195,23 +191,16 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
 
       const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
       const plan = sub?.plan_type || 'free';
-      
+
       const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
       const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-      
-      const limits: Record<string, number> = {
-        'free': 1,
-        'starter': 3,
-        'pro': 3,
-        'full_scale': 3
-      };
 
-      const currentLimit = limits[plan] || 1;
-
-      if (uniqueTitles.size >= currentLimit) {
+      // Free plan: max 1 document. Any paid subscription: unlimited.
+      const isFree = plan === 'free';
+      if (isFree && uniqueTitles.size >= 1) {
         return reply.status(403).send({
           success: false,
-          message: `Limit tercapai. Paket ${plan} Anda hanya mendukung ${currentLimit} dokumen. Silakan upgrade paket Anda.`,
+          message: 'Limit tercapai. Paket Free hanya mendukung 1 dokumen. Silakan upgrade ke paket berbayar untuk upload tidak terbatas.',
         });
       }
 

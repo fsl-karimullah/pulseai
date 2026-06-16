@@ -11,8 +11,9 @@ import settingsRoutes from './routes/settings';
 import knowledgeRoutes from './routes/knowledge';
 import whatsappRoutes from './routes/whatsapp';
 import referralRoutes from './routes/referral';
+import cvScreeningRoutes from './routes/cvScreening';
 
-const MAX_FILE_SIZE_MB = 25;
+const MAX_FILE_SIZE_MB = 50;
 
 export async function createServer() {
   const isDev = process.env.NODE_ENV === 'development' && !process.env.VERCEL;
@@ -51,8 +52,9 @@ export async function createServer() {
   await server.register(paymentsRoutes,  { prefix: '/api' });
   await server.register(settingsRoutes,  { prefix: '/api' });
   await server.register(knowledgeRoutes, { prefix: '/api' });
-  await server.register(whatsappRoutes,  { prefix: '/api' });
-  await server.register(referralRoutes,  { prefix: '/api' });
+  await server.register(whatsappRoutes,    { prefix: '/api' });
+  await server.register(referralRoutes,    { prefix: '/api' });
+  await server.register(cvScreeningRoutes, { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({

@@ -69,8 +69,8 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
     if (file && file.type === 'application/pdf') {
-      if (file.size > 4 * 1024 * 1024) {
-        setStatus({ phase: 'error', message: 'Ukuran file maksimal 4MB. Silakan kompres PDF Anda terlebih dahulu.' });
+      if (file.size > 25 * 1024 * 1024) {
+        setStatus({ phase: 'error', message: 'Ukuran file melebihi 25MB. Silakan kompres PDF Anda terlebih dahulu.' });
         return;
       }
       setSelectedFile(file);
@@ -88,8 +88,8 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 4 * 1024 * 1024) {
-        setStatus({ phase: 'error', message: 'Ukuran file maksimal 4MB. Silakan kompres PDF Anda terlebih dahulu.' });
+      if (file.size > 25 * 1024 * 1024) {
+        setStatus({ phase: 'error', message: 'Ukuran file melebihi 25MB. Silakan kompres PDF Anda terlebih dahulu.' });
         return;
       }
       setSelectedFile(file);
@@ -271,7 +271,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                       <p className="text-sm font-semibold text-slate-700">
                         {isDragging ? 'Lepaskan PDF di sini' : 'Seret PDF atau klik untuk pilih file'}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">Maks 4 MB · Hanya PDF</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Maks 4MB (Free) · 50MB (Berbayar) · Hanya PDF</p>
                     </div>
                     <button 
                       type="button"
@@ -438,7 +438,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
               <div className="flex gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
                 <div className="flex-1">
                   <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Max File Size</p>
-                  <p className="text-sm font-bold text-slate-800">10MB</p>
+                  <p className="text-sm font-bold text-slate-800">4MB (Free) / 50MB (Pro)</p>
                 </div>
                 <div className="w-px bg-slate-200"></div>
                 <div className="flex-1">

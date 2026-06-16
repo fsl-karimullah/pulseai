@@ -14,6 +14,7 @@ import {
   X,
   Database,
   UsersRound,
+  ClipboardList,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -28,16 +29,41 @@ interface SidebarProps {
   onMobileClose?: () => void;
 }
 
-const navItems = [
-  { id: 'dashboard' as Page, path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'knowledge' as Page, path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
-  { id: 'bot-settings' as Page, path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
-  { id: 'leads' as Page, path: '/leads', label: 'Lead', icon: Users, badge: true },
-  { id: 'widget' as Page, path: '/integration/widget', label: 'Widget', icon: Monitor },
-  { id: 'whatsapp' as Page, path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle },
-  { id: 'pulse-internal' as Page, path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
-  { id: 'pulse-hr' as Page, path: '/dashboard/pulse-hr', label: 'PulseHR', icon: UsersRound, comingSoon: true },
-  { id: 'billing' as Page, path: '/billing', label: 'Tagihan', icon: CreditCard },
+type NavItem = {
+  id: Page;
+  path: string;
+  label: string;
+  icon: any;
+  badge?: boolean;
+  comingSoon?: boolean;
+};
+
+const navGroups: { header: string; items: NavItem[] }[] = [
+  {
+    header: 'Pengaturan Chat',
+    items: [
+      { id: 'dashboard', path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'knowledge', path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
+      { id: 'bot-settings', path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
+      { id: 'leads', path: '/leads', label: 'Lead', icon: Users, badge: true },
+      { id: 'widget', path: '/integration/widget', label: 'Widget', icon: Monitor },
+      { id: 'whatsapp', path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle },
+      { id: 'pulse-internal', path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
+    ],
+  },
+  {
+    header: 'HR Tools',
+    items: [
+      { id: 'cv-screening', path: '/cv-screening', label: 'AI CV Screening', icon: ClipboardList },
+      { id: 'pulse-hr', path: '/dashboard/pulse-hr', label: 'PulseHR', icon: UsersRound, comingSoon: true },
+    ],
+  },
+  {
+    header: 'Sistem',
+    items: [
+      { id: 'billing', path: '/billing', label: 'Tagihan', icon: CreditCard },
+    ],
+  },
 ];
 
 const NavContent: React.FC<{
@@ -65,54 +91,60 @@ const NavContent: React.FC<{
 
     {/* Navigation */}
     <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-      {!collapsed && (
-        <p className="px-3 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
-          Menu Utama
-        </p>
-      )}
-      {navItems.map(({ id, path, label, icon: Icon, badge }) => {
-        const isActive = currentPath.startsWith(path);
-        return (
-          <button
-            key={id}
-            id={`nav-${id}`}
-            onClick={() => onNavigate(path)}
-            title={collapsed ? label : undefined}
-            className={`
-              w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-              transition-all duration-150 group relative
-              ${isActive
-                ? 'bg-emerald-500/15 text-emerald-400 shadow-sm'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
-              }
-            `}
-          >
-            {isActive && (
-              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-emerald-400 rounded-full" />
-            )}
-            <Icon
-              className={`flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}`}
-              size={18}
-            />
-            {!collapsed && (
-              <span className="flex-1 text-left truncate">{label}</span>
-            )}
-            {!collapsed && badge && unreadLeads > 0 && (
-              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex-shrink-0">
-                {unreadLeads > 9 ? '9+' : unreadLeads}
-              </span>
-            )}
-            {collapsed && badge && unreadLeads > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400" />
-            )}
-            {!collapsed && navItems.find(n => n.id === id)?.comingSoon && (
-              <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider ml-auto flex-shrink-0 border border-emerald-500/20">
-                SOON
-              </span>
-            )}
-          </button>
-        );
-      })}
+      {navGroups.map((group, index) => (
+        <div key={index} className="mb-4 last:mb-0">
+          {!collapsed && (
+            <p className="px-3 pb-2 pt-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              {group.header}
+            </p>
+          )}
+          <div className="space-y-1">
+            {group.items.map(({ id, path, label, icon: Icon, badge, comingSoon }) => {
+              const isActive = currentPath.startsWith(path);
+              return (
+                <button
+                  key={id}
+                  id={`nav-${id}`}
+                  onClick={() => onNavigate(path)}
+                  title={collapsed ? label : undefined}
+                  className={`
+                    w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+                    transition-all duration-150 group relative
+                    ${isActive
+                      ? 'bg-emerald-500/15 text-emerald-400 shadow-sm'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                    }
+                  `}
+                >
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-emerald-400 rounded-full" />
+                  )}
+                  <Icon
+                    className={`flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}`}
+                    size={18}
+                  />
+                  {!collapsed && (
+                    <span className="flex-1 text-left truncate">{label}</span>
+                  )}
+                  {!collapsed && badge && unreadLeads > 0 && (
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold flex-shrink-0">
+                      {unreadLeads > 9 ? '9+' : unreadLeads}
+                    </span>
+                  )}
+                  {collapsed && badge && unreadLeads > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400" />
+                  )}
+                  {!collapsed && comingSoon && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider ml-auto flex-shrink-0 border border-emerald-500/20">
+                      SOON
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
 
 
     </nav>

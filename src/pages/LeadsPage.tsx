@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useOrganization } from '../hooks/useOrganization';
-import { Users, Search, Edit2, Trash2, MessageCircle, Mail, X, Save, Clock, User, MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { Users, Search, Edit2, Trash2, MessageCircle, Mail, X, Save, Clock, User, Loader2 } from 'lucide-react';
 
 interface Lead {
   id: string;
@@ -12,21 +12,6 @@ interface Lead {
   created_at: string;
 }
 
-interface ChatLogMessage {
-  id: string;
-  tenant_id: string;
-  bot_number: string;
-  customer_number: string;
-  sender: 'bot' | 'customer';
-  message_text: string;
-  created_at: string;
-}
-
-interface WhatsAppSession {
-  phone_number: string;
-  phone_label: string;
-  status: string;
-}
 
 const LeadsPage: React.FC = () => {
   const { session } = useAuth();
@@ -46,16 +31,6 @@ const LeadsPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Live Chat Room states
-  const [botSessions, setBotSessions] = useState<WhatsAppSession[]>([]);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [selectedBot, setSelectedBot] = useState<string>('');
-  const [messages, setMessages] = useState<ChatLogMessage[]>([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-
   const fetchLeads = async () => {
     try {
       const res = await fetch('/api/leads', {
@@ -72,74 +47,9 @@ const LeadsPage: React.FC = () => {
     }
   };
 
-  const fetchBotSessions = async () => {
-    if (!organization?.id || !session?.access_token) return;
-    try {
-      const res = await fetch('/api/whatsapp-sessions', {
-        headers: { 'Authorization': `Bearer ${session.access_token}` }
-      });
-      const data = await res.json();
-      if (data.success) {
-        setBotSessions(data.sessions || []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch bot sessions', err);
-    }
-  };
-
   useEffect(() => {
     fetchLeads();
-    fetchBotSessions();
   }, [organization, session]);
-
-  // Load chat history when selected lead or selected bot changes
-  useEffect(() => {
-    if (!selectedLead || !selectedBot || !session?.access_token) {
-      setMessages([]);
-      return;
-    }
-
-    const fetchChats = async () => {
-      setLoadingMessages(true);
-      try {
-        const cleanCustomer = selectedLead.whatsapp.replace(/\D/g, '');
-        const res = await fetch(`/api/chats?botNumber=${selectedBot}&customerNumber=${cleanCustomer}`, {
-          headers: { 'Authorization': `Bearer ${session.access_token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-          setMessages(data.messages || []);
-        } else {
-          setMessages([]);
-        }
-      } catch (err) {
-        console.error('Failed to fetch chats', err);
-        setMessages([]);
-      } finally {
-        setLoadingMessages(false);
-      }
-    };
-
-    fetchChats();
-  }, [selectedLead, selectedBot, session]);
-
-  // Auto-scroll to bottom of chat when messages change
-  useEffect(() => {
-    if (chatBottomRef.current) {
-      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, loadingMessages]);
-
-  const openLiveChat = (lead: Lead) => {
-    setSelectedLead(lead);
-    if (botSessions.length > 0) {
-      const connected = botSessions.find(s => s.status === 'CONNECTED');
-      setSelectedBot(connected ? connected.phone_number : botSessions[0].phone_number);
-    } else {
-      setSelectedBot('');
-    }
-    setDrawerOpen(true);
-  };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Yakin ingin menghapus data lead ini?')) return;
@@ -271,14 +181,6 @@ const LeadsPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <button
-                            onClick={() => openLiveChat(lead)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors text-xs font-semibold"
-                          >
-                            <MessageSquare size={14} />
-                            Riwayat Chat
-                          </button>
-                          
                           {!isLid ? (
                             <a href={waLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-colors text-xs font-semibold">
                               <MessageCircle size={14} />
@@ -287,7 +189,7 @@ const LeadsPage: React.FC = () => {
                           ) : (
                             <span 
                               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 text-slate-400 text-xs font-medium cursor-not-allowed select-none" 
-                              title="Nomor WhatsApp belum terdeteksi. Gunakan Live Chat."
+                              title="Nomor WhatsApp belum terdeteksi."
                             >
                               <MessageCircle size={14} />
                               WhatsApp (N/A)
@@ -393,112 +295,6 @@ const LeadsPage: React.FC = () => {
                 {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={16} />}
                 Simpan
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Live Chat History Drawer ─────────────────────────────────── */}
-      {drawerOpen && selectedLead && (
-        <div className="fixed inset-0 z-50 overflow-hidden">
-          {/* Overlay backdrop */}
-          <div 
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
-            onClick={() => setDrawerOpen(false)}
-          />
-
-          <div className="absolute inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-md bg-white border-l border-slate-200 shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-350 ease-out">
-              
-              {/* Drawer Header */}
-              <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col gap-3 flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
-                      {selectedLead.name.charAt(0)}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-sm leading-tight">{selectedLead.name}</h3>
-                      <p className="text-slate-500 text-xs mt-0.5">+{selectedLead.whatsapp}</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setDrawerOpen(false)} 
-                    className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-full transition-colors text-slate-400 hover:text-slate-600"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                {/* Bot Instance Selector */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pilih Sesi Bot WA</label>
-                  {botSessions.length === 0 ? (
-                    <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-1.5">
-                      <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
-                      <span>Tidak ada bot aktif. Silakan hubungkan nomor di Integrasi WhatsApp.</span>
-                    </div>
-                  ) : (
-                    <select
-                      value={selectedBot}
-                      onChange={(e) => setSelectedBot(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                    >
-                      {botSessions.map((bot) => (
-                        <option key={bot.phone_number} value={bot.phone_number}>
-                          {bot.phone_label.toUpperCase()} (+{bot.phone_number})
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              {/* Messages Body */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
-                {loadingMessages ? (
-                  <div className="flex flex-col items-center justify-center h-full gap-2">
-                    <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
-                    <p className="text-slate-400 text-xs">Memuat riwayat chat...</p>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center px-6">
-                    <MessageSquare size={28} className="opacity-20 mb-2" />
-                    <p className="text-xs font-semibold text-slate-600">Belum ada riwayat pesan</p>
-                    <p className="text-[10px] text-slate-400 mt-1 max-w-[200px]">
-                      Kirim pesan dari pelanggan ke bot ini untuk merekam riwayat chat.
-                    </p>
-                  </div>
-                ) : (
-                  messages.map((msg) => {
-                    const isBot = msg.sender === 'bot';
-                    const bubbleBg = isBot ? 'bg-emerald-500 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none';
-                    const time = new Date(msg.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-                    
-                    return (
-                      <div key={msg.id} className={`flex ${isBot ? 'justify-end' : 'justify-start'} animate-in fade-in duration-200`}>
-                        <div className={`flex flex-col max-w-[85%] ${isBot ? 'items-end' : 'items-start'}`}>
-                          <div className={`p-3 rounded-2xl text-xs shadow-sm leading-relaxed ${bubbleBg}`}>
-                            <p className="whitespace-pre-wrap">{msg.message_text}</p>
-                          </div>
-                          <span className="text-[9px] text-slate-400 mt-1 px-1 flex items-center gap-1">
-                            {time}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-                <div ref={chatBottomRef} />
-              </div>
-
-              {/* Drawer Footer */}
-              <div className="p-3 border-t border-slate-100 bg-white text-center flex-shrink-0">
-                <p className="text-[10px] text-slate-400 leading-snug">
-                  Mode riwayat pesan (Read-Only). Balas langsung melalui WhatsApp pribadi atau gateway dashboard Anda.
-                </p>
-              </div>
-
             </div>
           </div>
         </div>

@@ -19,6 +19,7 @@ import WhatsAppIntegrationPage from './pages/WhatsAppIntegrationPage';
 import PublicChatWidget from './pages/PublicChatWidget';
 import PulseInternalPage from './pages/PulseInternalPage';
 import PulseHRPage from './pages/PulseHRPage';
+import CVScreeningPage from './pages/CVScreeningPage';
 
 import './index.css';
 
@@ -54,6 +55,7 @@ const App: React.FC = () => {
             <Route path="integration/whatsapp" element={<WhatsAppIntegrationPage />} />
             <Route path="dashboard/pulse-internal" element={<PulseInternalPage />} />
             <Route path="dashboard/pulse-hr" element={<PulseHRPage />} />
+            <Route path="cv-screening" element={<CVScreeningPage />} />
           </Route>
 
           {/* Fallback */}
