@@ -511,7 +511,6 @@ const CVScreeningPage: React.FC = () => {
   const allApplicants = Object.values(applicants).flat();
   const totalApplicants  = allApplicants.length;
   const lolos            = allApplicants.filter(a => a.status === 'LOLOS_INTERVIEW').length;
-  const talentPool       = allApplicants.filter(a => a.status === 'TALENT_POOL').length;
   const avgScore         = totalApplicants > 0
     ? Math.round(allApplicants.reduce((s, a) => s + a.ats_score, 0) / totalApplicants)
     : 0;
