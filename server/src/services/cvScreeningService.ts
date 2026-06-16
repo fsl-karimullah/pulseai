@@ -233,11 +233,15 @@ CV pelamar telah dilampirkan sebagai file PDF di bawah ini. Lakukan analisis men
 
   for (const modelId of modelsToTry) {
     try {
+      const requestOptions = process.env.GEMINI_BASE_URL
+        ? { baseUrl: process.env.GEMINI_BASE_URL }
+        : undefined;
+
       const model = genai.getGenerativeModel({
         model: modelId,
         systemInstruction: SYSTEM_INSTRUCTION,
         generationConfig: GENERATION_CONFIG,
-      });
+      }, requestOptions);
 
       const result = await model.generateContent({
         contents: [
