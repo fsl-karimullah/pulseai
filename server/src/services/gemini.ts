@@ -109,7 +109,8 @@ const buildSystemPrompt = (
   intent?: Intent,
   isStreaming: boolean = false,
   topics: string[] = [],
-  hasValidPhone: boolean = true
+  hasValidPhone: boolean = true,
+  isFirstMessage: boolean = false
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
   
@@ -245,8 +246,31 @@ const buildSystemPrompt = (
     lines.push(`  "triggerLeadCapture": boolean`);
     lines.push(`}`);
   }
+  if (isFirstMessage) {
+    lines.push(`**👋 FIRST MESSAGE — ONBOARDING PROTOCOL (MANDATORY):**`);
+    lines.push(`Ini adalah pesan PERTAMA dari user. Anda harus merespons dengan gaya bahasa yang SANGAT NATURAL, ramah, santai, dan seperti manusia sungguhan (layaknya Customer Service yang hangat). JANGAN kaku seperti robot.`);
+    lines.push(`Gunakan kata ganti "Kak" atau sapaan yang ramah.`);
+    lines.push(``);
+    lines.push(`Dalam SATU balasan yang mengalir, lakukan hal berikut:`);
+    lines.push(`1. Sapa dengan hangat dan perkenalkan diri secara singkat sebagai ${botName} dari ${company}.`);
+    lines.push(`2. Jawab pertanyaan user secara singkat dan jelas (JIKA mereka langsung bertanya sesuatu).`);
+    lines.push(`3. Tutup dengan bertanya santai untuk berkenalan (gabungkan ke dalam kalimat yang natural, JANGAN buat format list/poin).`); 
+    
+    if (!hasValidPhone) {
+      lines.push(`Yang perlu ditanyakan: Nama, Asal Perusahaan/Instansi, dan Nomor WA / Email aktif.`);
+      lines.push(`Contoh gaya bicara (HANYA CONTOH): "Halo Kak! 👋 Salam kenal, aku ${botName} dari ${company}. [Jawaban singkat jika ditanya]. Oh ya, biar kita ngobrolnya lebih enak, boleh tau nama Kakak, dari perusahaan apa, dan ada nomor WA/email yang bisa dihubungi?"`);
+    } else {
+      lines.push(`Yang perlu ditanyakan: Nama dan Asal Perusahaan/Instansi.`);
+      lines.push(`Contoh gaya bicara (HANYA CONTOH): "Halo Kak! 👋 Salam kenal, aku ${botName} dari ${company}. [Jawaban singkat jika ditanya]. Biar ngobrolnya lebih enak, boleh kenalan dulu? Nama Kakak siapa dan dari perusahaan/instansi mana ya?"`);
+    }
+    
+    lines.push(``);
+    lines.push(`PENTING: Jangan buat tulisan yang terlalu formal/baku. Buat se-natural mungkin seperti chat WA dengan teman/CS manusia.`);
+    lines.push(``);
+  }
 
-  if (intent === 'small_talk') {
+
+  if (intent === 'small_talk' && !isFirstMessage) {
     lines.push(`**INTENT:** User is making small talk. Respond naturally and warmly. Do NOT reference documents.`);
     lines.push(``);
   }
@@ -310,26 +334,30 @@ export async function generateChatResponse(
   customInstructions: string = '',
   adminWhatsApp: string = '',
   orgId: string = '',
-  hasValidPhone: boolean = true
+  hasValidPhone: boolean = true,
+  isFirstMessage: boolean = false
 ): Promise<GeminiResponse> {
 
   const intent = classifyIntent(userMessage);
   const indonesian = isLikelyIndonesian(userMessage);
 
   // ── BYPASS the LLM entirely for greetings and closings ──
-  // Root fix: LLM never sees "okay" / "halo" — can't hallucinate a summary
-  if (intent === 'closing') {
-    return {
-      message: getRandomResponse(indonesian ? CLOSING_RESPONSES_ID : CLOSING_RESPONSES_EN),
-      triggerLeadCapture: false,
-    };
-  }
+  // BUT: if this is the first message, we must let the LLM handle it so it
+  // can run the onboarding protocol (ask name, company, email/WA).
+  if (!isFirstMessage) {
+    if (intent === 'closing') {
+      return {
+        message: getRandomResponse(indonesian ? CLOSING_RESPONSES_ID : CLOSING_RESPONSES_EN),
+        triggerLeadCapture: false,
+      };
+    }
 
-  if (intent === 'greeting') {
-    return {
-      message: getRandomResponse(indonesian ? GREETING_RESPONSES_ID : GREETING_RESPONSES_EN),
-      triggerLeadCapture: false,
-    };
+    if (intent === 'greeting') {
+      return {
+        message: getRandomResponse(indonesian ? GREETING_RESPONSES_ID : GREETING_RESPONSES_EN),
+        triggerLeadCapture: false,
+      };
+    }
   }
 
   // ── Questions and small talk go to the model ──
@@ -384,7 +412,8 @@ export async function generateChatResponse(
           intent,
           false,
           topics,
-          hasValidPhone
+          hasValidPhone,
+          isFirstMessage
         ),
         generationConfig: {
           responseMimeType: 'application/json',

@@ -384,17 +384,30 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
         sender = remoteJid.replace(/[^0-9]/g, '');
       }
 
+      // senderPn = the real phone number of the sender (contact), extracted cleanly
+      // from remoteJid ONLY when it's a standard @s.whatsapp.net contact.
+      // Will be null for LID (Multi-Device) contacts where no real phone is available.
+      // The Fastify server should ALWAYS use this as the authoritative phone number
+      // to store in the leads.whatsapp column — never fall back to parsing a LID.
+      const senderPn = remoteJid.endsWith('@s.whatsapp.net')
+        ? remoteJid.replace('@s.whatsapp.net', '')
+        : null;
+
       // botNumber is the actual WhatsApp phone number of this bot instance.
       // The Fastify server uses it to look up the owning tenant in whatsapp_sessions,
       // enabling multiple bot numbers to share the same org knowledge base.
       const botNumber = session.phoneNumber ?? null;
 
-      logger.info({ userId, phoneLabel, botNumber, sender, replyJid, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
+      // pushName is the display name set by the user on their WhatsApp profile
+      const pushName = msg.pushName || 'WhatsApp User';
+
+      logger.info({ userId, phoneLabel, botNumber, sender, senderPn, pushName, replyJid, preview: text.slice(0, 40) }, '[SessionManager] Incoming message');
 
       // Forward to Fastify webhook — include both phoneLabel and botNumber.
       // botNumber lets the server resolve orgId via: SELECT org_id FROM whatsapp_sessions WHERE phone_number = botNumber
       // replyJid is the full JID (with @lid or @s.whatsapp.net) that must be used to send the reply back.
-      await sendToFastifyWebhook({ sender, message: text, userId, phoneLabel, botNumber, replyJid });
+      // senderPn is the authoritative phone number to store in leads (null for LID contacts).
+      await sendToFastifyWebhook({ sender, senderPn, pushName, message: text, userId, phoneLabel, botNumber, replyJid });
     }
   });
 }

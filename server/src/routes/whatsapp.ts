@@ -99,6 +99,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     try {
       const {
         sender,
+        senderPn,   // Clean phone number from gateway (null for LID/multi-device contacts)
+        pushName,   // WhatsApp profile name (fallback: WhatsApp User)
         message,
         userId,
         phoneLabel = 'default',
@@ -106,6 +108,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         replyJid, // Full JID with @lid or @s.whatsapp.net suffix — use for sending replies
       } = request.body as {
         sender: string;
+        senderPn?: string | null; // Authoritative phone number — always use this for leads.whatsapp when not null
+        pushName?: string;
         message: string;
         userId: string;
         phoneLabel?: string;
@@ -301,11 +305,20 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       const chunks  = await retrieveContext(message, resolvedOrgId, 5);
       const context = buildContextBlock(chunks);
 
-      // ── Step 7: Determine if we have a valid phone number ───────────────
-      const leadPhone = getLeadPhoneNumber(message, history, cleanSender, lead?.whatsapp);
-      const hasValidPhone = !isLidNumber(leadPhone);
+      // ── Step 7: Determine the authoritative phone number for this lead ──
+      // Priority: senderPn (from gateway, always clean) > getLeadPhoneNumber() fallback
+      // senderPn is set by the gateway ONLY for @s.whatsapp.net contacts (real phones).
+      // For LID/multi-device contacts, senderPn is null and we fall back to heuristic extraction.
+      const leadPhone = senderPn ?? getLeadPhoneNumber(message, history, cleanSender, lead?.whatsapp);
+      const hasValidPhone = senderPn != null || !isLidNumber(leadPhone);
+
+      fastify.log.info(
+        { senderPn, leadPhone, hasValidPhone, sender },
+        '[Lead] Resolved phone for lead storage'
+      );
 
       // ── Step 8: Generate AI response ────────────────────────────────────
+      const isFirstMessage = history.length === 0;
       let { message: botReply, triggerLeadCapture } = await generateChatResponse(
         message,
         history,
@@ -316,7 +329,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         instructions,
         adminWhatsApp,
         resolvedOrgId,
-        hasValidPhone
+        hasValidPhone,
+        isFirstMessage
       );
 
       // Programmatically enforce lead capture delay until phone number is known
@@ -336,6 +350,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         ...(lead?.metadata as Record<string, any> || {}),
         history: newHistory,
         jid: cleanSender,
+        bot_number: botNumber ?? (lead?.metadata as any)?.bot_number ?? null, // persist for chat history lookup
         source: triggerLeadCapture
           ? 'whatsapp_handover'
           : ((lead?.metadata as any)?.source || 'whatsapp_chat'),
@@ -344,7 +359,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       if (!lead) {
         await supabase.from('leads').insert({
           org_id:       resolvedOrgId,
-          name:         'WhatsApp User',
+          name:         pushName || 'WhatsApp User',
           whatsapp:     leadPhone,
           last_message: message,
           metadata,
@@ -540,10 +555,10 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
           customerNumber?: string;
         };
 
-        if (!botNumber || !customerNumber) {
+        if (!customerNumber) {
           return reply.status(400).send({
             success: false,
-            message: "Missing required query parameters: 'botNumber' and 'customerNumber'.",
+            message: "Missing required query parameter: 'customerNumber'.",
           });
         }
 
@@ -558,16 +573,43 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
           return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
         }
 
-        const { data: sessionCheck, error: checkError } = await supabase
-          .from('whatsapp_sessions')
-          .select('org_id')
-          .eq('phone_number', botNumber)
-          .eq('org_id', org.id)
-          .maybeSingle();
+        // Determine which bot numbers to search
+        // If botNumber is provided, verify it belongs to this org and use it directly.
+        // If not provided, fetch ALL bot numbers for this org and search across all of them.
+        let botNumbers: string[] = [];
 
-        if (checkError || !sessionCheck) {
-          fastify.log.warn({ botNumber, orgId: org.id }, 'Unauthorized access attempt to chats');
-          return reply.status(403).send({ success: false, message: 'Akses ditolak.' });
+        if (botNumber) {
+          // Verify ownership
+          const { data: sessionCheck } = await supabase
+            .from('whatsapp_sessions')
+            .select('org_id')
+            .eq('phone_number', botNumber)
+            .eq('org_id', org.id)
+            .maybeSingle();
+
+          if (!sessionCheck) {
+            fastify.log.warn({ botNumber, orgId: org.id }, 'Unauthorized access attempt to chats');
+            return reply.status(403).send({ success: false, message: 'Akses ditolak.' });
+          }
+          botNumbers = [botNumber];
+        } else {
+          // No botNumber supplied — get all bot numbers for this org
+          const { data: sessions } = await supabase
+            .from('whatsapp_sessions')
+            .select('phone_number')
+            .eq('org_id', org.id);
+
+          botNumbers = (sessions || []).map((s: any) => s.phone_number).filter(Boolean);
+
+          if (botNumbers.length === 0) {
+            // No sessions at all for this org — return empty gracefully
+            return reply.send({ success: true, messages: [] });
+          }
+
+          fastify.log.info(
+            { orgId: org.id, botNumbers, customerNumber },
+            '[Chats] botNumber not supplied — searching across all org sessions'
+          );
         }
 
         // Look up lead to map phone number and original JID
@@ -592,7 +634,7 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
           }
         }
 
-        // Generate full list of possible formats to query in chat_logs
+        // Build all identifier variants to search customer_number column
         const allIdentifiers = Array.from(new Set(
           identifiers.flatMap(id => [
             id,
@@ -601,24 +643,38 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
           ])
         ));
 
-        const { data, error } = await supabase
+        // CRITICAL: Apply ALL filters (.eq/.in) BEFORE calling .order()
+        // Supabase JS v2: .order() returns PostgrestTransformBuilder which has no filter methods.
+        // Pattern: filter chain → then order at the very end.
+        let chatQuery: any = supabase
           .from('chat_logs')
           .select('*')
-          .eq('bot_number', botNumber)
-          .in('customer_number', allIdentifiers)
-          .order('created_at', { ascending: true });
+          .in('customer_number', allIdentifiers);
+
+        if (botNumbers.length === 1) {
+          chatQuery = chatQuery.eq('bot_number', botNumbers[0]);
+        } else {
+          chatQuery = chatQuery.in('bot_number', botNumbers);
+        }
+
+        // Order LAST — after all filters
+        const { data, error } = await chatQuery.order('created_at', { ascending: true });
 
         if (error) {
-          fastify.log.error({ error: error.message }, 'Failed to fetch chat logs');
+          fastify.log.error(
+            { code: error.code, msg: error.message, details: error.details, hint: error.hint, botNumbers, allIdentifiers },
+            'Failed to fetch chat logs'
+          );
           return reply.status(500).send({
             success: false,
             message: 'Gagal mengambil riwayat chat.',
           });
         }
 
+        fastify.log.info({ count: (data || []).length, botNumbers, customerNumber }, '[Chats] Fetched successfully');
         return reply.send({
           success: true,
-          messages: data,
+          messages: data || [],
         });
       } catch (error: any) {
         fastify.log.error(error, 'Error fetching chats');
