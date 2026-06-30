@@ -4,7 +4,7 @@ import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import { useSubscription } from '../hooks/useSubscription';
 import { useOrganization } from '../hooks/useOrganization';
-import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, CreditCard, Lock } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, CreditCard, Coins } from 'lucide-react';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/dashboard': {
@@ -53,57 +53,24 @@ const DashboardLayout: React.FC = () => {
   const currentPath = location.pathname;
   const meta = pageMeta[currentPath] || { title: '', subtitle: '' };
 
-  // Calculate trial days remaining
-  let trialDaysRemaining = null;
-  let isTrialExpired = false;
-  
-  if (organization && !organization.is_premium) {
-    const trialStartedAt = organization.trial_started_at ? new Date(organization.trial_started_at) : new Date();
-    const expiresAt = new Date(trialStartedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const now = new Date();
-    const diffTime = expiresAt.getTime() - now.getTime();
-    trialDaysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    if (trialDaysRemaining <= 0) {
-      isTrialExpired = true;
-      trialDaysRemaining = 0;
-    }
-  }
+  // Credit-based check — show banner if credits are 0 or below
+  const currentCredits = subscription?.credits ?? null;
+  const isCreditsEmpty = currentCredits !== null && currentCredits <= 0;
+  const isCreditsLow = currentCredits !== null && currentCredits > 0 && currentCredits <= 20;
 
-  // Calculate subscription days remaining (if premium)
+  // Calculate subscription days remaining (if subscribed)
   let subDaysRemaining = null;
-  if (organization?.is_premium && subscription?.expires_at) {
+  if (subscription?.expires_at) {
     const expires = new Date(subscription.expires_at);
     const now = new Date();
     const diffTime = expires.getTime() - now.getTime();
     subDaysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
-  const showSubWarning = organization?.is_premium && subDaysRemaining !== null && subDaysRemaining <= 3;
-  const showTrialWarning = !organization?.is_premium && trialDaysRemaining !== null && trialDaysRemaining <= 5 && !isTrialExpired;
+  const showSubWarning = subDaysRemaining !== null && subDaysRemaining <= 3 && subDaysRemaining > 0;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 relative">
-      {/* Trial Expired Full Screen Blocker Overlay for Critical Features */}
-      {isTrialExpired && currentPath !== '/billing' && (
-        <div className="absolute inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-8 max-w-lg w-full text-center shadow-2xl animate-in zoom-in duration-300">
-            <div className="w-20 h-20 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Lock size={40} />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-4">Masa Percobaan Habis</h2>
-            <p className="text-slate-600 mb-8 leading-relaxed">
-              Masa percobaan gratis 30 hari Anda telah berakhir. Sistem balasan otomatis AI untuk WhatsApp Anda saat ini <strong>dihentikan (ditangguhkan)</strong>. Upgrade sekarang untuk mengaktifkan kembali bot Anda.
-            </p>
-            <button
-              onClick={() => navigate('/billing')}
-              className="w-full py-4 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-200 text-lg"
-            >
-              Upgrade Paket Sekarang
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Desktop + Mobile Sidebar (drawer) */}
       <Sidebar
         collapsed={sidebarCollapsed}
@@ -115,28 +82,52 @@ const DashboardLayout: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Trial Expiring Soon Banner */}
-        {showTrialWarning && (
-          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between shadow-md z-40 animate-in slide-in-from-top duration-500 gap-3">
+        
+        {/* ── Credit Exhausted Banner ───────────────────────────────────── */}
+        {isCreditsEmpty && currentPath !== '/billing' && (
+          <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between shadow-md z-40 gap-3">
             <div className="flex items-center gap-3">
-              <div className="bg-white/20 p-2 rounded-lg">
-                <AlertTriangle size={20} className="text-white" />
+              <div className="bg-white/20 p-2 rounded-lg flex-shrink-0">
+                <Coins size={18} className="text-white" />
               </div>
               <div>
-                <p className="text-sm font-bold">Masa Percobaan (Trial) Tersisa {trialDaysRemaining} Hari</p>
-                <p className="text-xs text-blue-100 mt-0.5">Setelah trial habis, bot WhatsApp Anda akan otomatis non-aktif.</p>
+                <p className="text-sm font-bold">Kredit Anda Bulan Ini Sudah Habis</p>
+                <p className="text-xs text-red-100 mt-0.5">
+                  Top-up kredit atau berlangganan untuk melanjutkan menggunakan fitur AI.
+                </p>
               </div>
             </div>
             <Link
               to="/billing"
-              className="bg-white text-indigo-600 px-5 py-2 rounded-xl text-sm font-bold hover:bg-indigo-50 transition-colors flex items-center gap-2 shadow-sm whitespace-nowrap w-full sm:w-auto justify-center"
+              className="bg-white text-rose-600 px-5 py-2 rounded-xl text-sm font-bold hover:bg-rose-50 transition-colors flex items-center gap-2 shadow-sm whitespace-nowrap w-full sm:w-auto justify-center"
             >
-              Upgrade Paket <ChevronRight size={16} />
+              Top-Up Kredit <ChevronRight size={16} />
             </Link>
           </div>
         )}
 
-        {/* Subscription Expiring Soon Banner */}
+        {/* ── Credit Low Warning Banner (≤ 20 kredit) ──────────────────── */}
+        {isCreditsLow && currentPath !== '/billing' && (
+          <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between shadow-md z-40 gap-2">
+            <div className="flex items-center gap-3">
+              <div className="bg-white/20 p-2 rounded-lg flex-shrink-0">
+                <AlertTriangle size={18} className="text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">Kredit hampir habis — sisa <span className="underline">{currentCredits} kredit</span></p>
+                <p className="text-xs text-amber-100 mt-0.5">Segera top-up agar bot tetap berjalan tanpa gangguan.</p>
+              </div>
+            </div>
+            <Link
+              to="/billing"
+              className="bg-white text-amber-600 px-5 py-2 rounded-xl text-sm font-bold hover:bg-amber-50 transition-colors flex items-center gap-2 shadow-sm whitespace-nowrap w-full sm:w-auto justify-center"
+            >
+              Top-Up Sekarang <ChevronRight size={16} />
+            </Link>
+          </div>
+        )}
+
+        {/* ── Subscription Expiring Soon Banner (≤ 3 hari) ─────────────── */}
         {showSubWarning && (
           <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-4 py-2 flex items-center justify-between shadow-md z-40 animate-in slide-in-from-top duration-500">
             <div className="flex items-center gap-3">

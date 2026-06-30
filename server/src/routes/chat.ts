@@ -75,6 +75,27 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const instructions = settings.custom_instructions || '';
       const adminWhatsApp = settings.admin_whatsapp || '';
 
+      // ── Credit Check: hanya untuk free user. Subscriber = unlimited chat ──
+      if (resolvedOrgId) {
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('plan_type, credits')
+          .eq('org_id', resolvedOrgId)
+          .maybeSingle();
+
+        const isSubscriber = sub && sub.plan_type !== 'free';
+        if (!isSubscriber) {
+          const currentCredits = sub?.credits ?? 0;
+          if (currentCredits <= 0) {
+            return reply.status(402).send({
+              success: false,
+              message: 'Kredit Anda habis. Silakan top-up kredit atau berlangganan untuk melanjutkan.',
+              code: 'CREDITS_EXHAUSTED',
+            });
+          }
+        }
+      }
+
       // 1 — RAG: retrieve relevant chunks for THIS organization
       fastify.log.info({ orgId: resolvedOrgId, query: message.slice(0, 60) }, '[RAG] Starting retrieval');
       const chunks = await retrieveContext(message, resolvedOrgId, 5);
@@ -96,6 +117,37 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           resolvedOrgId
         );
         const durationMs = Math.round(performance.now() - startTime);
+
+        // ── Deduct 1 credit: HANYA untuk free user, subscriber gratis ─────────
+        if (resolvedOrgId) {
+          try {
+            const { data: sub } = await supabase
+              .from('subscriptions')
+              .select('plan_type, credits')
+              .eq('org_id', resolvedOrgId)
+              .maybeSingle();
+
+            const isSubscriber = sub && sub.plan_type !== 'free';
+            if (!isSubscriber) {
+              const newCredits = Math.max(0, (sub?.credits ?? 0) - 1);
+              await supabase
+                .from('subscriptions')
+                .update({ credits: newCredits })
+                .eq('org_id', resolvedOrgId);
+
+              await supabase.from('credit_transactions').insert({
+                org_id: resolvedOrgId,
+                amount: -1,
+                type: 'usage',
+                description: 'AI Chatbot — 1 pesan balasan',
+                reference: conversationId || null,
+              });
+            }
+          } catch (creditErr) {
+            // Non-fatal: jangan gagalkan chat karena error kredit
+            fastify.log.warn({ creditErr }, '[Credits] Failed to deduct chat credit');
+          }
+        }
 
         // Telemetry Log (Safe Wrapper)
         try {
@@ -184,6 +236,27 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       const instructions = settings.custom_instructions || '';
       const adminWhatsApp = settings.admin_whatsapp || '';
 
+      // ── Credit Check untuk stream endpoint (hanya free user) ────────────────
+      if (resolvedOrgId) {
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('plan_type, credits')
+          .eq('org_id', resolvedOrgId)
+          .maybeSingle();
+
+        const isSubscriber = sub && sub.plan_type !== 'free';
+        if (!isSubscriber) {
+          const currentCredits = sub?.credits ?? 0;
+          if (currentCredits <= 0) {
+            return reply.status(402).send({
+              success: false,
+              message: 'Kredit Anda habis. Silakan top-up kredit atau berlangganan untuk melanjutkan.',
+              code: 'CREDITS_EXHAUSTED',
+            });
+          }
+        }
+      }
+
       const chunks = await retrieveContext(message, resolvedOrgId, 5);
       const context = buildContextBlock(chunks);
 
@@ -209,6 +282,36 @@ export default async function chatRoutes(fastify: FastifyInstance) {
 
         for await (const chunk of stream) {
           reply.raw.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+        }
+
+        // ── Deduct 1 credit after successful stream (hanya free user) ─────────
+        if (resolvedOrgId) {
+          try {
+            const { data: sub } = await supabase
+              .from('subscriptions')
+              .select('plan_type, credits')
+              .eq('org_id', resolvedOrgId)
+              .maybeSingle();
+
+            const isSubscriber = sub && sub.plan_type !== 'free';
+            if (!isSubscriber) {
+              const newCredits = Math.max(0, (sub?.credits ?? 0) - 1);
+              await supabase
+                .from('subscriptions')
+                .update({ credits: newCredits })
+                .eq('org_id', resolvedOrgId);
+
+              await supabase.from('credit_transactions').insert({
+                org_id: resolvedOrgId,
+                amount: -1,
+                type: 'usage',
+                description: 'AI Chatbot Stream — 1 pesan balasan',
+                reference: conversationId || null,
+              });
+            }
+          } catch (creditErr) {
+            fastify.log.warn({ creditErr }, '[Credits] Failed to deduct stream credit');
+          }
         }
 
         reply.raw.write(

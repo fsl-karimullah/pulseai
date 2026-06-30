@@ -258,13 +258,18 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
           {/* Top Row — Identity + Score */}
           <div className="flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-black text-lg flex-shrink-0">
-              {result.nama_pelamar.charAt(0).toUpperCase()}
+              {result.nama_pelamar?.charAt(0)?.toUpperCase() || '?'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-900 text-base">{result.nama_pelamar}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{result.pendidikan_terakhir}</p>
+              <p className="font-bold text-slate-900 text-base">{result.nama_pelamar || 'Nama tidak terdeteksi'}</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {result.pendidikan_terakhir || <span className="italic text-slate-400">Pendidikan tidak tercantum di CV</span>}
+              </p>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                {result.email && <span className="text-xs text-slate-500">{result.email}</span>}
+                {result.email
+                  ? <span className="text-xs text-slate-500">{result.email}</span>
+                  : <span className="text-xs text-slate-400 italic">Email tidak ditemukan</span>
+                }
                 {result.whatsapp && <span className="text-xs text-slate-500">• {result.whatsapp}</span>}
               </div>
             </div>
@@ -282,36 +287,53 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
 
           {/* Kelebihan / Kekurangan */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* ── Kelebihan ── */}
             <div>
               <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Star size={11} /> Kelebihan
               </h4>
-              <ul className="space-y-1.5">
-                {result.kelebihan.map((k, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
-                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                    {k}
-                  </li>
-                ))}
-              </ul>
+              {Array.isArray(result.kelebihan) && result.kelebihan.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {result.kelebihan.map((k, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                      <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                      {k}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 border border-dashed border-slate-200">
+                  <CheckCircle2 size={13} className="text-slate-300 flex-shrink-0" />
+                  <p className="text-xs text-slate-400 italic">Tidak ada kelebihan yang teridentifikasi dari CV ini.</p>
+                </div>
+              )}
             </div>
+
+            {/* ── Kekurangan ── */}
             <div>
               <h4 className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <TrendingUp size={11} /> Kekurangan
               </h4>
-              <ul className="space-y-1.5">
-                {result.kekurangan.map((k, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
-                    <AlertCircle size={12} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                    {k}
-                  </li>
-                ))}
-              </ul>
+              {Array.isArray(result.kekurangan) && result.kekurangan.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {result.kekurangan.map((k, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                      <AlertCircle size={12} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                      {k}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 border border-dashed border-slate-200">
+                  <AlertCircle size={13} className="text-slate-300 flex-shrink-0" />
+                  <p className="text-xs text-slate-400 italic">Tidak ada kekurangan yang teridentifikasi.</p>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Red Flags */}
-          {result.red_flags.length > 0 && (
+          {Array.isArray(result.red_flags) && result.red_flags.length > 0 ? (
             <div className="p-4 rounded-xl bg-red-50 border border-red-100">
               <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Shield size={11} /> Red Flags Terdeteksi
@@ -325,6 +347,11 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
                 ))}
               </ul>
             </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
+              <Shield size={13} className="text-emerald-500 flex-shrink-0" />
+              <p className="text-xs text-emerald-700 font-medium">Tidak ada red flag yang terdeteksi. 🎉</p>
+            </div>
           )}
 
           {/* Draft WhatsApp */}
@@ -333,17 +360,26 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
               <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
                 <MessageCircle size={11} /> Draft Pesan WhatsApp
               </h4>
-              <button
-                onClick={copyDraft}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
-              >
-                {copied ? <Check size={11} /> : <Copy size={11} />}
-                {copied ? 'Tersalin!' : 'Salin'}
-              </button>
+              {result.draft_whatsapp && (
+                <button
+                  onClick={copyDraft}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                >
+                  {copied ? <Check size={11} /> : <Copy size={11} />}
+                  {copied ? 'Tersalin!' : 'Salin'}
+                </button>
+              )}
             </div>
-            <div className="p-3 bg-[#dcf8c6] rounded-xl rounded-tl-none text-sm text-slate-800 leading-relaxed font-sans border border-green-200/50 whitespace-pre-wrap">
-              {result.draft_whatsapp}
-            </div>
+            {result.draft_whatsapp ? (
+              <div className="p-3 bg-[#dcf8c6] rounded-xl rounded-tl-none text-sm text-slate-800 leading-relaxed font-sans border border-green-200/50 whitespace-pre-wrap">
+                {result.draft_whatsapp}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-3 rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                <MessageCircle size={14} className="text-slate-300 flex-shrink-0" />
+                <p className="text-xs text-slate-400 italic">Draft pesan WhatsApp tidak berhasil digenerate oleh AI.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -396,7 +432,33 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  useEffect(() => { fetchJobs(); }, [session]);
+  // Quota Info State
+  const [quotaInfo, setQuotaInfo] = useState<any>(null);
+  const [showQuotaInfo, setShowQuotaInfo] = useState(false);
+  const [loadingQuota, setLoadingQuota] = useState(false);
+
+  // ── Fetch quota info ───────────────────────────────────────────────────────
+  const fetchQuotaInfo = async () => {
+    setLoadingQuota(true);
+    try {
+      const res = await fetch('/api/v1/cv-quota', {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setQuotaInfo(data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch CV quota', err);
+    } finally {
+      setLoadingQuota(false);
+    }
+  };
+
+  useEffect(() => { 
+    fetchJobs(); 
+    fetchQuotaInfo();
+  }, [session]);
 
   // ── Fetch applicants for a job ─────────────────────────────────────────────
   const fetchApplicants = async (jobId: string) => {
@@ -528,14 +590,107 @@ const CVScreeningPage: React.FC = () => {
             <p className="text-xs text-slate-500 mt-0.5">Analisis CV otomatis dengan Google Gemini AI</p>
           </div>
         </div>
-        <button
-          onClick={() => { setEditingJob(undefined); setShowJobModal(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm shadow-violet-600/30 transition-all active:scale-95"
-        >
-          <Plus size={15} />
-          Buat Lowongan
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowQuotaInfo(true)}
+            className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl transition-all"
+          >
+            <AlertCircle size={15} className="text-slate-500" />
+            <span className="hidden sm:inline">Info Kuota</span>
+          </button>
+          <button
+            onClick={() => { setEditingJob(undefined); setShowJobModal(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm shadow-violet-600/30 transition-all active:scale-95"
+          >
+            <Plus size={15} />
+            Buat Lowongan
+          </button>
+        </div>
       </div>
+
+      {/* ── Quota Info Modal ─────────────────────────────────────────────────── */}
+      {showQuotaInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-blue-500 flex items-center justify-center">
+                  <AlertCircle size={15} className="text-white" />
+                </div>
+                <h3 className="font-bold text-slate-900">Informasi Kuota CV Scan</h3>
+              </div>
+              <button onClick={() => setShowQuotaInfo(false)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+                <X size={15} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              {/* Usage Stats */}
+              {loadingQuota ? (
+                <div className="flex justify-center py-4"><Loader2 className="animate-spin text-slate-400" /></div>
+              ) : quotaInfo ? (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Penggunaan Bulan Ini</h4>
+                  
+                  {quotaInfo.isSubscriber ? (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-slate-600">Kuota Bulanan Gratis</span>
+                        <span className="font-bold text-slate-900">{quotaInfo.monthlyCount} / {quotaInfo.pdfLimit} Scan</span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 mb-4">
+                        <div 
+                          className={`h-1.5 rounded-full ${quotaInfo.monthlyCount >= quotaInfo.pdfLimit ? 'bg-red-500' : 'bg-emerald-500'}`} 
+                          style={{ width: `${Math.min(100, (quotaInfo.monthlyCount / (quotaInfo.pdfLimit || 1)) * 100)}%` }}
+                        ></div>
+                      </div>
+                      {quotaInfo.monthlyCount >= quotaInfo.pdfLimit && (
+                        <p className="text-xs text-amber-600 font-medium">⚠️ Kuota bulanan habis. Scan selanjutnya akan menggunakan 10 kredit/scan.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-600">
+                      Anda menggunakan paket <strong>Free</strong>. Setiap scan CV akan memotong saldo kredit Anda.
+                    </div>
+                  )}
+
+                  <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center text-sm">
+                    <span className="text-slate-600">Saldo Kredit Tersedia</span>
+                    <span className="font-bold text-amber-600 flex items-center gap-1">
+                      <Star size={14} className="fill-current" /> {quotaInfo.currentCredits} Kredit
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Rules Explanation */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Aturan Pemotongan</h4>
+                <ul className="space-y-2">
+                  <li className="flex items-start gap-2 text-sm text-slate-600">
+                    <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span><strong>Subscriber dalam kuota:</strong> Scan gratis (tidak dipotong kredit sama sekali).</span>
+                  </li>
+                  <li className="flex items-start gap-2 text-sm text-slate-600">
+                    <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                    <span><strong>Subscriber melebihi kuota:</strong> Potong 10 kredit per CV dari saldo top-up.</span>
+                  </li>
+                  <li className="flex items-start gap-2 text-sm text-slate-600">
+                    <AlertCircle size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
+                    <span><strong>Pengguna Free:</strong> Selalu potong 10 kredit per CV.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end bg-slate-50">
+              <button onClick={() => setShowQuotaInfo(false)} className="px-5 py-2 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all">
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Stats Row ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

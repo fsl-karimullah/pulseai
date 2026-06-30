@@ -71,31 +71,58 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // ── 1.5. Check Quota (Free: 5/month, Paid: 50/month) ───────────────
+        // ── Quota/Credit Check untuk CV Scan ────────────────────────────────
         const { data: sub } = await supabase
           .from('subscriptions')
-          .select('plan_type')
+          .select('plan_type, credits, pdf_upload_limit')
           .eq('org_id', job.org_id)
           .maybeSingle();
 
-        const isSubscribed = sub && sub.plan_type !== 'free';
-        const quotaLimit = isSubscribed ? 50 : 5;
+        const isSubscriber = sub && sub.plan_type !== 'free';
+        const pdfLimit = sub?.pdf_upload_limit ?? 0;
+        let isExtraCreditScan = false; // true = di luar kuota bulanan, pakai kredit
 
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
+        if (isSubscriber) {
+          // Hitung scan bulan ini
+          const startOfMonth = new Date();
+          startOfMonth.setDate(1);
+          startOfMonth.setHours(0, 0, 0, 0);
 
-        const { count, error: countError } = await supabase
-          .from('applicants')
-          .select('*', { count: 'exact', head: true })
-          .eq('org_id', job.org_id)
-          .gte('created_at', startOfMonth.toISOString());
+          const { count: monthlyCount } = await supabase
+            .from('applicants')
+            .select('*', { count: 'exact', head: true })
+            .eq('org_id', job.org_id)
+            .gte('created_at', startOfMonth.toISOString());
 
-        if (!countError && count !== null && count >= quotaLimit) {
-          return reply.status(429).send({
-            success: false,
-            message: `Kuota habis! Anda hanya dapat melakukan ${quotaLimit} scan CV bulan ini (${isSubscribed ? 'Premium' : 'Early Access'}).`,
-          });
+          if ((monthlyCount ?? 0) >= pdfLimit) {
+            // Kuota bulanan habis — cek kredit untuk extra scan
+            const currentCredits = sub?.credits ?? 0;
+            if (currentCredits < 10) {
+              return reply.status(402).send({
+                success: false,
+                message: `Kuota CV Scan bulan ini sudah habis (${pdfLimit} scan/bulan). Tambahkan kredit untuk scan ekstra. Saldo kredit Anda: ${currentCredits}.`,
+                code: 'MONTHLY_QUOTA_EXCEEDED',
+                quota_limit: pdfLimit,
+                monthly_used: monthlyCount,
+                credits_available: currentCredits,
+              });
+            }
+            isExtraCreditScan = true; // akan potong 10 kredit
+          }
+          // Masih dalam kuota — gratis, lanjutkan
+        } else {
+          // Free user: selalu pakai kredit
+          const currentCredits = sub?.credits ?? 0;
+          if (currentCredits < 10) {
+            return reply.status(402).send({
+              success: false,
+              message: `Kredit tidak cukup. Scan CV membutuhkan 10 kredit. Saldo Anda: ${currentCredits} kredit.`,
+              code: 'CREDITS_INSUFFICIENT',
+              credits_required: 10,
+              credits_available: currentCredits,
+            });
+          }
+          isExtraCreditScan = true; // free user selalu dipotong
         }
 
         // ── 2. Parse the multipart CV file ─────────────────────────────────
@@ -203,16 +230,52 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
           },
         }).then(); // fire-and-forget
 
+        // ── 6.5 Deduct 10 credits (hanya jika extra scan / free user) ─────
+        if (isExtraCreditScan) {
+          try {
+            const { data: latestSub } = await supabase
+              .from('subscriptions')
+              .select('credits')
+              .eq('org_id', job.org_id)
+              .maybeSingle();
+
+            const newCredits = Math.max(0, (latestSub?.credits ?? 0) - 10);
+            await supabase
+              .from('subscriptions')
+              .update({ credits: newCredits })
+              .eq('org_id', job.org_id);
+
+            await supabase.from('credit_transactions').insert({
+              org_id:      job.org_id,
+              amount:      -10,
+              type:        'usage',
+              description: `ATS CV Scan — ${analysisResult.nama_pelamar || 'Pelamar'} untuk posisi ${job.title}`,
+              reference:   savedApplicant.id,
+            });
+
+            fastify.log.info({ orgId: job.org_id, newCredits }, '[Credits] -10 credits deducted for CV scan');
+          } catch (creditErr) {
+            // Non-fatal: jangan batalkan response sukses karena error kredit
+            fastify.log.warn({ creditErr }, '[Credits] Failed to deduct CV scan credit');
+          }
+        } else {
+          fastify.log.info({ orgId: job.org_id }, '[CVScan] Within monthly quota — no credit deducted');
+        }
+
         // ── 7. Return success response ─────────────────────────────────────
         return reply.status(201).send({
           success:      true,
           message:      'CV berhasil dianalisis oleh AI.',
           applicant_id: savedApplicant.id,
+          credits_used: isExtraCreditScan ? 10 : 0,
+          scan_type:    isExtraCreditScan ? 'extra_credit' : 'quota',
           data: {
             ...analysisResult,
             created_at: savedApplicant.created_at,
           },
         });
+
+
 
       } catch (err: any) {
         fastify.log.error(err, '[CVScreening] Unexpected error during CV analysis');
@@ -533,6 +596,62 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
 
         if (error) throw error;
         return reply.send({ success: true, message: 'Deleted' });
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message });
+      }
+    }
+  );
+  // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/v1/cv-quota
+  // Returns current CV scan quota usage and subscription details.
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.get(
+    '/v1/cv-quota',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) return reply.status(404).send({ success: false, message: 'Not found' });
+
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('plan_type, credits, pdf_upload_limit')
+          .eq('org_id', org.id)
+          .maybeSingle();
+
+        const isSubscriber = sub && sub.plan_type !== 'free';
+        const pdfLimit = sub?.pdf_upload_limit ?? 0;
+        const currentCredits = sub?.credits ?? 0;
+
+        let monthlyCount = 0;
+        if (isSubscriber) {
+          const startOfMonth = new Date();
+          startOfMonth.setDate(1);
+          startOfMonth.setHours(0, 0, 0, 0);
+
+          const { count } = await supabase
+            .from('applicants')
+            .select('*', { count: 'exact', head: true })
+            .eq('org_id', org.id)
+            .gte('created_at', startOfMonth.toISOString());
+          monthlyCount = count ?? 0;
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            isSubscriber,
+            pdfLimit,
+            monthlyCount,
+            currentCredits
+          }
+        });
       } catch (err: any) {
         return reply.status(500).send({ success: false, message: err.message });
       }

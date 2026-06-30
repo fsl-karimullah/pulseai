@@ -10,6 +10,7 @@ import {
   Clock,
   Activity,
   CreditCard,
+  Coins,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../hooks/useSubscription';
@@ -114,39 +115,48 @@ const DashboardPage: React.FC = () => {
               Bot AI Anda menangani <span className="text-white font-semibold">{data?.header?.todayConversations || 0} percakapan</span> hari ini.
             </p>
             {subscription && (
-              <div className={`mt-4 flex items-center gap-2 px-3 py-1.5 rounded-lg border w-fit ${
-                subscription.plan_type === 'enterprise' 
-                ? 'bg-violet-500/20 border-violet-500/30 text-violet-300' 
-                : subscription.plan_type === 'business'
-                ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-                : 'bg-white/10 border-white/10 text-white'
-              }`}>
-                <CreditCard size={14} className={
-                  subscription.plan_type === 'enterprise' ? 'text-violet-400' :
-                  subscription.plan_type === 'business' ? 'text-emerald-400' : 'text-slate-400'
-                } />
-                <span className="text-xs capitalize font-bold tracking-wide">
-                  {subscription.plan_type === 'free' ? 'Starter' : subscription.plan_type} Plan
-                </span>
-                <span className="text-[10px] opacity-60 ml-1">• {subscription.chat_limit.toLocaleString()} Limit Chat</span>
-                {subscription.expires_at && (
-                  <>
-                    <span className="text-[10px] opacity-60 ml-1">•</span>
-                    <span className={`text-[10px] font-bold ml-1 ${
-                      (() => {
-                        const days = Math.ceil((new Date(subscription.expires_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                        return days <= 7 ? 'text-amber-400' : 'text-slate-400';
-                      })()
-                    }`}>
-                      {(() => {
-                        const days = Math.ceil((new Date(subscription.expires_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                        if (days < 0) return 'Kadaluarsa';
-                        if (days === 0) return 'Berakhir hari ini';
-                        return `Berakhir dalam ${days} hari`;
-                      })()}
-                    </span>
-                  </>
-                )}
+              <div className="flex flex-wrap items-center gap-2 mt-4">
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border w-fit ${
+                  subscription.plan_type === 'enterprise' 
+                  ? 'bg-violet-500/20 border-violet-500/30 text-violet-300' 
+                  : subscription.plan_type === 'business'
+                  ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                  : 'bg-white/10 border-white/10 text-white'
+                }`}>
+                  <CreditCard size={14} className={
+                    subscription.plan_type === 'enterprise' ? 'text-violet-400' :
+                    subscription.plan_type === 'business' ? 'text-emerald-400' : 'text-slate-400'
+                  } />
+                  <span className="text-xs capitalize font-bold tracking-wide">
+                    {subscription.plan_type === 'free' ? 'Starter' : subscription.plan_type} Plan
+                  </span>
+                  <span className="text-[10px] opacity-60 ml-1">• {subscription.chat_limit.toLocaleString()} Limit Chat</span>
+                  {subscription.expires_at && (
+                    <>
+                      <span className="text-[10px] opacity-60 ml-1">•</span>
+                      <span className={`text-[10px] font-bold ml-1 ${
+                        (() => {
+                          const days = Math.ceil((new Date(subscription.expires_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          return days <= 7 ? 'text-amber-400' : 'text-slate-400';
+                        })()
+                      }`}>
+                        {(() => {
+                          const days = Math.ceil((new Date(subscription.expires_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          if (days < 0) return 'Kadaluarsa';
+                          if (days === 0) return 'Berakhir hari ini';
+                          return `Berakhir dalam ${days} hari`;
+                        })()}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {/* Credit Balance Badge */}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-amber-500/15 border-amber-500/30 text-amber-300 w-fit">
+                  <Coins size={13} className="text-amber-400" />
+                  <span className="text-xs font-bold">
+                    {(subscription.credits ?? 0).toLocaleString('id-ID')} Kredit
+                  </span>
+                </div>
               </div>
             )}
           </div>

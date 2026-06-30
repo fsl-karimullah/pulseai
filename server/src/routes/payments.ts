@@ -13,7 +13,7 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
         plan: string;
         amount: number;
         userEmail: string;
-        referral_code?: string; // Optional coupon code from checkout form
+        referral_code?: string;
       };
 
       if (!plan || !amount) {
@@ -181,21 +181,24 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
             .single();
 
           if (order) {
-            // Calculate expiration and limits based on plan
+            // Calculate expiration and pdf limits based on plan
+            // NOTE: Subscribers get unlimited chat (no credit deduction).
+            //       Credits are only for FREE users (chat) and extra CV scans.
             const expirationDate = new Date();
-            let newLimit = 100; // Default fallback
+            let newLimit = 999999; // unlimited chat for all paid plans
+            let pdfUploadLimit = 3;
 
             if (order.plan_type === 'starter') {
               expirationDate.setMonth(expirationDate.getMonth() + 1);
-              newLimit = 999999;
+              pdfUploadLimit = 10;
             } else if (order.plan_type === 'pro') {
               expirationDate.setMonth(expirationDate.getMonth() + 3);
-              newLimit = 999999;
+              pdfUploadLimit = 20;
             } else if (order.plan_type === 'full_scale') {
               expirationDate.setFullYear(expirationDate.getFullYear() + 1);
-              newLimit = 999999;
+              pdfUploadLimit = 30;
             } else {
-              // Old plans or fallback
+              // Legacy plans fallback
               const isAnnual = order.plan_type.includes('annual');
               if (isAnnual) {
                 expirationDate.setFullYear(expirationDate.getFullYear() + 1);
@@ -205,17 +208,19 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
               newLimit = order.plan_type.includes('business') ? 3000 : 2000;
             }
 
+            // Update subscription — DO NOT modify credits (handled separately via top-up)
             await supabase
               .from('subscriptions')
               .update({ 
-                plan_type: order.plan_type,
-                chat_limit: newLimit,
-                status: 'active',
-                expires_at: expirationDate.toISOString()
+                plan_type:        order.plan_type,
+                chat_limit:       newLimit,
+                status:           'active',
+                expires_at:       expirationDate.toISOString(),
+                pdf_upload_limit: pdfUploadLimit,
               })
               .eq('org_id', order.org_id);
               
-            fastify.log.info(`Successfully upgraded Org ${order.org_id} to ${order.plan_type}`);
+            fastify.log.info(`Successfully upgraded Org ${order.org_id} to ${order.plan_type} — expires ${expirationDate.toISOString()}`);
 
             // ── Referral Commission Logging ────────────────────────────────
             // If this order used a referral code, look up the partner's current
@@ -293,16 +298,24 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
         if (order) {
           const expirationDate = new Date();
           let newLimit = 100;
+          let creditsToAdd = 0;
+          let pdfUploadLimit = 3;
 
           if (order.plan_type === 'starter') {
             expirationDate.setMonth(expirationDate.getMonth() + 1);
             newLimit = 999999;
+            creditsToAdd = 750;
+            pdfUploadLimit = 10;
           } else if (order.plan_type === 'pro') {
             expirationDate.setMonth(expirationDate.getMonth() + 3);
             newLimit = 999999;
+            creditsToAdd = 2250;
+            pdfUploadLimit = 20;
           } else if (order.plan_type === 'full_scale') {
             expirationDate.setFullYear(expirationDate.getFullYear() + 1);
             newLimit = 999999;
+            creditsToAdd = 9000;
+            pdfUploadLimit = 30;
           } else {
             const isAnnual = order.plan_type.includes('annual');
             if (isAnnual) {
@@ -313,15 +326,36 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
             newLimit = order.plan_type.includes('business') ? 3000 : 2000;
           }
 
+          // Fetch current credits
+          const { data: currentSub } = await supabase
+            .from('subscriptions')
+            .select('credits')
+            .eq('org_id', order.org_id)
+            .maybeSingle();
+          const currentCredits = currentSub?.credits ?? 0;
+
           await supabase
             .from('subscriptions')
             .update({ 
               plan_type: order.plan_type,
               chat_limit: newLimit,
               status: 'active',
-              expires_at: expirationDate.toISOString()
+              expires_at: expirationDate.toISOString(),
+              credits: currentCredits + creditsToAdd,
+              pdf_upload_limit: pdfUploadLimit,
             })
             .eq('org_id', order.org_id);
+
+          // Log credit transaction
+          if (creditsToAdd > 0) {
+            await supabase.from('credit_transactions').insert({
+              org_id: order.org_id,
+              amount: creditsToAdd,
+              type: 'subscription',
+              description: `Kredit paket ${order.plan_type} (${creditsToAdd} credits)`,
+              reference: orderId,
+            });
+          }
             
           return reply.send({ success: true, message: 'Payment verified and account upgraded.' });
         }
@@ -333,6 +367,221 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
       });
     } catch (error: any) {
       fastify.log.error(error, 'Manual verification error');
+      return reply.status(500).send({ success: false, message: error.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TOP-UP KREDIT ENDPOINTS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * POST /payments/create-topup
+   * Buat transaksi Midtrans untuk top-up kredit.
+   * Body: { credits: number } — jumlah kredit yang ingin dibeli.
+   * Harga: 100 kredit = Rp 10.000 (minimum 10 kredit)
+   */
+  fastify.post('/payments/create-topup', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { credits, userEmail } = request.body as {
+        credits: number;
+        userEmail?: string;
+      };
+
+      if (!credits || credits < 10) {
+        return reply.status(400).send({ success: false, message: 'Minimal pembelian adalah 10 kredit.' });
+      }
+
+      if (credits > 1000000) {
+        return reply.status(400).send({ success: false, message: 'Maksimal pembelian adalah 1.000.000 kredit.' });
+      }
+
+      // Hitung harga: 100 kredit = Rp 10.000
+      const amount = Math.ceil(credits / 100) * 10000;
+
+      const userId = (request as any).user?.id;
+      if (!userId) {
+        return reply.status(401).send({ success: false, message: 'Unauthorized' });
+      }
+
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!org?.id) {
+        return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
+      }
+
+      let snap = new midtransClient.Snap({
+        isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+        serverKey: process.env.MIDTRANS_SERVER_KEY || '',
+        clientKey: process.env.MIDTRANS_CLIENT_KEY || '',
+      });
+
+      const orderId = `TOPUP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      // Simpan top-up order ke DB
+      await supabase.from('credit_topups').insert({
+        order_id: orderId,
+        org_id: org.id,
+        credits_purchased: credits,
+        amount,
+        status: 'pending',
+      });
+
+      const parameter = {
+        transaction_details: {
+          order_id: orderId,
+          gross_amount: amount,
+        },
+        item_details: [
+          {
+            id: 'credit_topup',
+            price: amount,
+            quantity: 1,
+            name: `Top-Up ${credits.toLocaleString('id-ID')} Kredit PulseAI`,
+          },
+        ],
+        customer_details: {
+          email: userEmail || 'customer@example.com',
+          first_name: 'PulseAI',
+          last_name: 'Customer',
+        },
+        credit_card: { secure: true },
+        callbacks: { finish: 'http://localhost:5173/billing' },
+      };
+
+      const transaction = await snap.createTransaction(parameter);
+
+      return reply.send({
+        success: true,
+        token: transaction.token,
+        redirect_url: transaction.redirect_url,
+        credits,
+        amount,
+      });
+    } catch (error: any) {
+      fastify.log.error(error, 'Failed to create top-up transaction');
+      return reply.status(500).send({ success: false, message: error.message });
+    }
+  });
+
+  /**
+   * POST /payments/topup-notification
+   * Midtrans webhook untuk konfirmasi top-up kredit.
+   */
+  fastify.post('/payments/topup-notification', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const notification = request.body as any;
+      const { transaction_status, fraud_status, order_id } = notification;
+
+      fastify.log.info(`TopUp Notification: ${order_id} - ${transaction_status}`);
+
+      if (transaction_status === 'capture' || transaction_status === 'settlement') {
+        if (fraud_status !== 'challenge') {
+          const { data: topup } = await supabase
+            .from('credit_topups')
+            .update({ status: 'settled' })
+            .eq('order_id', order_id)
+            .select()
+            .single();
+
+          if (topup) {
+            // Tambahkan kredit ke subscription
+            const { data: sub } = await supabase
+              .from('subscriptions')
+              .select('credits')
+              .eq('org_id', topup.org_id)
+              .maybeSingle();
+
+            const currentCredits = sub?.credits ?? 0;
+
+            await supabase
+              .from('subscriptions')
+              .update({ credits: currentCredits + topup.credits_purchased })
+              .eq('org_id', topup.org_id);
+
+            // Log credit transaction
+            await supabase.from('credit_transactions').insert({
+              org_id: topup.org_id,
+              amount: topup.credits_purchased,
+              type: 'topup',
+              description: `Top-up ${topup.credits_purchased} kredit (Rp ${topup.amount.toLocaleString('id-ID')})`,
+              reference: order_id,
+            });
+
+            fastify.log.info(`TopUp success: Org ${topup.org_id} +${topup.credits_purchased} credits`);
+          }
+        } else {
+          await supabase.from('credit_topups').update({ status: 'challenge' }).eq('order_id', order_id);
+        }
+      } else if (['deny', 'cancel', 'expire'].includes(transaction_status)) {
+        await supabase.from('credit_topups').update({ status: 'failed' }).eq('order_id', order_id);
+      }
+
+      return reply.send({ status: 'ok' });
+    } catch (error: any) {
+      fastify.log.error(error, 'TopUp webhook error');
+      return reply.status(500).send({ success: false });
+    }
+  });
+
+  /**
+   * GET /payments/verify-topup/:orderId
+   * Manual verify top-up setelah redirect Midtrans.
+   */
+  fastify.get('/payments/verify-topup/:orderId', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orderId } = request.params as { orderId: string };
+
+      let snap = new midtransClient.Snap({
+        isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+        serverKey: process.env.MIDTRANS_SERVER_KEY || '',
+        clientKey: process.env.MIDTRANS_CLIENT_KEY || '',
+      });
+
+      const statusResponse = await snap.transaction.status(orderId);
+      const transactionStatus = statusResponse.transaction_status;
+
+      if (transactionStatus === 'capture' || transactionStatus === 'settlement') {
+        const { data: topup } = await supabase
+          .from('credit_topups')
+          .update({ status: 'settled' })
+          .eq('order_id', orderId)
+          .select()
+          .single();
+
+        if (topup) {
+          const { data: sub } = await supabase
+            .from('subscriptions')
+            .select('credits')
+            .eq('org_id', topup.org_id)
+            .maybeSingle();
+
+          const currentCredits = sub?.credits ?? 0;
+
+          await supabase
+            .from('subscriptions')
+            .update({ credits: currentCredits + topup.credits_purchased })
+            .eq('org_id', topup.org_id);
+
+          await supabase.from('credit_transactions').insert({
+            org_id: topup.org_id,
+            amount: topup.credits_purchased,
+            type: 'topup',
+            description: `Top-up ${topup.credits_purchased} kredit (Rp ${topup.amount.toLocaleString('id-ID')})`,
+            reference: orderId,
+          });
+
+          return reply.send({ success: true, credits_added: topup.credits_purchased });
+        }
+      }
+
+      return reply.send({ success: false, message: `Status: ${transactionStatus}` });
+    } catch (error: any) {
+      fastify.log.error(error, 'TopUp verify error');
       return reply.status(500).send({ success: false, message: error.message });
     }
   });

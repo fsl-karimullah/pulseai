@@ -35,6 +35,8 @@ export interface Subscription {
   plan_type: string;
   status: string;
   chat_limit: number;
+  credits: number;
+  pdf_upload_limit: number;
   expires_at: string | null;
 }
 
