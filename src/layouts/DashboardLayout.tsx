@@ -3,7 +3,6 @@ import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import { useSubscription } from '../hooks/useSubscription';
-import { useOrganization } from '../hooks/useOrganization';
 import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, CreditCard, Coins } from 'lucide-react';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
@@ -48,8 +47,6 @@ const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
 
   const { subscription } = useSubscription();
-  const { organization } = useOrganization();
-
   const currentPath = location.pathname;
   const meta = pageMeta[currentPath] || { title: '', subtitle: '' };
 
