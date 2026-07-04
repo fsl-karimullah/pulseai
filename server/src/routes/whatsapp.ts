@@ -252,26 +252,24 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       const instructions  = settings.custom_instructions || '';
       const adminWhatsApp = settings.admin_whatsapp || '';
 
-      // ── Step 4: Paywall — check trial status ────────────────────────────
-      const { data: orgData } = await supabase
-        .from('organizations')
-        .select('is_premium, trial_started_at')
-        .eq('id', resolvedOrgId)
+      // ── Step 4: Paywall — check subscription and credits ─────────────────
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan_type, credits')
+        .eq('org_id', resolvedOrgId)
         .maybeSingle();
 
-      const isPremium       = orgData?.is_premium ?? false;
-      const trialStartedAt  = orgData?.trial_started_at ? new Date(orgData.trial_started_at) : new Date();
-      const trialExpiryDate = new Date(trialStartedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
-      const isExpired       = !isPremium && new Date() > trialExpiryDate;
+      const isSubscriber = sub && sub.plan_type !== 'free';
+      const currentCredits = sub?.credits ?? 0;
 
-      if (isExpired) {
-        fastify.log.warn({ resolvedOrgId, sender, phoneLabel }, 'Trial expired — blocking response');
+      if (!isSubscriber && currentCredits <= 0) {
+        fastify.log.warn({ resolvedOrgId, sender, phoneLabel }, 'Credits exhausted — blocking response');
         try {
           await axios.post(`${gatewayUrl}/api/session/send`, {
             userId,
             phoneLabel,
             to: replyTo,
-            message: 'Mohon maaf bot sedang ditangguhkan',
+            message: 'Mohon maaf, kredit AI Anda telah habis. Silakan top-up untuk melanjutkan percakapan.',
           });
 
           // Log bot suspension message to chat_logs
@@ -280,12 +278,12 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
             bot_number: botNumber ?? '',
             customer_number: sender,
             sender: 'bot',
-            message_text: 'Mohon maaf bot sedang ditangguhkan',
+            message_text: 'Mohon maaf, kredit AI Anda telah habis.',
           });
         } catch (err: any) {
-          fastify.log.error({ err: err.message }, 'Failed to send expiration notice via Gateway');
+          fastify.log.error({ err: err.message }, 'Failed to send credit exhaustion notice via Gateway');
         }
-        return reply.send({ success: false, message: 'Trial expired. Upgrade required.' });
+        return reply.send({ success: false, message: 'Credits exhausted. Top-up required.' });
       }
 
       // ── Step 5: Load conversation history from leads ────────────────────
@@ -458,7 +456,7 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
         });
         fastify.log.info({ sender, replyTo, botNumber, resolvedOrgId }, 'Reply sent via WhatsApp Gateway');
 
-        // Log bot reply to chat_logs
+        // Log the outbound (assistant) message
         await supabase.from('chat_logs').insert({
           tenant_id: resolvedOrgId,
           bot_number: botNumber ?? '',
@@ -466,8 +464,28 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
           sender: 'bot',
           message_text: botReply,
         });
-      } catch (gatewayErr: any) {
-        fastify.log.error({ err: gatewayErr.message }, 'Failed to send reply via Gateway');
+
+        // ── Deduct 1 credit: HANYA untuk free user, subscriber gratis ─────────
+        if (!isSubscriber) {
+          try {
+            const newCredits = Math.max(0, currentCredits - 1);
+            await supabase
+              .from('subscriptions')
+              .update({ credits: newCredits })
+              .eq('org_id', resolvedOrgId);
+
+            await supabase.from('credit_transactions').insert({
+              org_id: resolvedOrgId,
+              amount: -1,
+              type: 'usage',
+              description: 'AI Chatbot — 1 pesan balasan (WhatsApp)',
+            });
+          } catch (creditErr) {
+            fastify.log.warn({ creditErr }, '[Credits] Failed to deduct whatsapp credit');
+          }
+        }
+      } catch (err: any) {
+        fastify.log.error({ err: err.message }, 'Failed to send reply via Gateway');
       }
 
       return reply.send({ success: true, message: 'Webhook processed and replied' });
