@@ -438,7 +438,7 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
       }
 
       // ── Step 10: Branding watermark for free-tier orgs ──────────────────
-      if (!isPremium) {
+      if (!isSubscriber) {
         botReply += `\n\n---\n🤖 Powered by PulseAI.biz.id - Buat Bot WA Tokomu Gratis Sekarang!`;
       }
 
