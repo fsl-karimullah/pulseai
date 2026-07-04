@@ -632,23 +632,24 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
 
         // Look up lead to map phone number and original JID
         const cleanCust = customerNumber.replace(/@(s\.whatsapp\.net|lid)$/, '');
-        const { data: leadData } = await supabase
+        const { data: leadDataRows } = await supabase
           .from('leads')
           .select('whatsapp, metadata')
           .eq('org_id', org.id)
-          .or(`whatsapp.eq.${cleanCust},metadata->>jid.eq.${cleanCust}`)
-          .maybeSingle();
+          .or(`whatsapp.eq.${cleanCust},metadata->>jid.eq.${cleanCust}`);
 
         const identifiers = [customerNumber, cleanCust];
-        if (leadData) {
-          if (leadData.whatsapp) {
-            identifiers.push(leadData.whatsapp);
-            identifiers.push(leadData.whatsapp.replace(/@(s\.whatsapp\.net|lid)$/, ''));
-          }
-          const jid = (leadData.metadata as any)?.jid;
-          if (jid) {
-            identifiers.push(jid);
-            identifiers.push(jid.replace(/@(s\.whatsapp\.net|lid)$/, ''));
+        if (leadDataRows && leadDataRows.length > 0) {
+          for (const leadData of leadDataRows) {
+            if (leadData.whatsapp) {
+              identifiers.push(leadData.whatsapp);
+              identifiers.push(leadData.whatsapp.replace(/@(s\.whatsapp\.net|lid)$/, ''));
+            }
+            const jid = (leadData.metadata as any)?.jid;
+            if (jid) {
+              identifiers.push(jid);
+              identifiers.push(jid.replace(/@(s\.whatsapp\.net|lid)$/, ''));
+            }
           }
         }
 
