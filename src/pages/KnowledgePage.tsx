@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useProjects } from '../contexts/ProjectContext';
 import {
   Search,
   Clock,
@@ -13,12 +14,16 @@ import {
   XCircle,
   Info,
   X,
+  FolderKanban,
+  ChevronDown,
 } from 'lucide-react';
 import type { KnowledgeArticle } from '../types';
 import IngestModal from '../components/IngestModal';
 
 // ── Module-level cache to prevent re-fetching on tab switch ───────────────
-const knowledgeCache: { data: KnowledgeArticle[]; timestamp: number } = { data: [], timestamp: 0 };
+// Keyed by projectId so switching the active Project doesn't show stale
+// documents from a different project.
+const knowledgeCache = new Map<string, { data: KnowledgeArticle[]; timestamp: number }>();
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
 const categoryColors: Record<string, string> = {
@@ -35,22 +40,26 @@ const statusColors = {
 
 const KnowledgePage: React.FC = () => {
   const { session } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useProjects();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 
   const fetchKnowledge = useCallback((force = false) => {
+    if (!activeProjectId) return;
+    const cached = knowledgeCache.get(activeProjectId);
     const now = Date.now();
-    if (!force && knowledgeCache.data.length > 0 && (now - knowledgeCache.timestamp) < CACHE_TTL_MS) {
-      setArticles(knowledgeCache.data);
+    if (!force && cached && (now - cached.timestamp) < CACHE_TTL_MS) {
+      setArticles(cached.data);
       setLoading(false);
       return;
     }
     setLoading(true);
-    fetch('/api/knowledge', {
+    fetch(`/api/knowledge?projectId=${activeProjectId}`, {
       headers: {
         'Authorization': `Bearer ${session?.access_token}`
       }
@@ -66,14 +75,13 @@ const KnowledgePage: React.FC = () => {
             lastUpdated: dbNode.created_at,
             status: 'published',
           }));
-          knowledgeCache.data = mappedArticles;
-          knowledgeCache.timestamp = Date.now();
+          knowledgeCache.set(activeProjectId, { data: mappedArticles, timestamp: Date.now() });
           setArticles(mappedArticles);
         }
       })
       .catch((err) => console.error('Failed to fetch knowledge nodes', err))
       .finally(() => setLoading(false));
-  }, [session]);
+  }, [session, activeProjectId]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Yakin ingin menghapus dokumen ini? Semua pengetahuan AI terkait akan dihapus.')) return;
@@ -84,7 +92,7 @@ const KnowledgePage: React.FC = () => {
       });
       const data = await response.json();
       if (data.success) {
-        knowledgeCache.timestamp = 0; // Invalidate cache after delete
+        if (activeProjectId) knowledgeCache.delete(activeProjectId); // Invalidate cache after delete
         fetchKnowledge(true);
       } else {
         alert(data.message || 'Gagal menghapus dokumen');
@@ -98,6 +106,8 @@ const KnowledgePage: React.FC = () => {
   useEffect(() => {
     fetchKnowledge();
   }, [fetchKnowledge]);
+
+  const activeProject = projects.find((p) => p.id === activeProjectId);
 
   const filtered = articles.filter((a: KnowledgeArticle) => {
     const matchSearch =
@@ -135,6 +145,37 @@ const KnowledgePage: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {projects.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setProjectMenuOpen((v) => !v)}
+                className="flex items-center gap-2 px-3.5 py-2.5 bg-white border border-slate-200 hover:border-emerald-500 text-slate-700 text-sm font-semibold rounded-xl transition-all duration-150"
+              >
+                <FolderKanban size={15} className="text-emerald-500" />
+                {activeProject?.name || 'Pilih Project'}
+                <ChevronDown size={14} className="text-slate-400" />
+              </button>
+              {projectMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setProjectMenuOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl border border-slate-200 shadow-lg z-20 py-1.5 max-h-72 overflow-y-auto">
+                    {projects.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => { setActiveProjectId(p.id); setProjectMenuOpen(false); }}
+                        className={`w-full text-left px-3.5 py-2 text-sm font-medium flex items-center justify-between gap-2 hover:bg-slate-50 ${
+                          p.id === activeProjectId ? 'text-emerald-600' : 'text-slate-700'
+                        }`}
+                      >
+                        <span className="truncate">{p.name}</span>
+                        {p.id === activeProjectId && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <button
             onClick={() => setShowGuide(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 text-slate-600 text-sm font-semibold rounded-xl transition-all duration-150 active:scale-95"
@@ -307,8 +348,10 @@ const KnowledgePage: React.FC = () => {
       <IngestModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
+        projectId={activeProjectId || undefined}
         onSuccess={() => {
-          fetchKnowledge();
+          if (activeProjectId) knowledgeCache.delete(activeProjectId);
+          fetchKnowledge(true);
         }}
       />
 

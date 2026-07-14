@@ -12,6 +12,8 @@ import knowledgeRoutes from './routes/knowledge';
 import whatsappRoutes from './routes/whatsapp';
 import referralRoutes from './routes/referral';
 import cvScreeningRoutes from './routes/cvScreening';
+import projectsRoutes from './routes/projects';
+import widgetChannelsRoutes from './routes/widgetChannels';
 
 const MAX_FILE_SIZE_MB = 50;
 
@@ -55,6 +57,8 @@ export async function createServer() {
   await server.register(whatsappRoutes,    { prefix: '/api' });
   await server.register(referralRoutes,    { prefix: '/api' });
   await server.register(cvScreeningRoutes, { prefix: '/api' });
+  await server.register(projectsRoutes,       { prefix: '/api' });
+  await server.register(widgetChannelsRoutes, { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({

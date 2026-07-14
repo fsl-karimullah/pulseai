@@ -20,11 +20,13 @@ export async function ingestPdf(
   file: File,
   token: string,
   title?: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  projectId?: string
 ): Promise<IngestResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (title) formData.append('title', title);
+  if (projectId) formData.append('projectId', projectId);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -66,15 +68,16 @@ export async function ingestPdf(
 export async function ingestUrl(
   url: string,
   token: string,
-  title?: string
+  title?: string,
+  projectId?: string
 ): Promise<IngestResponse> {
   const response = await fetch(`${API_BASE}/ingest/url`, {
     method: 'POST',
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ url, title }),
+    body: JSON.stringify({ url, title, projectId }),
     signal: AbortSignal.timeout(60_000), // 60s timeout
   });
 

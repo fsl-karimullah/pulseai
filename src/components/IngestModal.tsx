@@ -31,6 +31,7 @@ interface IngestModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  projectId?: string;
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ function formatBytes(bytes: number): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) => {
+const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess, projectId }) => {
   const { session } = useAuth();
   const [status, setStatus] = useState<IngestStatus>({ phase: 'idle' });
   const [showGuide, setShowGuide] = useState(false);
@@ -108,7 +109,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
         } else {
           setStatus({ phase: 'processing' });
         }
-      });
+      }, projectId);
 
       if (result.success && result.data) {
         setStatus({ phase: 'success', result: result.data });

@@ -14,6 +14,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
+      console.error('[authenticate] Supabase rejected token:', error?.message, error?.status, error?.name);
       return reply.status(401).send({ success: false, message: 'Unauthorized' });
     }
 

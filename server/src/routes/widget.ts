@@ -1,37 +1,46 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { supabase } from '../config/supabase';
+import { resolveDefaultProjectId } from '../services/projects';
 
 export default async function widgetRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/widget.js
-   * 
+   *
    * Serves a vanilla Javascript snippet that injects a Chat Bubble and Iframe
    * into the host website.
-   * 
+   *
    * Query params:
    *  - botName: The name of the bot
    *  - company: The company name
    *  - orgId: The organization ID
+   *  - projectId: The Project ID (optional — new widget_channels embeds pass
+   *    this directly; older snippets that only carry orgId keep resolving
+   *    to that org's default project, unchanged)
    */
   fastify.get('/widget.js', async (request: FastifyRequest, reply: FastifyReply) => {
-    const { orgId, botName = 'Aria', company = 'PulseAI' } = request.query as Record<string, string>;
-    
+    const { orgId, projectId, botName = 'Aria', company = 'PulseAI' } = request.query as Record<string, string>;
+
+    let resolvedProjectId: string | undefined = projectId;
+    if (!resolvedProjectId && orgId) {
+      resolvedProjectId = (await resolveDefaultProjectId(orgId)) ?? undefined;
+    }
+
     // Fetch branding and company info from DB
     let query = supabase
       .from('bot_settings')
-      .select('color_theme, logo_url, org_id, widget_placement, organizations(name)')
+      .select('color_theme, logo_url, org_id, project_id, widget_placement, organizations(name)')
       .single();
-    
-    if (orgId) {
+
+    if (resolvedProjectId) {
       query = supabase
         .from('bot_settings')
-        .select('color_theme, logo_url, org_id, widget_placement, organizations(name)')
-        .eq('org_id', orgId)
+        .select('color_theme, logo_url, org_id, project_id, widget_placement, organizations(name)')
+        .eq('project_id', resolvedProjectId)
         .single();
     } else {
       query = supabase
         .from('bot_settings')
-        .select('color_theme, logo_url, org_id, widget_placement, organizations(name)')
+        .select('color_theme, logo_url, org_id, project_id, widget_placement, organizations(name)')
         .eq('bot_name', botName)
         .single();
     }
@@ -41,6 +50,7 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     const themeColor = settings?.color_theme || '#059669';
     const logoUrl = settings?.logo_url || '';
     const resolvedOrgId = orgId || settings?.org_id || '';
+    resolvedProjectId = resolvedProjectId || settings?.project_id || '';
     // Use DB company name if available, fallback to query param, then PulseAI
     const resolvedCompany = (settings?.organizations as any)?.name || company || 'PulseAI';
     // Widget placement: 'bottom-right' (default) or 'bottom-left'
@@ -49,7 +59,7 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     const hValue = '20px';
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(resolvedCompany)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
+    const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&projectId=${resolvedProjectId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(resolvedCompany)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
 
     const scriptContent = `
 (function() {

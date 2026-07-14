@@ -23,6 +23,7 @@ interface Message {
 const PublicChatWidget: React.FC = () => {
   const [searchParams] = useSearchParams();
   const orgId = searchParams.get('orgId') || '';
+  const projectId = searchParams.get('projectId') || '';
   const botName = searchParams.get('botName') || 'Aria';
   const company = searchParams.get('company') || 'PulseAI';
   const themeColor = searchParams.get('color') || '#059669';
@@ -121,6 +122,7 @@ const PublicChatWidget: React.FC = () => {
           message: userMessage.content,
           history: messages.map(m => ({ role: m.role, content: m.content })),
           orgId,
+          projectId,
           botName,
           company
         })

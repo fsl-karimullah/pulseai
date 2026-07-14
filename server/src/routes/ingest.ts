@@ -6,12 +6,14 @@ import { chunkText, enrichChunk } from '../services/chunker';
 import { generateEmbeddingsBatch } from '../services/embeddings';
 import { insertKnowledgeNodes, supabase } from '../config/supabase';
 import { authenticate } from '../middleware/auth';
+import { resolveDefaultProjectId } from '../services/projects';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UrlIngestBody {
   url: string;
   title?: string;
+  projectId?: string;
 }
 
 interface IngestResult {
@@ -57,6 +59,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       let fileName: string | undefined;
       let mimeType: string | undefined;
       let titleOverride: string | undefined;
+      let projectIdField: string | undefined;
 
       // Parse multipart fields
       const parts = request.parts();
@@ -67,7 +70,17 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
           mimeType = part.mimetype;
         } else if (part.type === 'field' && part.fieldname === 'title') {
           titleOverride = part.value as string;
+        } else if (part.type === 'field' && part.fieldname === 'projectId') {
+          projectIdField = part.value as string;
         }
+      }
+
+      // Resolve the Project this document belongs to. Defaults to the org's
+      // default project when the client doesn't specify one (older/plain
+      // upload flows), so knowledge_nodes.project_id (NOT NULL) is always set.
+      const resolvedProjectId = projectIdField || (await resolveDefaultProjectId(org.id));
+      if (!resolvedProjectId) {
+        return reply.status(500).send({ success: false, message: 'Tidak dapat menentukan Project untuk dokumen ini.' });
       }
 
       if (!fileBuffer || !fileName || !mimeType) {
@@ -136,6 +149,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         text,
         title: finalTitle,
         orgId: org.id,
+        projectId: resolvedProjectId,
         sourceType: 'pdf',
         fileName: fileName,
         metadata: { pages, mime: mimeType },
@@ -180,13 +194,18 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ success: false, message: 'Organization not found' });
       }
 
-      const { url, title: titleOverride } = request.body;
+      const { url, title: titleOverride, projectId } = request.body;
 
       if (!url || typeof url !== 'string' || url.trim().length === 0) {
         return reply.status(400).send({
           success: false,
           message: 'Request body must include a non-empty "url" string.',
         });
+      }
+
+      const resolvedProjectId = projectId || (await resolveDefaultProjectId(org.id));
+      if (!resolvedProjectId) {
+        return reply.status(500).send({ success: false, message: 'Tidak dapat menentukan Project untuk dokumen ini.' });
       }
 
       const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
@@ -213,6 +232,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         text,
         title: finalTitle,
         orgId: org.id,
+        projectId: resolvedProjectId,
         sourceType: 'url',
         sourceUrl: resolvedUrl,
         metadata: { originalUrl: url },
@@ -247,6 +267,7 @@ interface ProcessOptions {
   text: string;
   title: string;
   orgId: string;
+  projectId: string;
   sourceType: 'pdf' | 'url';
   fileName?: string;
   sourceUrl?: string;
@@ -263,7 +284,7 @@ async function processAndStore(opts: ProcessOptions): Promise<{
   chunks_inserted: number;
   total_words: number;
 }> {
-  const { text, title, orgId, sourceType, fileName, sourceUrl, metadata = {} } = opts;
+  const { text, title, orgId, projectId, sourceType, fileName, sourceUrl, metadata = {} } = opts;
 
   // 1. Chunk the text
   const textChunks = chunkText(text);
@@ -280,6 +301,7 @@ async function processAndStore(opts: ProcessOptions): Promise<{
 
   const nodes = textChunks.map((chunk, i) => ({
     org_id: orgId,
+    project_id: projectId,
     title,
     content: chunk.text,
     embedding: embeddings[i],

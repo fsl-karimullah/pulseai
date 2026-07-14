@@ -1,73 +1,52 @@
-# React + TypeScript + Vite
+# PulseAI (AI Business)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Proyek ini adalah aplikasi React yang dibangun menggunakan [Vite](https://vitejs.dev/) dan TypeScript.
 
-Currently, two official plugins are available:
+## Persyaratan Sistem
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Sebelum menginstal dan menjalankan proyek ini di komputer lokal Anda, pastikan Anda telah menginstal perangkat lunak berikut:
 
-## React Compiler
+- [Node.js](https://nodejs.org/) (Disarankan versi 18 atau lebih baru)
+- npm (Biasanya sudah terinstal bersama Node.js)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Cara Instalasi dan Menjalankan di Lokal
 
-## Expanding the ESLint configuration
+Ikuti langkah-langkah berikut untuk menjalankan proyek ini di mesin lokal Anda:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. **Clone repository atau buka folder proyek ini** di terminal Anda.
+   ```bash
+   cd pulseai
+   ```
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+2. **Instal dependensi**
+   Jalankan perintah berikut untuk menginstal semua library dan dependensi yang dibutuhkan:
+   ```bash
+   npm install
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+3. **Konfigurasi Environment Variables**
+   Proyek ini membutuhkan file konfigurasi `.env`. 
+   - Salin file `.env.example` (jika ada) menjadi `.env` atau pastikan Anda sudah memiliki file `.env` dengan variabel yang dibutuhkan seperti konfigurasi Supabase dan Midtrans.
+   
+4. **Jalankan Development Server**
+   Setelah semua dependensi terinstal, jalankan server pengembangan lokal dengan perintah:
+   ```bash
+   npm run dev
+   ```
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+5. **Buka di Browser**
+   Buka browser Anda dan akses URL yang tertera di terminal (biasanya `http://localhost:5173`).
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Struktur Folder Utama
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- `src/` - Kode utama aplikasi React
+- `server/` - Backend / Server (jika Anda ingin menjalankan backend terpisah, mungkin diperlukan perintah `npm run` yang berbeda di dalam folder ini)
+- `whatsapp-gateway/` - Layanan gateway WhatsApp
+- `public/` - Aset statis
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Scripts yang Tersedia
+
+- `npm run dev` : Menjalankan aplikasi dalam mode development.
+- `npm run build` : Membangun aplikasi untuk produksi.
+- `npm run lint` : Menjalankan linter untuk memeriksa kualitas kode.
+- `npm run preview` : Menjalankan server lokal untuk melihat hasil build produksi.
