@@ -17,7 +17,7 @@ import { authenticate } from '../middleware/auth';
 //   2. Fall back to the org's default (oldest) project — covers numbers
 //      that existed before Projects existed, and any legacy/edge path.
 // ──────────────────────────────────────────────────────────────────────────
-async function resolveProjectId(orgId: string, phoneLabel: string): Promise<string | null> {
+async function resolveProjectId(orgId: string, phoneLabel: string, fallbackProjectId?: string | null): Promise<string | null> {
   const { data: intent } = await supabase
     .from('whatsapp_session_intents')
     .select('id, project_id')
@@ -29,6 +29,10 @@ async function resolveProjectId(orgId: string, phoneLabel: string): Promise<stri
     // Consume it — this intent has now been applied to a real session.
     await supabase.from('whatsapp_session_intents').delete().eq('id', intent.id);
     return intent.project_id;
+  }
+
+  if (fallbackProjectId) {
+    return fallbackProjectId;
   }
 
   return resolveDefaultProjectId(orgId);
@@ -571,17 +575,19 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
         return reply.status(400).send({ success: false, message: `Invalid status. Must be one of: ${allowedStatuses.join(', ')}` });
       }
 
-      // Preserve the project_id of an already-registered session; otherwise
-      // resolve it (dashboard-recorded intent, or the org's default project)
-      // so a session-status ping never leaves a number without a project.
       const { data: existingSession } = await supabase
         .from('whatsapp_sessions')
         .select('project_id')
         .eq('phone_number', botNumber)
         .maybeSingle();
 
-      const resolvedProjectId = existingSession?.project_id
-        ?? await resolveProjectId(userId, phoneLabel);
+      // Resolve project_id for this session.
+      // Priority: 1. Dashboard Intent, 2. Existing Session Project, 3. Org Default
+      const resolvedProjectId = await resolveProjectId(
+        userId,
+        phoneLabel,
+        existingSession?.project_id
+      );
 
       const now = new Date().toISOString();
       const upsertPayload: Record<string, any> = {

@@ -41,20 +41,52 @@ create unique index if not exists whatsapp_session_intents_org_label_uidx
 
 alter table whatsapp_session_intents enable row level security;
 
-create policy "Users can view own org whatsapp_session_intents"
-  on whatsapp_session_intents for select to authenticated
-  using (org_id in (select id from organizations where user_id = auth.uid()));
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'whatsapp_session_intents'
+      and policyname = 'Users can view own org whatsapp_session_intents'
+  ) then
+    create policy "Users can view own org whatsapp_session_intents"
+      on whatsapp_session_intents for select to authenticated
+      using (org_id in (select id from organizations where user_id = auth.uid()));
+  end if;
+end $$;
 
-create policy "Users can insert own org whatsapp_session_intents"
-  on whatsapp_session_intents for insert to authenticated
-  with check (org_id in (select id from organizations where user_id = auth.uid()));
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'whatsapp_session_intents'
+      and policyname = 'Users can insert own org whatsapp_session_intents'
+  ) then
+    create policy "Users can insert own org whatsapp_session_intents"
+      on whatsapp_session_intents for insert to authenticated
+      with check (org_id in (select id from organizations where user_id = auth.uid()));
+  end if;
+end $$;
 
-create policy "Users can update own org whatsapp_session_intents"
-  on whatsapp_session_intents for update to authenticated
-  using (org_id in (select id from organizations where user_id = auth.uid()));
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'whatsapp_session_intents'
+      and policyname = 'Users can update own org whatsapp_session_intents'
+  ) then
+    create policy "Users can update own org whatsapp_session_intents"
+      on whatsapp_session_intents for update to authenticated
+      using (org_id in (select id from organizations where user_id = auth.uid()));
+  end if;
+end $$;
 
-create policy "Service role can manage whatsapp_session_intents"
-  on whatsapp_session_intents for all to service_role using (true);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'whatsapp_session_intents'
+      and policyname = 'Service role can manage whatsapp_session_intents'
+  ) then
+    create policy "Service role can manage whatsapp_session_intents"
+      on whatsapp_session_intents for all to service_role using (true);
+  end if;
+end $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Done. Purely additive — no existing table/column touched.

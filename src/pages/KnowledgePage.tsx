@@ -16,9 +16,11 @@ import {
   X,
   FolderKanban,
   ChevronDown,
+  Coins,
 } from 'lucide-react';
 import type { KnowledgeArticle } from '../types';
 import IngestModal from '../components/IngestModal';
+import { fetchCredits, type CreditsInfo } from '../services/ingestService';
 
 // ── Module-level cache to prevent re-fetching on tab switch ───────────────
 // Keyed by projectId so switching the active Project doesn't show stale
@@ -48,6 +50,7 @@ const KnowledgePage: React.FC = () => {
   const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [creditsInfo, setCreditsInfo] = useState<CreditsInfo | null>(null);
 
   const fetchKnowledge = useCallback((force = false) => {
     if (!activeProjectId) return;
@@ -107,6 +110,25 @@ const KnowledgePage: React.FC = () => {
     fetchKnowledge();
   }, [fetchKnowledge]);
 
+  // Fetch credit balance
+  useEffect(() => {
+    if (!session?.access_token) return;
+    fetchCredits(session.access_token)
+      .then(setCreditsInfo)
+      .catch(() => setCreditsInfo(null));
+  }, [session?.access_token]);
+
+  // Refresh credits after successful upload
+  const handleUploadSuccess = useCallback(() => {
+    if (activeProjectId) knowledgeCache.delete(activeProjectId);
+    fetchKnowledge(true);
+    if (session?.access_token) {
+      fetchCredits(session.access_token)
+        .then(setCreditsInfo)
+        .catch(() => {});
+    }
+  }, [activeProjectId, fetchKnowledge, session?.access_token]);
+
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
   const filtered = articles.filter((a: KnowledgeArticle) => {
@@ -145,6 +167,19 @@ const KnowledgePage: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Credit badge */}
+          {creditsInfo !== null && (
+            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold ${
+              creditsInfo.credits < 10
+                ? 'bg-red-50 border-red-200 text-red-600'
+                : creditsInfo.credits < 30
+                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            }`}>
+              <Coins size={13} />
+              <span>{creditsInfo.credits} kredit</span>
+            </div>
+          )}
           {projects.length > 0 && (
             <div className="relative">
               <button
@@ -349,10 +384,7 @@ const KnowledgePage: React.FC = () => {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         projectId={activeProjectId || undefined}
-        onSuccess={() => {
-          if (activeProjectId) knowledgeCache.delete(activeProjectId);
-          fetchKnowledge(true);
-        }}
+        onSuccess={handleUploadSuccess}
       />
 
       {/* Guide Modal Overlay */}

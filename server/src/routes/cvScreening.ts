@@ -21,10 +21,94 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { supabase } from '../config/supabase';
 import { authenticate } from '../middleware/auth';
-import { analyzeCVWithGemini, type ApplicantStatus } from '../services/cvScreeningService';
+import {
+  analyzeCVWithGemini,
+  buildStatusEmailTemplate,
+  fillCompanyNamePlaceholder,
+  getStatusEmailBanner,
+  type ApplicantStatus,
+} from '../services/cvScreeningService';
+import { sendEmail, sendBatchEmails, type SendEmailParams } from '../services/emailService';
+import { buildOrgSenderDisplay } from '../config/email';
 
 // ─── Max file size for CV uploads (separate from the global limit in app.ts) ──
 const MAX_CV_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+// Resend's Batch Email API accepts at most 100 emails per call.
+const EMAIL_BATCH_SIZE = 100;
+
+/**
+ * A short, transparent footer appended to every decision email — names the
+ * company the candidate actually applied to (even though the technical
+ * sender is a shared platform address) and gives a real way to reach them.
+ * This is standard practice for multi-tenant ATS platforms (Greenhouse,
+ * Lever, etc.) and reads as more trustworthy than an unexplained noreply
+ * address with no contact path.
+ */
+function buildTrustFooter(replyToEmail?: string | null): string {
+  const contactLine = replyToEmail
+    ? `Ada pertanyaan? Balas email ini atau hubungi kami langsung di ${replyToEmail}.`
+    : 'Ada pertanyaan? Balas email ini dan tim kami akan menghubungi Anda kembali.';
+
+  return `\n\n---\nEmail ini dikirim sehubungan dengan lamaran Anda di [Nama Perusahaan], melalui sistem rekrutmen PulseAI.\n${contactLine}`;
+}
+
+/**
+ * Builds the final subject/body/banner for a decision email — shared by the
+ * single-send and bulk-send endpoints so both always compute content the
+ * same way (AI draft when the status hasn't been overridden, a status-
+ * accurate fallback template otherwise, with the company name placeholder
+ * filled in, a trust footer, and a clear decision banner attached).
+ */
+function buildApplicantEmailContent(
+  applicant: { name: string; status: ApplicantStatus; analysis_result?: any },
+  jobTitle: string,
+  orgName?: string | null,
+  replyToEmail?: string | null
+): Pick<SendEmailParams, 'subject' | 'body' | 'statusLabel' | 'statusColor'> {
+  const statusMatchesAiDraft = applicant.analysis_result?.rekomendasi_status === applicant.status;
+
+  let subject = statusMatchesAiDraft ? applicant.analysis_result?.draft_email_subject : undefined;
+  let body = statusMatchesAiDraft ? applicant.analysis_result?.draft_email_body : undefined;
+
+  if (!subject || !body) {
+    const fallback = buildStatusEmailTemplate(applicant.status, applicant.name, jobTitle);
+    subject = subject || fallback.subject;
+    body = body || fallback.body;
+  }
+
+  body = body + buildTrustFooter(replyToEmail);
+
+  subject = fillCompanyNamePlaceholder(subject, orgName);
+  body = fillCompanyNamePlaceholder(body, orgName);
+
+  const { statusLabel, statusColor } = getStatusEmailBanner(applicant.status);
+
+  return { subject, body, statusLabel, statusColor };
+}
+
+/**
+ * Resolves the "from" address for an org's HR emails: their own verified
+ * custom domain if they've set one up (dormant today — Resend's free plan
+ * caps domains at 1, already used by pulseai.biz.id — but kept as a future
+ * upgrade path), otherwise a transparent "CompanyName (via PulseAI)" sender
+ * using the shared platform address.
+ */
+async function resolveSenderFrom(orgId: string, orgName?: string | null): Promise<string> {
+  const { data: domain } = await supabase
+    .from('email_domains')
+    .select('from_email, from_name, status')
+    .eq('org_id', orgId)
+    .eq('status', 'verified')
+    .maybeSingle();
+
+  if (domain) {
+    const displayName = domain.from_name || orgName || 'HR';
+    return `${displayName} <${domain.from_email}>`;
+  }
+
+  return buildOrgSenderDisplay(orgName);
+}
 
 // ─── Route Plugin ─────────────────────────────────────────────────────────────
 
@@ -263,6 +347,15 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
         }
 
         // ── 7. Return success response ─────────────────────────────────────
+        // Substitute the "[Nama Perusahaan]" placeholder in the drafts using
+        // the org's current name — computed at read time (never persisted)
+        // so it always reflects whatever the name is right now.
+        const { data: orgForDraft } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', job.org_id)
+          .maybeSingle();
+
         return reply.status(201).send({
           success:      true,
           message:      'CV berhasil dianalisis oleh AI.',
@@ -271,6 +364,9 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
           scan_type:    isExtraCreditScan ? 'extra_credit' : 'quota',
           data: {
             ...analysisResult,
+            draft_whatsapp:      fillCompanyNamePlaceholder(analysisResult.draft_whatsapp, orgForDraft?.name),
+            draft_email_subject: fillCompanyNamePlaceholder(analysisResult.draft_email_subject, orgForDraft?.name),
+            draft_email_body:    fillCompanyNamePlaceholder(analysisResult.draft_email_body, orgForDraft?.name),
             created_at: savedApplicant.created_at,
           },
         });
@@ -397,7 +493,7 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('id')
+          .select('id, name')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -410,9 +506,12 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
           .select(`
             id, name, email, whatsapp, ats_score, status,
             analysis_result,
-            analysis_result->>'pendidikan_terakhir' AS pendidikan_terakhir,
-            analysis_result->'red_flags'            AS red_flags,
-            analysis_result->>'draft_whatsapp'      AS draft_whatsapp,
+            analysis_result->>'pendidikan_terakhir'   AS pendidikan_terakhir,
+            analysis_result->'red_flags'              AS red_flags,
+            analysis_result->>'draft_whatsapp'        AS draft_whatsapp,
+            analysis_result->>'draft_email_subject'   AS draft_email_subject,
+            analysis_result->>'draft_email_body'      AS draft_email_body,
+            email_sent_at,
             created_at
           `)
           .eq('org_id', org.id)
@@ -427,7 +526,23 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
 
         if (error) throw error;
 
-        return reply.send({ success: true, total: data?.length ?? 0, data: data ?? [] });
+        // Substitute "[Nama Perusahaan]" with the org's current name — both
+        // in the flattened draft columns (used by the table row) and inside
+        // the nested analysis_result (used by the detail modal).
+        const applicantsWithCompanyName = (data ?? []).map((a: any) => ({
+          ...a,
+          draft_whatsapp:      a.draft_whatsapp ? fillCompanyNamePlaceholder(a.draft_whatsapp, org.name) : a.draft_whatsapp,
+          draft_email_subject: a.draft_email_subject ? fillCompanyNamePlaceholder(a.draft_email_subject, org.name) : a.draft_email_subject,
+          draft_email_body:    a.draft_email_body ? fillCompanyNamePlaceholder(a.draft_email_body, org.name) : a.draft_email_body,
+          analysis_result: a.analysis_result ? {
+            ...a.analysis_result,
+            draft_whatsapp:      a.analysis_result.draft_whatsapp ? fillCompanyNamePlaceholder(a.analysis_result.draft_whatsapp, org.name) : a.analysis_result.draft_whatsapp,
+            draft_email_subject: a.analysis_result.draft_email_subject ? fillCompanyNamePlaceholder(a.analysis_result.draft_email_subject, org.name) : a.analysis_result.draft_email_subject,
+            draft_email_body:    a.analysis_result.draft_email_body ? fillCompanyNamePlaceholder(a.analysis_result.draft_email_body, org.name) : a.analysis_result.draft_email_body,
+          } : a.analysis_result,
+        }));
+
+        return reply.send({ success: true, total: applicantsWithCompanyName.length, data: applicantsWithCompanyName });
       } catch (err: any) {
         fastify.log.error(err, '[CVScreening] GET /v1/jobs/:jobId/applicants failed');
         return reply.status(500).send({ success: false, message: err.message });
@@ -475,9 +590,12 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
           return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
         }
 
+        // Clear email_sent_at: a status change means any previously sent email
+        // no longer reflects the candidate's actual outcome, so the "already
+        // sent" indicator must reset and HR must explicitly send again.
         const { error } = await supabase
           .from('applicants')
-          .update({ status })
+          .update({ status, email_sent_at: null })
           .eq('id', applicantId)
           .eq('org_id', org.id); // ownership check
 
@@ -487,6 +605,201 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
       } catch (err: any) {
         fastify.log.error(err, '[CVScreening] PATCH status failed');
         return reply.status(500).send({ success: false, message: err.message });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POST /api/v1/jobs/:jobId/applicants/:applicantId/send-email
+  //
+  // Sends the AI-drafted decision email to the candidate so HR doesn't have
+  // to compose/send it manually. Uses the draft_email_subject/draft_email_body
+  // generated alongside draft_whatsapp during CV analysis.
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.post<{ Params: { jobId: string; applicantId: string } }>(
+    '/v1/jobs/:jobId/applicants/:applicantId/send-email',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { jobId: string; applicantId: string } }>, reply: FastifyReply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { jobId, applicantId } = request.params;
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id, name, reply_to_email')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
+        }
+
+        const { data: applicant, error: fetchError } = await supabase
+          .from('applicants')
+          .select('id, name, email, status, analysis_result')
+          .eq('id', applicantId)
+          .eq('job_id', jobId)
+          .eq('org_id', org.id)
+          .maybeSingle();
+
+        if (fetchError || !applicant) {
+          return reply.status(404).send({ success: false, message: 'Pelamar tidak ditemukan.' });
+        }
+
+        if (!applicant.email) {
+          return reply.status(400).send({
+            success: false,
+            message: 'Pelamar ini tidak memiliki alamat email yang terdeteksi dari CV.',
+          });
+        }
+
+        const { data: job } = await supabase
+          .from('job_vacancies')
+          .select('title')
+          .eq('id', jobId)
+          .maybeSingle();
+
+        const { subject, body, statusLabel, statusColor } = buildApplicantEmailContent(
+          applicant,
+          job?.title || 'posisi yang dilamar',
+          org.name,
+          org.reply_to_email
+        );
+
+        const from = await resolveSenderFrom(org.id, org.name);
+
+        await sendEmail({ to: applicant.email, subject, body, statusLabel, statusColor, from, replyTo: org.reply_to_email || undefined });
+
+        const { error: updateError } = await supabase
+          .from('applicants')
+          .update({ email_sent_at: new Date().toISOString() })
+          .eq('id', applicantId)
+          .eq('org_id', org.id);
+
+        if (updateError) throw updateError;
+
+        return reply.send({ success: true, message: `Email berhasil dikirim ke ${applicant.email}.` });
+      } catch (err: any) {
+        fastify.log.error(err, '[CVScreening] send-email failed');
+        return reply.status(500).send({
+          success: false,
+          message: err?.message ?? 'Gagal mengirim email.',
+        });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POST /api/v1/jobs/:jobId/applicants/send-email-bulk
+  //
+  // Sends the decision email to every eligible candidate for a job in one
+  // click, using Resend's Batch API (up to 100 emails/call, chunked if more).
+  // "Eligible" = has a detected email AND hasn't already been sent one — this
+  // makes the action safely repeatable: re-running it only reaches candidates
+  // added or whose status changed (which resets email_sent_at) since the
+  // last run, never double-sends.
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.post<{ Params: { jobId: string } }>(
+    '/v1/jobs/:jobId/applicants/send-email-bulk',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { jobId: string } }>, reply: FastifyReply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { jobId } = request.params;
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id, name, reply_to_email')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
+        }
+
+        const { data: job } = await supabase
+          .from('job_vacancies')
+          .select('title')
+          .eq('id', jobId)
+          .eq('org_id', org.id)
+          .maybeSingle();
+
+        if (!job) {
+          return reply.status(404).send({ success: false, message: 'Lowongan tidak ditemukan.' });
+        }
+
+        const { data: candidates, error: fetchError } = await supabase
+          .from('applicants')
+          .select('id, name, email, status, analysis_result')
+          .eq('job_id', jobId)
+          .eq('org_id', org.id)
+          .is('email_sent_at', null);
+
+        if (fetchError) throw fetchError;
+
+        const eligible = (candidates ?? []).filter((a) => a.email && a.email.trim());
+        const skipped = (candidates?.length ?? 0) - eligible.length;
+
+        if (eligible.length === 0) {
+          return reply.send({
+            success: true,
+            sent: 0,
+            skipped,
+            failed: 0,
+            sent_ids: [],
+            message: 'Tidak ada pelamar yang memenuhi syarat untuk menerima email (tanpa email terdeteksi, atau semua sudah terkirim).',
+          });
+        }
+
+        const from = await resolveSenderFrom(org.id, org.name);
+        const sentIds: string[] = [];
+        let failed = 0;
+
+        for (let i = 0; i < eligible.length; i += EMAIL_BATCH_SIZE) {
+          const chunk = eligible.slice(i, i + EMAIL_BATCH_SIZE);
+          const payload: SendEmailParams[] = chunk.map((applicant) => ({
+            to: applicant.email,
+            from,
+            replyTo: org.reply_to_email || undefined,
+            ...buildApplicantEmailContent(applicant, job.title, org.name, org.reply_to_email),
+          }));
+
+          try {
+            await sendBatchEmails(payload);
+            sentIds.push(...chunk.map((a) => a.id));
+          } catch (batchErr) {
+            fastify.log.error(batchErr, '[CVScreening] Bulk email batch failed');
+            failed += chunk.length;
+          }
+        }
+
+        if (sentIds.length > 0) {
+          const { error: updateError } = await supabase
+            .from('applicants')
+            .update({ email_sent_at: new Date().toISOString() })
+            .in('id', sentIds);
+
+          if (updateError) {
+            fastify.log.error(updateError, '[CVScreening] Failed to mark bulk-sent applicants');
+          }
+        }
+
+        return reply.send({
+          success: true,
+          sent: sentIds.length,
+          skipped,
+          failed,
+          sent_ids: sentIds,
+          message: `Berhasil mengirim ${sentIds.length} email.` +
+            (failed ? ` ${failed} gagal dikirim.` : '') +
+            (skipped ? ` ${skipped} dilewati (tanpa email atau sudah terkirim).` : ''),
+        });
+      } catch (err: any) {
+        fastify.log.error(err, '[CVScreening] send-email-bulk failed');
+        return reply.status(500).send({
+          success: false,
+          message: err?.message ?? 'Gagal mengirim email massal.',
+        });
       }
     }
   );

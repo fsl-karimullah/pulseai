@@ -48,5 +48,21 @@ export function useOrganization() {
     }
   };
 
-  return { organization, loading, error: null, updateDomains, updateName, refreshOrganization };
+  const updateReplyToEmail = async (replyToEmail: string) => {
+    if (!organization) return;
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ reply_to_email: replyToEmail || null })
+        .eq('id', organization.id);
+
+      if (error) throw error;
+      updateOrganization({ reply_to_email: replyToEmail || null });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  };
+
+  return { organization, loading, error: null, updateDomains, updateName, updateReplyToEmail, refreshOrganization };
 }

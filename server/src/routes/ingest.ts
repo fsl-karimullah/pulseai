@@ -90,21 +90,22 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan_type, credits')
+        .eq('org_id', org.id)
+        .maybeSingle();
+
       const plan = sub?.plan_type || 'free';
+      const currentCredits = sub?.credits ?? 0;
 
-      // 1. Document Count Limit
-      // Free plan: max 1 document. Any paid subscription: unlimited.
-      const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
-      const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-
-      const isFree = plan === 'free';
-      const freeDocLimit = 1;
-
-      if (isFree && uniqueTitles.size >= freeDocLimit) {
+      // ── Credit Check: 1 PDF = 10 credits ──────────────────────────────────
+      const PDF_CREDIT_COST = 10;
+      if (currentCredits < PDF_CREDIT_COST) {
         return reply.status(403).send({
           success: false,
-          message: `Limit tercapai. Paket Free hanya mendukung ${freeDocLimit} dokumen. Silakan upgrade ke paket berbayar untuk upload tidak terbatas.`,
+          message: `Kredit tidak cukup. Upload 1 PDF membutuhkan ${PDF_CREDIT_COST} kredit, saldo Anda saat ini ${currentCredits} kredit. Silakan top-up atau tunggu reset kredit bulanan Anda.`,
+          data: { required_credits: PDF_CREDIT_COST, current_credits: currentCredits },
         });
       }
 
@@ -112,6 +113,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       // Free plan: 4MB. Paid plans: 50MB.
       const FREE_SIZE_LIMIT = 4 * 1024 * 1024;   // 4 MB
       const PAID_SIZE_LIMIT = 50 * 1024 * 1024;  // 50 MB
+      const isFree = plan === 'free';
       const currentSizeLimit = isFree ? FREE_SIZE_LIMIT : PAID_SIZE_LIMIT;
 
       if (fileBuffer.length > currentSizeLimit) {
@@ -155,15 +157,29 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         metadata: { pages, mime: mimeType },
       });
 
+      // ── Deduct credits after successful ingestion ──────────────────────────
+      const newCredits = currentCredits - PDF_CREDIT_COST;
+      await supabase
+        .from('subscriptions')
+        .update({ credits: newCredits })
+        .eq('org_id', org.id);
+
+      await supabase.from('credit_transactions').insert({
+        org_id: org.id,
+        amount: -PDF_CREDIT_COST,
+        type: 'usage',
+        description: `Upload PDF: "${finalTitle}"`,
+      });
+
       fastify.log.info(
-        { title: finalTitle, chunksInserted: result.chunks_inserted },
+        { title: finalTitle, chunksInserted: result.chunks_inserted, creditsRemaining: newCredits },
         'PDF ingestion complete'
       );
 
       return reply.status(201).send({
         success: true,
-        message: `"${finalTitle}" ingested successfully.`,
-        data: result,
+        message: `"${finalTitle}" berhasil diproses. ${PDF_CREDIT_COST} kredit dipotong, sisa ${newCredits} kredit.`,
+        data: { ...result, credits_used: PDF_CREDIT_COST, credits_remaining: newCredits },
       });
     }
   );
@@ -208,18 +224,22 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({ success: false, message: 'Tidak dapat menentukan Project untuk dokumen ini.' });
       }
 
-      const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan_type, credits')
+        .eq('org_id', org.id)
+        .maybeSingle();
+
       const plan = sub?.plan_type || 'free';
+      const currentCredits = sub?.credits ?? 0;
 
-      const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
-      const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-
-      // Free plan: max 1 document. Any paid subscription: unlimited.
-      const isFree = plan === 'free';
-      if (isFree && uniqueTitles.size >= 1) {
+      // ── Credit Check: 1 URL = 10 credits ──────────────────────────────────
+      const URL_CREDIT_COST = 10;
+      if (currentCredits < URL_CREDIT_COST) {
         return reply.status(403).send({
           success: false,
-          message: 'Limit tercapai. Paket Free hanya mendukung 1 dokumen. Silakan upgrade ke paket berbayar untuk upload tidak terbatas.',
+          message: `Kredit tidak cukup. Proses 1 URL membutuhkan ${URL_CREDIT_COST} kredit, saldo Anda saat ini ${currentCredits} kredit. Silakan top-up atau tunggu reset kredit bulanan Anda.`,
+          data: { required_credits: URL_CREDIT_COST, current_credits: currentCredits },
         });
       }
 
@@ -238,15 +258,29 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         metadata: { originalUrl: url },
       });
 
+      // ── Deduct credits after successful ingestion ──────────────────────────
+      const newCredits = currentCredits - URL_CREDIT_COST;
+      await supabase
+        .from('subscriptions')
+        .update({ credits: newCredits })
+        .eq('org_id', org.id);
+
+      await supabase.from('credit_transactions').insert({
+        org_id: org.id,
+        amount: -URL_CREDIT_COST,
+        type: 'usage',
+        description: `Scrape URL: "${finalTitle}"`,
+      });
+
       fastify.log.info(
-        { title: finalTitle, chunksInserted: result.chunks_inserted },
+        { title: finalTitle, chunksInserted: result.chunks_inserted, creditsRemaining: newCredits },
         'URL ingestion complete'
       );
 
       return reply.status(201).send({
         success: true,
-        message: `"${finalTitle}" scraped and ingested successfully.`,
-        data: result,
+        message: `"${finalTitle}" berhasil diproses. ${URL_CREDIT_COST} kredit dipotong, sisa ${newCredits} kredit.`,
+        data: { ...result, credits_used: URL_CREDIT_COST, credits_remaining: newCredits },
       });
     }
   );

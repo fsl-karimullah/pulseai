@@ -13,8 +13,37 @@ export type IngestResponse = {
     source_type: 'pdf' | 'url';
     chunks_inserted: number;
     total_words: number;
+    credits_used?: number;
+    credits_remaining?: number;
   };
 };
+
+export type CreditsInfo = {
+  credits: number;
+  plan_type: string;
+  pdf_credit_cost: number;
+  transactions: Array<{
+    amount: number;
+    type: string;
+    description: string;
+    created_at: string;
+  }>;
+};
+
+/**
+ * Fetch current credit balance and transaction history.
+ */
+export async function fetchCredits(token: string): Promise<CreditsInfo> {
+  const response = await fetch(`${API_BASE}/credits`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.message ?? 'Gagal mengambil data kredit');
+  }
+  return json.data as CreditsInfo;
+}
 
 export async function ingestPdf(
   file: File,
