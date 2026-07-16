@@ -13,18 +13,49 @@ export type IngestResponse = {
     source_type: 'pdf' | 'url';
     chunks_inserted: number;
     total_words: number;
+    credits_used?: number;
+    credits_remaining?: number;
   };
 };
+
+export type CreditsInfo = {
+  credits: number;
+  plan_type: string;
+  pdf_credit_cost: number;
+  transactions: Array<{
+    amount: number;
+    type: string;
+    description: string;
+    created_at: string;
+  }>;
+};
+
+/**
+ * Fetch current credit balance and transaction history.
+ */
+export async function fetchCredits(token: string): Promise<CreditsInfo> {
+  const response = await fetch(`${API_BASE}/credits`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.message ?? 'Gagal mengambil data kredit');
+  }
+  return json.data as CreditsInfo;
+}
 
 export async function ingestPdf(
   file: File,
   token: string,
   title?: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  projectId?: string
 ): Promise<IngestResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (title) formData.append('title', title);
+  if (projectId) formData.append('projectId', projectId);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -66,15 +97,16 @@ export async function ingestPdf(
 export async function ingestUrl(
   url: string,
   token: string,
-  title?: string
+  title?: string,
+  projectId?: string
 ): Promise<IngestResponse> {
   const response = await fetch(`${API_BASE}/ingest/url`, {
     method: 'POST',
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ url, title }),
+    body: JSON.stringify({ url, title, projectId }),
     signal: AbortSignal.timeout(60_000), // 60s timeout
   });
 

@@ -1,9 +1,42 @@
 import { FastifyInstance } from 'fastify';
 import { supabase } from '../config/supabase';
-import { retrieveContext, buildContextBlock } from '../services/rag';
+import { retrieveContextByProject, buildContextBlock } from '../services/rag';
 import { generateChatResponse, type ChatMessage } from '../services/gemini';
+import { resolveDefaultProjectId } from '../services/projects';
 import axios from 'axios';
 import { authenticate } from '../middleware/auth';
+
+// ──────────────────────────────────────────────────────────────────────────
+// Resolves which Project a WhatsApp number (org_id + phoneLabel) belongs to.
+//
+//   1. Check whatsapp_session_intents — the dashboard writes a row here
+//      (POST /whatsapp/session-intent) right before it asks the gateway to
+//      start pairing a NEW number, recording which Project the client chose.
+//      Consumed (deleted) once used, so a stale intent can't leak into a
+//      future reconnect under the same label.
+//   2. Fall back to the org's default (oldest) project — covers numbers
+//      that existed before Projects existed, and any legacy/edge path.
+// ──────────────────────────────────────────────────────────────────────────
+async function resolveProjectId(orgId: string, phoneLabel: string, fallbackProjectId?: string | null): Promise<string | null> {
+  const { data: intent } = await supabase
+    .from('whatsapp_session_intents')
+    .select('id, project_id')
+    .eq('org_id', orgId)
+    .eq('phone_label', phoneLabel)
+    .maybeSingle();
+
+  if (intent?.project_id) {
+    // Consume it — this intent has now been applied to a real session.
+    await supabase.from('whatsapp_session_intents').delete().eq('id', intent.id);
+    return intent.project_id;
+  }
+
+  if (fallbackProjectId) {
+    return fallbackProjectId;
+  }
+
+  return resolveDefaultProjectId(orgId);
+}
 
 // Helper to identify if a number is a WhatsApp Linked ID (LID)
 function isLidNumber(num: string): boolean {
@@ -142,11 +175,12 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       // as the authoritative source so multiple numbers can share one org.
       //
       let resolvedOrgId: string = userId; // safe fallback
+      let resolvedProjectId: string | null = null;
 
       if (botNumber) {
         const { data: sessionRecord, error: lookupError } = await supabase
           .from('whatsapp_sessions')
-          .select('org_id')
+          .select('org_id, project_id')
           .eq('phone_number', botNumber)
           .maybeSingle();
 
@@ -159,21 +193,24 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         } else if (sessionRecord?.org_id) {
           // ✅ Authoritative org found — use it
           resolvedOrgId = sessionRecord.org_id;
+          resolvedProjectId = sessionRecord.project_id ?? null;
           fastify.log.info(
-            { botNumber, resolvedOrgId },
-            '[Tenant] Resolved orgId from whatsapp_sessions'
+            { botNumber, resolvedOrgId, resolvedProjectId },
+            '[Tenant] Resolved orgId/projectId from whatsapp_sessions'
           );
         } else {
           // Phone number not yet registered — upsert it so future lookups work instantly.
           // We use userId as orgId since this is the bootstrapping path.
+          resolvedProjectId = await resolveProjectId(userId, phoneLabel);
           fastify.log.info(
-            { botNumber, userId, phoneLabel },
+            { botNumber, userId, phoneLabel, resolvedProjectId },
             '[Tenant] New bot number — registering in whatsapp_sessions'
           );
           await supabase.from('whatsapp_sessions').upsert(
             {
               phone_number:    botNumber,
               org_id:          userId,          // userId is the orgId when session was created from dashboard
+              project_id:      resolvedProjectId,
               phone_label:     phoneLabel,
               gateway_user_id: userId,
               status:          'CONNECTED',
@@ -190,6 +227,12 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           { userId, sender },
           '[Tenant] botNumber missing from payload — using userId as orgId (legacy path)'
         );
+      }
+
+      // Safety net: any path that didn't resolve a project (e.g. lookup error
+      // above) still falls back to the org's default project.
+      if (!resolvedProjectId) {
+        resolvedProjectId = await resolveProjectId(resolvedOrgId, phoneLabel);
       }
 
       // ── Step 1.5: Log incoming customer message ────────────────────────
@@ -212,6 +255,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           {
             phone_number:    botNumber,
             org_id:          resolvedOrgId,
+            project_id:      resolvedProjectId,
             phone_label:     phoneLabel,
             gateway_user_id: userId,
             status:          'CONNECTED',
@@ -223,25 +267,28 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ── Step 3: Fetch bot settings for this org ─────────────────────────
+      // ── Step 3: Fetch bot settings for this project ─────────────────────
+      // bot_settings is now scoped per-project (1 row per project) instead
+      // of per-org, so channels in different projects can carry different
+      // bot personalities/appearance even within the same organization.
       let { data: settings } = await supabase
         .from('bot_settings')
         .select('*')
-        .eq('org_id', resolvedOrgId)
+        .eq('project_id', resolvedProjectId)
         .maybeSingle();
 
       if (!settings) {
-        // Auto-create settings if they don't exist for this org
+        // Auto-create settings if they don't exist for this project
         const { data: newSettings, error: insertError } = await supabase
           .from('bot_settings')
-          .insert({ org_id: resolvedOrgId })
+          .insert({ org_id: resolvedOrgId, project_id: resolvedProjectId })
           .select()
           .single();
 
         if (!insertError) {
           settings = newSettings;
         } else {
-          fastify.log.warn({ resolvedOrgId, insertError }, 'Failed to create default bot settings');
+          fastify.log.warn({ resolvedOrgId, resolvedProjectId, insertError }, 'Failed to create default bot settings');
           return reply.send({ success: false, message: 'Bot settings missing and could not be created' });
         }
       }
@@ -297,10 +344,11 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
       const history: ChatMessage[] = (lead?.metadata as any)?.history || [];
 
-      // ── Step 6: RAG — tenant-scoped knowledge retrieval ─────────────────
-      // retrieveContext enforces `WHERE org_id = resolvedOrgId` inside the
-      // match_knowledge_nodes RPC, so only this tenant's documents are searched.
-      const chunks  = await retrieveContext(message, resolvedOrgId, 5);
+      // ── Step 6: RAG — project-scoped knowledge retrieval ─────────────────
+      // retrieveContextByProject enforces `WHERE project_id = resolvedProjectId`
+      // inside the match_knowledge_nodes_by_project RPC, so this channel only
+      // ever reads the Knowledge Base documents that belong to its own Project.
+      const chunks  = await retrieveContextByProject(message, resolvedProjectId as string, 5);
       const context = buildContextBlock(chunks);
 
       // ── Step 7: Determine the authoritative phone number for this lead ──
@@ -527,10 +575,25 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
         return reply.status(400).send({ success: false, message: `Invalid status. Must be one of: ${allowedStatuses.join(', ')}` });
       }
 
+      const { data: existingSession } = await supabase
+        .from('whatsapp_sessions')
+        .select('project_id')
+        .eq('phone_number', botNumber)
+        .maybeSingle();
+
+      // Resolve project_id for this session.
+      // Priority: 1. Dashboard Intent, 2. Existing Session Project, 3. Org Default
+      const resolvedProjectId = await resolveProjectId(
+        userId,
+        phoneLabel,
+        existingSession?.project_id
+      );
+
       const now = new Date().toISOString();
       const upsertPayload: Record<string, any> = {
         phone_number:    botNumber,
         org_id:          userId,
+        project_id:      resolvedProjectId,
         phone_label:     phoneLabel,
         gateway_user_id: userId,
         status,
@@ -555,6 +618,73 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
       return reply.status(500).send({ success: false, message: 'Internal Server Error' });
     }
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/whatsapp/session-intent
+  //
+  // Called by the dashboard right BEFORE it asks whatsapp-gateway to start
+  // pairing a new number. Records which Project the client picked for this
+  // phoneLabel, so that once the gateway reports back the real phone_number
+  // (via /whatsapp/incoming or /whatsapp/session-status), the resulting
+  // whatsapp_sessions row lands in the right project instead of always
+  // falling back to the org's default project.
+  //
+  // Body: { phoneLabel, projectId }
+  // Auth:  Bearer token (same user that owns the org)
+  // ──────────────────────────────────────────────────────────────────────────
+  fastify.post(
+    '/whatsapp/session-intent',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { phoneLabel, projectId } = request.body as { phoneLabel?: string; projectId?: string };
+
+        if (!phoneLabel || !projectId) {
+          return reply.status(400).send({ success: false, message: 'Missing required fields: phoneLabel, projectId' });
+        }
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        // Verify the chosen project actually belongs to this org.
+        const { data: project } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('id', projectId)
+          .eq('org_id', org.id)
+          .maybeSingle();
+
+        if (!project) {
+          return reply.status(403).send({ success: false, message: 'Project tidak ditemukan atau bukan milik Anda' });
+        }
+
+        const { error } = await supabase
+          .from('whatsapp_session_intents')
+          .upsert(
+            { org_id: org.id, phone_label: phoneLabel, project_id: projectId },
+            { onConflict: 'org_id,phone_label' }
+          );
+
+        if (error) {
+          fastify.log.error({ err: error.message, orgId: org.id, phoneLabel }, 'Failed to record session intent');
+          return reply.status(500).send({ success: false, message: 'Gagal menyimpan pilihan project' });
+        }
+
+        return reply.send({ success: true, message: 'Session intent recorded' });
+      } catch (error: any) {
+        fastify.log.error(error, 'Error recording session intent');
+        return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+      }
+    }
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // GET /api/chats
@@ -705,7 +835,9 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
   // ──────────────────────────────────────────────────────────────────────────
   // GET /api/whatsapp-sessions
   //
-  // Retrieves the list of WhatsApp sessions (bot numbers) registered for this tenant.
+  // Retrieves the list of WhatsApp sessions (bot numbers) registered for this
+  // tenant. Optional query param `projectId` narrows the list to a single
+  // Project; omitted keeps the old org-wide behavior.
   // ──────────────────────────────────────────────────────────────────────────
   fastify.get(
     '/whatsapp-sessions',
@@ -713,6 +845,7 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
     async (request, reply) => {
       try {
         const userId = (request as any).user?.id;
+        const { projectId } = request.query as { projectId?: string };
 
         const { data: org } = await supabase
           .from('organizations')
@@ -724,10 +857,11 @@ Ada calon peserta yang butuh bantuan admin manusia segera!
           return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
         }
 
-        const { data: sessionsList, error } = await supabase
-          .from('whatsapp_sessions')
-          .select('*')
-          .eq('org_id', org.id);
+        let sessionsQuery = supabase.from('whatsapp_sessions').select('*').eq('org_id', org.id);
+        if (projectId) {
+          sessionsQuery = sessionsQuery.eq('project_id', projectId);
+        }
+        const { data: sessionsList, error } = await sessionsQuery;
 
         if (error) {
           fastify.log.error(error, 'Failed to fetch whatsapp sessions');

@@ -13,16 +13,17 @@ import {
   Copy,
   Loader2,
   PanelRightClose,
-  PanelLeftClose
+  PanelLeftClose,
 } from 'lucide-react';
 import type { BotSetting } from '../types';
 
 const BotSettingsPage: React.FC = () => {
   const { session } = useAuth();
-  const { organization, updateName } = useOrganization();
+  const { organization, updateName, updateReplyToEmail } = useOrganization();
   const [settings, setSettings] = useState<BotSetting[]>([]);
   const [widgetPlacement, setWidgetPlacement] = useState<'bottom-right' | 'bottom-left'>('bottom-right');
   const [companyName, setCompanyName] = useState('');
+  const [replyToEmail, setReplyToEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -119,6 +120,7 @@ const BotSettingsPage: React.FC = () => {
     if (organization?.name) {
       setCompanyName(organization.name);
     }
+    setReplyToEmail(organization?.reply_to_email || '');
   }, [organization]);
 
   const updateSetting = (id: string, value: BotSetting['value']) => {
@@ -158,6 +160,10 @@ const BotSettingsPage: React.FC = () => {
       // Save organization name
       if (companyName && companyName !== organization?.name) {
         await updateName(companyName);
+      }
+      // Save reply-to email (candidate replies route here instead of noreply@)
+      if (replyToEmail !== (organization?.reply_to_email || '')) {
+        await updateReplyToEmail(replyToEmail.trim());
       }
 
       if (json.success) {
@@ -497,6 +503,19 @@ const BotSettingsPage: React.FC = () => {
             placeholder="Contoh: PulseAI"
             className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
           />
+        </div>
+        <div className="mt-4">
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Email Kontak (Reply-To)</label>
+          <input
+            type="email"
+            value={replyToEmail}
+            onChange={(e) => setReplyToEmail(e.target.value)}
+            placeholder="hrd@perusahaananda.com"
+            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
+          />
+          <p className="text-xs text-slate-400 mt-1.5">
+            Email HR (keputusan CV, dll) tetap dikirim dari alamat default PulseAI, tapi saat pelamar membalas, balasannya akan masuk ke alamat email perusahaan Anda ini — bukan hilang ke alamat noreply.
+          </p>
         </div>
       </div>
 

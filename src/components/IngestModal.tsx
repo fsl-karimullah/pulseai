@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   X,
@@ -15,8 +15,10 @@ import {
   XCircle,
   Check,
   Info,
+  Zap,
+  Coins,
 } from 'lucide-react';
-import { ingestPdf, type IngestResponse } from '../services/ingestService';
+import { ingestPdf, fetchCredits, type IngestResponse, type CreditsInfo } from '../services/ingestService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,7 @@ interface IngestModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  projectId?: string;
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -41,9 +44,42 @@ function formatBytes(bytes: number): string {
   return `${((bytes / (1024 * 1024))).toFixed(1)} MB`;
 }
 
+const PDF_CREDIT_COST = 10;
+
+// ─── Credit Badge ─────────────────────────────────────────────────────────────
+
+function CreditBadge({ credits, loading }: { credits: number | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-lg animate-pulse">
+        <Coins size={13} className="text-slate-400" />
+        <span className="text-xs text-slate-400">Memuat...</span>
+      </div>
+    );
+  }
+
+  const isLow = credits !== null && credits < PDF_CREDIT_COST;
+  const isZero = credits !== null && credits === 0;
+
+  return (
+    <div
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+        isZero
+          ? 'bg-red-50 border-red-200 text-red-600'
+          : isLow
+          ? 'bg-amber-50 border-amber-200 text-amber-600'
+          : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+      }`}
+    >
+      <Coins size={13} />
+      <span>{credits ?? 0} kredit tersisa</span>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) => {
+const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess, projectId }) => {
   const { session } = useAuth();
   const [status, setStatus] = useState<IngestStatus>({ phase: 'idle' });
   const [showGuide, setShowGuide] = useState(false);
@@ -53,7 +89,21 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [creditsInfo, setCreditsInfo] = useState<CreditsInfo | null>(null);
+  const [creditsLoading, setCreditsLoading] = useState(true);
+
   const isProcessing = status.phase === 'uploading' || status.phase === 'processing';
+  const hasEnoughCredits = creditsInfo !== null && creditsInfo.credits >= PDF_CREDIT_COST;
+
+  // Fetch credit balance when modal opens
+  useEffect(() => {
+    if (!open || !session?.access_token) return;
+    setCreditsLoading(true);
+    fetchCredits(session.access_token)
+      .then((data) => setCreditsInfo(data))
+      .catch(() => setCreditsInfo(null))
+      .finally(() => setCreditsLoading(false));
+  }, [open, session?.access_token]);
 
   const handleClose = () => {
     if (isProcessing) return;
@@ -99,6 +149,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
 
   const handlePdfSubmit = async () => {
     if (!selectedFile || !session?.access_token) return;
+    if (!hasEnoughCredits) return;
     setStatus({ phase: 'uploading', progress: 0 });
 
     try {
@@ -108,10 +159,17 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
         } else {
           setStatus({ phase: 'processing' });
         }
-      });
+      }, projectId);
 
       if (result.success && result.data) {
         setStatus({ phase: 'success', result: result.data });
+        // Update local credits balance optimistically
+        if (creditsInfo) {
+          setCreditsInfo({
+            ...creditsInfo,
+            credits: result.data.credits_remaining ?? (creditsInfo.credits - PDF_CREDIT_COST),
+          });
+        }
         onSuccess?.();
       } else {
         setStatus({ phase: 'error', message: result.message });
@@ -147,14 +205,17 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
               <p className="text-xs text-slate-500">Ekstrak, embed, dan simpan konten ke basis pengetahuan</p>
             </div>
           </div>
-          <button
-            id="ingest-modal-close"
-            onClick={handleClose}
-            disabled={isProcessing}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition-all"
-          >
-            <X size={15} />
-          </button>
+          <div className="flex items-center gap-2">
+            <CreditBadge credits={creditsInfo?.credits ?? null} loading={creditsLoading} />
+            <button
+              id="ingest-modal-close"
+              onClick={handleClose}
+              disabled={isProcessing}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition-all"
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
 
         {/* Pipeline steps indicator */}
@@ -188,18 +249,28 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                 <p className="text-base font-bold text-slate-900">{status.result.title}</p>
                 <p className="text-sm text-slate-500 mt-1">Berhasil diproses!</p>
               </div>
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="grid grid-cols-4 gap-3 text-center">
                 {[
                   { label: 'Sumber', value: status.result.source_type.toUpperCase() },
                   { label: 'Bagian', value: status.result.chunks_inserted.toString() },
                   { label: 'Kata', value: status.result.total_words.toLocaleString() },
+                  { label: 'Kredit Dipotong', value: `-${status.result.credits_used ?? PDF_CREDIT_COST}` },
                 ].map(({ label, value }) => (
-                  <div key={label} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <p className="text-lg font-bold text-slate-900">{value}</p>
+                  <div key={label} className={`p-3 rounded-xl border ${label === 'Kredit Dipotong' ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'}`}>
+                    <p className={`text-lg font-bold ${label === 'Kredit Dipotong' ? 'text-amber-600' : 'text-slate-900'}`}>{value}</p>
                     <p className="text-xs text-slate-500">{label}</p>
                   </div>
                 ))}
               </div>
+              {/* Remaining credits after upload */}
+              {status.result.credits_remaining !== undefined && (
+                <div className="flex items-center justify-center gap-2 py-2 px-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                  <Coins size={14} className="text-emerald-600" />
+                  <span className="text-sm font-semibold text-emerald-700">
+                    Saldo kredit tersisa: {status.result.credits_remaining} kredit
+                  </span>
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   id="ingest-add-another"
@@ -219,22 +290,48 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Insufficient credits warning */}
+              {!creditsLoading && !hasEnoughCredits && (
+                <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100">
+                  <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700">Kredit tidak mencukupi</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      Upload 1 PDF membutuhkan <strong>{PDF_CREDIT_COST} kredit</strong>. Saldo Anda saat ini <strong>{creditsInfo?.credits ?? 0} kredit</strong>. Silakan top-up atau tunggu reset kredit bulanan.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Credit cost info */}
+              {!creditsLoading && hasEnoughCredits && (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <Zap size={14} className="text-amber-500 flex-shrink-0" />
+                  <p className="text-xs text-slate-600">
+                    Upload ini akan menggunakan <strong className="text-slate-800">{PDF_CREDIT_COST} kredit</strong>. 
+                    Saldo Anda: <strong className="text-emerald-700">{creditsInfo?.credits} kredit</strong> → setelah upload: <strong className="text-slate-700">{(creditsInfo?.credits ?? 0) - PDF_CREDIT_COST} kredit</strong>.
+                  </p>
+                </div>
+              )}
+
               {/* Drop Zone */}
               <div
                 id="ingest-dropzone"
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={() => setIsDragging(false)}
-                onClick={() => !selectedFile && fileInputRef.current?.click()}
+                onClick={() => !selectedFile && hasEnoughCredits && fileInputRef.current?.click()}
                 className={`
                   relative flex flex-col items-center justify-center gap-3
-                  p-6 rounded-xl border-2 border-dashed cursor-pointer
+                  p-6 rounded-xl border-2 border-dashed
                   transition-all duration-200
-                  ${isDragging
-                    ? 'border-emerald-400 bg-emerald-50 scale-[1.01]'
+                  ${!hasEnoughCredits && !creditsLoading
+                    ? 'border-red-200 bg-red-50/30 cursor-not-allowed opacity-60'
+                    : isDragging
+                    ? 'border-emerald-400 bg-emerald-50 scale-[1.01] cursor-pointer'
                     : selectedFile
                     ? 'border-slate-200 bg-slate-50 cursor-default'
-                    : 'border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30'
+                    : 'border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 cursor-pointer'
                   }
                 `}
               >
@@ -244,6 +341,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                   accept="application/pdf,.pdf"
                   className="hidden"
                   onChange={handleFileInput}
+                  disabled={!hasEnoughCredits}
                 />
 
                 {selectedFile ? (
@@ -296,7 +394,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                   placeholder="contoh: Panduan Produk Q1 2026"
                   value={pdfTitle}
                   onChange={(e) => setPdfTitle(e.target.value)}
-                  disabled={isProcessing}
+                  disabled={isProcessing || !hasEnoughCredits}
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 disabled:opacity-50 transition-all"
                 />
               </div>
@@ -339,7 +437,7 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
               <button
                 id="ingest-pdf-submit"
                 onClick={handlePdfSubmit}
-                disabled={!selectedFile || isProcessing}
+                disabled={!selectedFile || isProcessing || !hasEnoughCredits || creditsLoading}
                 className="w-full py-3 text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-sm shadow-emerald-500/30 transition-all active:scale-[0.98]"
               >
                 {isProcessing ? (
@@ -347,10 +445,16 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                     <Loader2 size={15} className="animate-spin" />
                     Memproses…
                   </span>
+                ) : !hasEnoughCredits && !creditsLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Coins size={15} />
+                    Kredit Tidak Cukup
+                  </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2">
                     <Sparkles size={15} />
                     Ekstrak & Simpan PDF
+                    <span className="text-xs font-normal opacity-80">({PDF_CREDIT_COST} kredit)</span>
                   </span>
                 )}
               </button>
@@ -442,8 +546,8 @@ const IngestModal: React.FC<IngestModalProps> = ({ open, onClose, onSuccess }) =
                 </div>
                 <div className="w-px bg-slate-200"></div>
                 <div className="flex-1">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Recommended Font</p>
-                  <p className="text-sm font-bold text-slate-800">10pt+</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Biaya Per Upload</p>
+                  <p className="text-sm font-bold text-slate-800">{PDF_CREDIT_COST} Kredit / PDF</p>
                 </div>
               </div>
               

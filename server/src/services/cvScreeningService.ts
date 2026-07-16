@@ -73,6 +73,13 @@ export interface CVAnalysisResult {
    * - If TOLAK: empathetic rejection with encouragement to apply again.
    */
   draft_whatsapp: string;
+  /** Ready-to-send email subject line, matching the tone/content of draft_email_body. */
+  draft_email_subject: string;
+  /**
+   * Ready-to-send email body draft in warm, professional Bahasa Indonesia.
+   * Same content/tone guidance as draft_whatsapp, adapted to email formatting.
+   */
+  draft_email_body: string;
 }
 
 // ─── Response Schema (Structured Output) ─────────────────────────────────────
@@ -96,6 +103,8 @@ const CV_ANALYSIS_SCHEMA = {
     'red_flags',
     'rekomendasi_status',
     'draft_whatsapp',
+    'draft_email_subject',
+    'draft_email_body',
   ],
   properties: {
     is_valid_cv: {
@@ -146,6 +155,14 @@ const CV_ANALYSIS_SCHEMA = {
       type: SchemaType.STRING,
       description: 'Draf pesan WhatsApp siap kirim dalam Bahasa Indonesia yang hangat dan profesional. Jika LOLOS_INTERVIEW: undangan wawancara. Jika TALENT_POOL: ucapan terima kasih dan notifikasi talent pool. Jika TOLAK: penolakan empatik dengan semangat untuk melamar lagi.',
     },
+    draft_email_subject: {
+      type: SchemaType.STRING,
+      description: 'Subjek email siap kirim, singkat dan profesional, menyebutkan nama posisi yang dilamar. Contoh: "Undangan Wawancara — [Nama Posisi]" atau "Update Lamaran Anda — [Nama Posisi]".',
+    },
+    draft_email_body: {
+      type: SchemaType.STRING,
+      description: 'Isi email siap kirim dalam Bahasa Indonesia yang hangat dan profesional, format surat email lengkap (sapaan pembuka, isi, penutup, tanda tangan "[Nama Perusahaan]"). Sama secara konten dengan draft_whatsapp namun diformat sebagai email formal.',
+    },
   },
 };
 
@@ -195,7 +212,82 @@ PANDUAN DRAFT WHATSAPP:
 - TALENT_POOL: "Terima kasih atas lamaran Anda. Profil Anda kami simpan untuk kesempatan mendatang."
 - TOLAK: "Terima kasih atas lamaran Anda. Saat ini kami belum bisa melanjutkan, tetapi jangan menyerah!"
 - Jangan gunakan nama perusahaan spesifik — gunakan "[Nama Perusahaan]" sebagai placeholder.
+
+PANDUAN DRAFT EMAIL:
+- draft_email_subject: singkat, profesional, sebutkan nama posisi.
+- draft_email_body: format surat email lengkap — sapaan pembuka ("Yth. [Nama Pelamar],"), isi pesan (konten sama dengan draft_whatsapp namun ditulis lebih formal), penutup ("Hormat kami,"), dan tanda tangan "[Nama Perusahaan]".
+- Jangan gunakan nama perusahaan spesifik — gunakan "[Nama Perusahaan]" sebagai placeholder.
 `.trim();
+
+// ─── Company Name Placeholder ─────────────────────────────────────────────────
+
+const COMPANY_NAME_PLACEHOLDER = '[Nama Perusahaan]';
+
+/**
+ * Substitutes the literal "[Nama Perusahaan]" placeholder — used by both the
+ * AI-drafted content and buildStatusEmailTemplate below — with the org's real
+ * name. Applied at read/send time (never persisted) so it always reflects
+ * whatever the org's name is *right now*, even if changed after the CV scan.
+ */
+export function fillCompanyNamePlaceholder(text: string, companyName?: string | null): string {
+  return text.replaceAll(COMPANY_NAME_PLACEHOLDER, companyName?.trim() || 'Perusahaan Kami');
+}
+
+// ─── Status Email Template (fallback) ─────────────────────────────────────────
+
+/**
+ * Deterministic email content for a given status, used when HR manually
+ * overrides the AI's recommended status — the original Gemini-drafted email
+ * (written for the AI's initial recommendation) would otherwise no longer
+ * match the candidate's actual outcome.
+ */
+export function buildStatusEmailTemplate(
+  status: ApplicantStatus,
+  name: string,
+  jobTitle: string
+): { subject: string; body: string } {
+  const greeting = `Yth. ${name || 'Pelamar'},`;
+  const signOff = 'Hormat kami,\n[Nama Perusahaan]';
+
+  switch (status) {
+    case 'LOLOS_INTERVIEW':
+      return {
+        subject: `Undangan Wawancara — ${jobTitle}`,
+        body: `${greeting}\n\nSelamat! Anda telah lolos ke tahap wawancara untuk posisi ${jobTitle}. Tim kami akan menghubungi Anda segera untuk mengonfirmasi jadwal wawancara.\n\nTerima kasih atas minat Anda bergabung bersama kami.\n\n${signOff}`,
+      };
+    case 'TALENT_POOL':
+      return {
+        subject: `Update Lamaran Anda — ${jobTitle}`,
+        body: `${greeting}\n\nTerima kasih atas lamaran Anda untuk posisi ${jobTitle}. Saat ini kami menyimpan profil Anda di talent pool kami untuk kesempatan yang sesuai di masa mendatang.\n\n${signOff}`,
+      };
+    case 'TOLAK':
+    default:
+      return {
+        subject: `Update Lamaran Anda — ${jobTitle}`,
+        body: `${greeting}\n\nTerima kasih atas lamaran Anda untuk posisi ${jobTitle}. Saat ini kami belum dapat melanjutkan proses rekrutmen Anda ke tahap berikutnya. Jangan berkecil hati — kami mendorong Anda untuk melamar kembali di kesempatan lain.\n\n${signOff}`,
+      };
+  }
+}
+
+// ─── Status Email Banner ───────────────────────────────────────────────────────
+
+/**
+ * A clear, unambiguous decision banner shown at the top of every decision
+ * email — independent of the AI-drafted prose, so candidates always see an
+ * explicit outcome (even when a CV was a poor fit and the AI's own wording
+ * hedges) and HR can visually confirm what's about to go out.
+ */
+export function getStatusEmailBanner(status: ApplicantStatus): { statusLabel: string; statusColor: string } {
+  switch (status) {
+    case 'LOLOS_INTERVIEW':
+      return { statusLabel: 'STATUS: DITERIMA — LOLOS KE TAHAP WAWANCARA', statusColor: '#059669' };
+    case 'TALENT_POOL':
+      return { statusLabel: 'STATUS: MASUK TALENT POOL', statusColor: '#2563eb' };
+    case 'TOLAK':
+    default:
+      return { statusLabel: 'STATUS: TIDAK LOLOS', statusColor: '#dc2626' };
+  }
+}
 
 // ─── Main Service Function ────────────────────────────────────────────────────
 

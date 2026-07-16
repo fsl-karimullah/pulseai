@@ -20,6 +20,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 export type KnowledgeNode = {
   id?: string;
   org_id: string;
+  project_id: string;
   title: string;
   content: string;
   embedding: number[];

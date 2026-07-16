@@ -23,6 +23,11 @@ import {
   Star,
   BarChart3,
   ClipboardList,
+  Mail,
+  MailCheck,
+  ThumbsUp,
+  ThumbsDown,
+  Send,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,6 +51,9 @@ interface Applicant {
   pendidikan_terakhir?: string;
   red_flags?: string[];
   draft_whatsapp?: string;
+  draft_email_subject?: string;
+  draft_email_body?: string;
+  email_sent_at?: string | null;
   analysis_result?: CVAnalysisResult;
   created_at: string;
 }
@@ -61,6 +69,8 @@ interface CVAnalysisResult {
   red_flags: string[];
   rekomendasi_status: 'LOLOS_INTERVIEW' | 'TALENT_POOL' | 'TOLAK';
   draft_whatsapp: string;
+  draft_email_subject: string;
+  draft_email_body: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -546,6 +556,108 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
+  // ── Update Applicant Status ────────────────────────────────────────────────
+  const [updatingStatus, setUpdatingStatus] = useState<Record<string, boolean>>({});
+
+  const handleUpdateStatus = async (jobId: string, applicantId: string, status: Applicant['status']) => {
+    setUpdatingStatus(prev => ({ ...prev, [applicantId]: true }));
+    try {
+      const res = await fetch(`/api/v1/jobs/${jobId}/applicants/${applicantId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Changing status invalidates any previously sent email (content no
+        // longer matches) — reset locally so HR is prompted to send again.
+        setApplicants(prev => ({
+          ...prev,
+          [jobId]: (prev[jobId] || []).map(a =>
+            a.id === applicantId ? { ...a, status, email_sent_at: null } : a
+          ),
+        }));
+      } else {
+        alert(data.message || 'Gagal memperbarui status.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan saat memperbarui status.');
+    } finally {
+      setUpdatingStatus(prev => ({ ...prev, [applicantId]: false }));
+    }
+  };
+
+  // ── Send Email to Applicant ────────────────────────────────────────────────
+  const [sendingEmail, setSendingEmail] = useState<Record<string, boolean>>({});
+
+  const handleSendEmail = async (jobId: string, applicantId: string) => {
+    setSendingEmail(prev => ({ ...prev, [applicantId]: true }));
+    try {
+      const res = await fetch(`/api/v1/jobs/${jobId}/applicants/${applicantId}/send-email`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setApplicants(prev => ({
+          ...prev,
+          [jobId]: (prev[jobId] || []).map(a =>
+            a.id === applicantId ? { ...a, email_sent_at: new Date().toISOString() } : a
+          ),
+        }));
+      } else {
+        alert(data.message || 'Gagal mengirim email.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan saat mengirim email.');
+    } finally {
+      setSendingEmail(prev => ({ ...prev, [applicantId]: false }));
+    }
+  };
+
+  // ── Send Email to ALL Eligible Applicants (bulk, 1-click) ──────────────────
+  const [sendingBulkEmail, setSendingBulkEmail] = useState<Record<string, boolean>>({});
+
+  const getEligibleForBulkEmail = (jobId: string) =>
+    (applicants[jobId] || []).filter(a => a.email && !a.email_sent_at);
+
+  const handleSendAllEmails = async (jobId: string) => {
+    const eligible = getEligibleForBulkEmail(jobId);
+    if (eligible.length === 0) return;
+    if (!confirm(`Kirim email ke ${eligible.length} pelamar sekaligus? Tindakan ini akan langsung terkirim dan tidak bisa dibatalkan.`)) return;
+
+    setSendingBulkEmail(prev => ({ ...prev, [jobId]: true }));
+    try {
+      const res = await fetch(`/api/v1/jobs/${jobId}/applicants/send-email-bulk`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        const sentIds: string[] = data.sent_ids || [];
+        setApplicants(prev => ({
+          ...prev,
+          [jobId]: (prev[jobId] || []).map(a =>
+            sentIds.includes(a.id) ? { ...a, email_sent_at: new Date().toISOString() } : a
+          ),
+        }));
+        alert(data.message || `Berhasil mengirim ${data.sent} email.`);
+      } else {
+        alert(data.message || 'Gagal mengirim email massal.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan saat mengirim email massal.');
+    } finally {
+      setSendingBulkEmail(prev => ({ ...prev, [jobId]: false }));
+    }
+  };
+
   // ── Delete Applicant ───────────────────────────────────────────────────────
   const handleDeleteApplicant = async (jobId: string, applicantId: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus pelamar ini?')) return;
@@ -860,7 +972,24 @@ const CVScreeningPage: React.FC = () => {
                         <p className="text-xs mt-1">Upload file CV (.pdf) di atas untuk memulai screening</p>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto">
+                      <>
+                        <div className="flex items-center justify-between gap-3 px-5 py-2.5 bg-slate-50/70 border-b border-slate-100">
+                          <p className="text-xs text-slate-500">
+                            {getEligibleForBulkEmail(job.id).length} dari {jobApplicants.length} pelamar siap menerima email
+                          </p>
+                          <button
+                            onClick={() => handleSendAllEmails(job.id)}
+                            disabled={sendingBulkEmail[job.id] || getEligibleForBulkEmail(job.id).length === 0}
+                            title="Kirim email keputusan ke semua pelamar yang belum menerima email"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          >
+                            {sendingBulkEmail[job.id]
+                              ? <Loader2 size={13} className="animate-spin" />
+                              : <Send size={13} />}
+                            Kirim Email ke Semua
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto">
                         <table className="w-full text-left">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -894,10 +1023,36 @@ const CVScreeningPage: React.FC = () => {
                                     <ScoreRing score={applicant.ats_score} />
                                   </td>
                                   <td className="px-5 py-3">
-                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${cfg.badgeBg} ${cfg.badgeText} ${cfg.badgeBorder}`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                                      {cfg.label}
-                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <select
+                                        value={applicant.status}
+                                        disabled={updatingStatus[applicant.id]}
+                                        onChange={(e) => handleUpdateStatus(job.id, applicant.id, e.target.value as Applicant['status'])}
+                                        title="Ubah status pelamar"
+                                        className={`text-xs font-bold pl-2.5 pr-1.5 py-1 rounded-full border cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none focus:ring-2 focus:ring-offset-1 ${cfg.badgeBg} ${cfg.badgeText} ${cfg.badgeBorder}`}
+                                      >
+                                        <option value="LOLOS_INTERVIEW">Lolos Interview</option>
+                                        <option value="TALENT_POOL">Talent Pool</option>
+                                        <option value="TOLAK">Ditolak</option>
+                                      </select>
+                                      {/* Quick decision — one click regardless of the AI's fit score */}
+                                      <button
+                                        onClick={() => handleUpdateStatus(job.id, applicant.id, 'LOLOS_INTERVIEW')}
+                                        disabled={updatingStatus[applicant.id] || applicant.status === 'LOLOS_INTERVIEW'}
+                                        title="Terima pelamar (Lolos Interview)"
+                                        className="p-1 rounded-md text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                                      >
+                                        <ThumbsUp size={13} />
+                                      </button>
+                                      <button
+                                        onClick={() => handleUpdateStatus(job.id, applicant.id, 'TOLAK')}
+                                        disabled={updatingStatus[applicant.id] || applicant.status === 'TOLAK'}
+                                        title="Tolak pelamar"
+                                        className="p-1 rounded-md text-slate-300 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                                      >
+                                        <ThumbsDown size={13} />
+                                      </button>
+                                    </div>
                                     {applicant.red_flags && applicant.red_flags.length > 0 && (
                                       <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-600 text-[10px] font-bold border border-red-100">
                                         <Shield size={9} /> {applicant.red_flags.length} flag
@@ -923,6 +1078,28 @@ const CVScreeningPage: React.FC = () => {
                                         >
                                           <MessageCircle size={15} />
                                         </button>
+                                      )}
+                                      {applicant.email && (
+                                        applicant.email_sent_at ? (
+                                          <button
+                                            disabled
+                                            title={`Email sudah dikirim (${new Date(applicant.email_sent_at).toLocaleString('id-ID')})`}
+                                            className="p-1.5 rounded-lg text-emerald-500 cursor-default"
+                                          >
+                                            <MailCheck size={15} />
+                                          </button>
+                                        ) : (
+                                          <button
+                                            onClick={() => handleSendEmail(job.id, applicant.id)}
+                                            disabled={sendingEmail[applicant.id]}
+                                            title="Kirim email keputusan ke pelamar"
+                                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all disabled:opacity-50"
+                                          >
+                                            {sendingEmail[applicant.id]
+                                              ? <Loader2 size={15} className="animate-spin" />
+                                              : <Mail size={15} />}
+                                          </button>
+                                        )
                                       )}
                                       <button
                                         onClick={() => handleDeleteApplicant(job.id, applicant.id)}
@@ -952,7 +1129,8 @@ const CVScreeningPage: React.FC = () => {
                             ) : null;
                           })}
                         </div>
-                      </div>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

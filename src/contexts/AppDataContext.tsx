@@ -27,6 +27,7 @@ export interface Organization {
   is_premium?: boolean;
   trial_started_at?: string;
   subscription_expires_at?: string;
+  reply_to_email?: string | null;
 }
 
 export interface Subscription {

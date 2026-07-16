@@ -87,6 +87,60 @@ export async function retrieveContext(
 }
 
 /**
+ * Same as retrieveContext, but scoped to a Project instead of an
+ * Organization — calls match_knowledge_nodes_by_project, which filters
+ * `WHERE project_id = p_project_id`. Channels (WhatsApp numbers, widgets)
+ * now resolve to a project before calling this, so a channel only ever
+ * reads the Knowledge Base documents that belong to its own project.
+ */
+export async function retrieveContextByProject(
+  query: string,
+  projectId: string,
+  matchCount = 5,
+  matchThreshold = 0.50
+): Promise<RetrievedChunk[]> {
+  if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
+    console.error('[RAG] BLOCKED — projectId is missing or invalid. Refusing to query knowledge base.');
+    return [];
+  }
+
+  try {
+    console.log(`[RAG] Project-scoped retrieval | project: ${projectId.slice(0, 8)}… | query: "${query.slice(0, 50)}…"`);
+
+    let embedding: number[];
+    try {
+      embedding = await generateEmbedding(query);
+    } catch (embedErr: any) {
+      console.error('[RAG] Embedding generation failed:', embedErr.message);
+      return [];
+    }
+
+    if (!embedding || embedding.length === 0) {
+      console.error('[RAG] Received empty embedding array — skipping retrieval');
+      return [];
+    }
+
+    const { data, error } = await supabase.rpc('match_knowledge_nodes_by_project', {
+      query_embedding: embedding,
+      p_project_id:    projectId,
+    });
+
+    if (error) {
+      console.error(`[RAG] Supabase RPC error for project ${projectId.slice(0, 8)}…:`, error.message);
+      return [];
+    }
+
+    const results = (data as RetrievedChunk[]) ?? [];
+    console.log(`[RAG] Found ${results.length} chunk(s) for project ${projectId.slice(0, 8)}… (threshold: ${matchThreshold})`);
+
+    return results;
+  } catch (globalErr: any) {
+    console.error('[RAG] Unexpected retrieval error:', globalErr.message);
+    return [];
+  }
+}
+
+/**
  * Formats retrieved chunks into a readable context block for the LLM prompt.
  */
 export function buildContextBlock(chunks: RetrievedChunk[]): string {

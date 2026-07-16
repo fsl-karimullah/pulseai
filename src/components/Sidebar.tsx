@@ -15,6 +15,7 @@ import {
   Database,
   UsersRound,
   ClipboardList,
+  FolderKanban,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -43,6 +44,7 @@ const navGroups: { header: string; items: NavItem[] }[] = [
     header: 'Pengaturan Chat',
     items: [
       { id: 'dashboard', path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'projects', path: '/projects', label: 'Projects', icon: FolderKanban },
       { id: 'knowledge', path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
       { id: 'bot-settings', path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
       { id: 'leads', path: '/leads', label: 'Lead', icon: Users, badge: true },

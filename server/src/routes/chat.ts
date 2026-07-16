@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { retrieveContext, buildContextBlock } from '../services/rag';
+import { retrieveContextByProject, buildContextBlock } from '../services/rag';
 import { generateChatResponse, generateChatResponseStream, type ChatMessage } from '../services/gemini';
+import { resolveDefaultProjectId } from '../services/projects';
 import { supabase } from '../config/supabase';
 
 interface ChatBody {
@@ -9,6 +10,45 @@ interface ChatBody {
   conversationId?: string;
   botName?: string;
   company?: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Resolves bot_settings for a chat request. `bot_settings` is scoped per
+// Project (one row per project). Callers may pass `projectId` directly
+// (new widget embeds / dashboard-aware clients); if omitted, falls back to
+// resolving `orgId` -> that org's default (oldest) project, so widget
+// snippets already installed on client websites (which only send `orgId`)
+// keep working unchanged.
+// ──────────────────────────────────────────────────────────────────────────
+async function resolveProjectSettings(orgId?: string, projectId?: string, botName?: string) {
+  let resolvedProjectId = projectId;
+
+  if (!resolvedProjectId && orgId) {
+    resolvedProjectId = (await resolveDefaultProjectId(orgId)) ?? undefined;
+  }
+
+  let query = supabase.from('bot_settings').select('*');
+  if (resolvedProjectId) {
+    query = query.eq('project_id', resolvedProjectId);
+  } else if (orgId) {
+    query = query.eq('org_id', orgId);
+  } else {
+    query = query.eq('bot_name', botName);
+  }
+
+  let { data: settings } = await query.maybeSingle();
+
+  if (!settings && resolvedProjectId && orgId) {
+    // Auto-create settings if they don't exist for this project
+    const { data: newSettings } = await supabase
+      .from('bot_settings')
+      .insert({ org_id: orgId, project_id: resolvedProjectId })
+      .select()
+      .single();
+    if (newSettings) settings = newSettings;
+  }
+
+  return { settings, resolvedProjectId };
 }
 
 export default async function chatRoutes(fastify: FastifyInstance) {
@@ -22,7 +62,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/chat',
     async (
-      request: FastifyRequest<{ Body: ChatBody & { orgId?: string } }>,
+      request: FastifyRequest<{ Body: ChatBody & { orgId?: string; projectId?: string } }>,
       reply: FastifyReply
     ) => {
       const {
@@ -30,6 +70,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         history = [],
         conversationId,
         orgId,
+        projectId,
         botName = 'Aria',
         company = 'PulseAI',
       } = request.body;
@@ -38,37 +79,17 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ success: false, message: 'message is required.' });
       }
 
-      fastify.log.info({ conversationId, orgId, message: message.slice(0, 80) }, 'Chat request');
+      fastify.log.info({ conversationId, orgId, projectId, message: message.slice(0, 80) }, 'Chat request');
 
-      // 0 — Get organization from bot settings
-      let query = supabase.from('bot_settings').select('*');
-      
-      if (orgId) {
-        query = query.eq('org_id', orgId);
-      } else {
-        query = query.eq('bot_name', botName);
-      }
-
-      let { data: settings } = await query.maybeSingle();
-
-      if (!settings && orgId) {
-        // Auto-create settings if they don't exist for this Org
-        const { data: newSettings, error: insertError } = await supabase
-          .from('bot_settings')
-          .insert({ org_id: orgId })
-          .select()
-          .single();
-        
-        if (!insertError) {
-          settings = newSettings;
-        }
-      }
+      // 0 — Resolve the Project (and its bot_settings) for this request
+      const { settings } = await resolveProjectSettings(orgId, projectId, botName);
 
       if (!settings) {
         return reply.status(404).send({ success: false, message: 'Bot configuration not found.' });
       }
 
       const resolvedOrgId = settings.org_id;
+      const resolvedProjectId = settings.project_id;
       const resolvedBotName = settings.bot_name || botName || 'Aria';
       const resolvedCompany = settings.company_name || company || 'PulseAI';
       const tone = settings.tone || 'Professional';
@@ -96,10 +117,10 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // 1 — RAG: retrieve relevant chunks for THIS organization
-      fastify.log.info({ orgId: resolvedOrgId, query: message.slice(0, 60) }, '[RAG] Starting retrieval');
-      const chunks = await retrieveContext(message, resolvedOrgId, 5);
-      fastify.log.info({ chunksFound: chunks.length, orgId: resolvedOrgId }, '[RAG] context retrieved');
+      // 1 — RAG: retrieve relevant chunks for THIS project only
+      fastify.log.info({ projectId: resolvedProjectId, query: message.slice(0, 60) }, '[RAG] Starting retrieval');
+      const chunks = await retrieveContextByProject(message, resolvedProjectId, 5);
+      fastify.log.info({ chunksFound: chunks.length, projectId: resolvedProjectId }, '[RAG] context retrieved');
       const context = buildContextBlock(chunks);
 
       // 2 — Generate response
@@ -192,7 +213,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/chat-stream',
     async (
-      request: FastifyRequest<{ Body: ChatBody & { orgId?: string } }>,
+      request: FastifyRequest<{ Body: ChatBody & { orgId?: string; projectId?: string } }>,
       reply: FastifyReply
     ) => {
       const {
@@ -200,6 +221,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         history = [],
         conversationId,
         orgId,
+        projectId,
         botName = 'Aria',
         company = 'PulseAI',
       } = request.body;
@@ -208,28 +230,14 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ success: false, message: 'message is required.' });
       }
 
-      let query = supabase.from('bot_settings').select('*');
-      if (orgId) {
-        query = query.eq('org_id', orgId);
-      } else {
-        query = query.eq('bot_name', botName);
-      }
-      let { data: settings } = await query.maybeSingle();
-
-      if (!settings && orgId) {
-        const { data: newSettings } = await supabase
-          .from('bot_settings')
-          .insert({ org_id: orgId })
-          .select()
-          .single();
-        if (newSettings) settings = newSettings;
-      }
+      const { settings } = await resolveProjectSettings(orgId, projectId, botName);
 
       if (!settings) {
         return reply.status(404).send({ success: false, message: 'Bot configuration not found.' });
       }
 
       const resolvedOrgId = settings.org_id;
+      const resolvedProjectId = settings.project_id;
       const resolvedBotName = settings.bot_name || botName || 'Aria';
       const resolvedCompany = settings.company_name || company || 'PulseAI';
       const tone = settings.tone || 'Professional';
@@ -257,7 +265,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const chunks = await retrieveContext(message, resolvedOrgId, 5);
+      const chunks = await retrieveContextByProject(message, resolvedProjectId, 5);
       const context = buildContextBlock(chunks);
 
       reply.raw.writeHead(200, {

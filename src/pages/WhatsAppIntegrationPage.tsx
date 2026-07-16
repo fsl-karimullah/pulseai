@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink, Plus, Settings2 } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink, Plus, Settings2, FolderKanban, ChevronDown } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
+import { useProjects } from '../contexts/ProjectContext';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL;
 
@@ -22,28 +23,31 @@ interface WhatsAppSession {
 const WhatsAppIntegrationPage: React.FC = () => {
   const { organization, loading: orgLoading } = useOrganization();
   const { session } = useAuth();
-  
+  const { projects, activeProjectId, setActiveProjectId } = useProjects();
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+
   const [sessions, setSessions] = useState<WhatsAppSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(true);
-  
+
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [qrBase64, setQrBase64] = useState<string | null>(null);
-  
+
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTipsModal, setShowTipsModal] = useState<boolean>(false);
-  
+
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
 
   const fetchSessions = async () => {
-    if (!organization?.id || !session?.access_token) {
+    if (!organization?.id || !session?.access_token || !activeProjectId) {
       setLoadingSessions(false);
       return;
     }
     try {
-      const res = await fetch('/api/whatsapp-sessions', {
+      const res = await fetch(`/api/whatsapp-sessions?projectId=${activeProjectId}`, {
         headers: { 'Authorization': `Bearer ${session.access_token}` }
       });
       const data = await res.json();
@@ -60,7 +64,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
   useEffect(() => {
     if (orgLoading) return;
     fetchSessions();
-  }, [organization, session, orgLoading]);
+  }, [organization, session, orgLoading, activeProjectId]);
 
   const checkActiveStatus = async () => {
     if (!organization?.id || !activeSession) return;
@@ -100,11 +104,16 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
   const handleStartConnection = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!newLabel.trim()) return;
-    
+
     if (!organization?.id) {
       setError('Organisasi belum termuat atau tidak ditemukan. Coba muat ulang halaman.');
+      return;
+    }
+
+    if (!activeProjectId) {
+      setError('Pilih Project tujuan terlebih dahulu.');
       return;
     }
 
@@ -115,6 +124,25 @@ const WhatsAppIntegrationPage: React.FC = () => {
     setActiveSession(newLabel.trim());
 
     try {
+      // Record which Project this new number belongs to BEFORE the gateway
+      // reveals the actual phone number — see whatsapp_session_intents.
+      const intentRes = await fetch('/api/whatsapp/session-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ phoneLabel: newLabel.trim(), projectId: activeProjectId }),
+      });
+      const intentData = await intentRes.json();
+      if (!intentData.success) {
+        setError(intentData.message || 'Gagal menyimpan pilihan project.');
+        setActiveSession(null);
+        setStatus('disconnected');
+        setLoading(false);
+        return;
+      }
+
       const res = await fetch(`${GATEWAY_URL}/api/session/start?userId=${organization.id}&phoneLabel=${newLabel.trim()}`);
       const data = await res.json();
       if (data.success) {
@@ -182,20 +210,53 @@ const WhatsAppIntegrationPage: React.FC = () => {
             <p className="text-slate-500 text-sm mt-1">AI PulseAI siap merespons pelanggan Anda melalui banyak nomor sekaligus.</p>
           </div>
 
-          <button
-            onClick={() => {
-              setNewLabel('');
-              setQrBase64(null);
-              setActiveSession(null);
-              setStatus('disconnected');
-              setError(null);
-              setShowAddModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all text-sm shadow-md"
-          >
-            <Plus size={16} />
-            Tambah Nomor Baru
-          </button>
+          <div className="flex items-center gap-2">
+            {projects.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setProjectMenuOpen((v) => !v)}
+                  className="flex items-center gap-2 px-3.5 py-2.5 bg-white border border-slate-200 hover:border-emerald-500 text-slate-700 text-sm font-semibold rounded-xl transition-all duration-150"
+                >
+                  <FolderKanban size={15} className="text-emerald-500" />
+                  {activeProject?.name || 'Pilih Project'}
+                  <ChevronDown size={14} className="text-slate-400" />
+                </button>
+                {projectMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setProjectMenuOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl border border-slate-200 shadow-lg z-20 py-1.5 max-h-72 overflow-y-auto">
+                      {projects.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => { setActiveProjectId(p.id); setProjectMenuOpen(false); }}
+                          className={`w-full text-left px-3.5 py-2 text-sm font-medium flex items-center justify-between gap-2 hover:bg-slate-50 ${
+                            p.id === activeProjectId ? 'text-emerald-600' : 'text-slate-700'
+                          }`}
+                        >
+                          <span className="truncate">{p.name}</span>
+                          {p.id === activeProjectId && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <button
+              onClick={() => {
+                setNewLabel('');
+                setQrBase64(null);
+                setActiveSession(null);
+                setStatus('disconnected');
+                setError(null);
+                setShowAddModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all text-sm shadow-md"
+            >
+              <Plus size={16} />
+              Tambah Nomor Baru
+            </button>
+          </div>
         </div>
 
         {/* ── Error Banner ─────────────────────────────────── */}
@@ -406,6 +467,10 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 <p className="text-xs text-slate-500 leading-relaxed">
                   Masukkan label identitas nomor Anda (misalnya: <code>default</code>, <code>sales</code>, atau <code>support</code>). Label ini membedakan routing log pesan gateway.
                 </p>
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                  <FolderKanban size={13} />
+                  Akan ditambahkan ke project: {activeProject?.name || '—'}
+                </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nama Label Sesi</label>
                   <input

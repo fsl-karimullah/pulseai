@@ -6,12 +6,14 @@ import { chunkText, enrichChunk } from '../services/chunker';
 import { generateEmbeddingsBatch } from '../services/embeddings';
 import { insertKnowledgeNodes, supabase } from '../config/supabase';
 import { authenticate } from '../middleware/auth';
+import { resolveDefaultProjectId } from '../services/projects';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UrlIngestBody {
   url: string;
   title?: string;
+  projectId?: string;
 }
 
 interface IngestResult {
@@ -57,6 +59,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       let fileName: string | undefined;
       let mimeType: string | undefined;
       let titleOverride: string | undefined;
+      let projectIdField: string | undefined;
 
       // Parse multipart fields
       const parts = request.parts();
@@ -67,7 +70,17 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
           mimeType = part.mimetype;
         } else if (part.type === 'field' && part.fieldname === 'title') {
           titleOverride = part.value as string;
+        } else if (part.type === 'field' && part.fieldname === 'projectId') {
+          projectIdField = part.value as string;
         }
+      }
+
+      // Resolve the Project this document belongs to. Defaults to the org's
+      // default project when the client doesn't specify one (older/plain
+      // upload flows), so knowledge_nodes.project_id (NOT NULL) is always set.
+      const resolvedProjectId = projectIdField || (await resolveDefaultProjectId(org.id));
+      if (!resolvedProjectId) {
+        return reply.status(500).send({ success: false, message: 'Tidak dapat menentukan Project untuk dokumen ini.' });
       }
 
       if (!fileBuffer || !fileName || !mimeType) {
@@ -77,21 +90,22 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan_type, credits')
+        .eq('org_id', org.id)
+        .maybeSingle();
+
       const plan = sub?.plan_type || 'free';
+      const currentCredits = sub?.credits ?? 0;
 
-      // 1. Document Count Limit
-      // Free plan: max 1 document. Any paid subscription: unlimited.
-      const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
-      const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-
-      const isFree = plan === 'free';
-      const freeDocLimit = 1;
-
-      if (isFree && uniqueTitles.size >= freeDocLimit) {
+      // ── Credit Check: 1 PDF = 10 credits ──────────────────────────────────
+      const PDF_CREDIT_COST = 10;
+      if (currentCredits < PDF_CREDIT_COST) {
         return reply.status(403).send({
           success: false,
-          message: `Limit tercapai. Paket Free hanya mendukung ${freeDocLimit} dokumen. Silakan upgrade ke paket berbayar untuk upload tidak terbatas.`,
+          message: `Kredit tidak cukup. Upload 1 PDF membutuhkan ${PDF_CREDIT_COST} kredit, saldo Anda saat ini ${currentCredits} kredit. Silakan top-up atau tunggu reset kredit bulanan Anda.`,
+          data: { required_credits: PDF_CREDIT_COST, current_credits: currentCredits },
         });
       }
 
@@ -99,6 +113,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
       // Free plan: 4MB. Paid plans: 50MB.
       const FREE_SIZE_LIMIT = 4 * 1024 * 1024;   // 4 MB
       const PAID_SIZE_LIMIT = 50 * 1024 * 1024;  // 50 MB
+      const isFree = plan === 'free';
       const currentSizeLimit = isFree ? FREE_SIZE_LIMIT : PAID_SIZE_LIMIT;
 
       if (fileBuffer.length > currentSizeLimit) {
@@ -136,20 +151,35 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         text,
         title: finalTitle,
         orgId: org.id,
+        projectId: resolvedProjectId,
         sourceType: 'pdf',
         fileName: fileName,
         metadata: { pages, mime: mimeType },
       });
 
+      // ── Deduct credits after successful ingestion ──────────────────────────
+      const newCredits = currentCredits - PDF_CREDIT_COST;
+      await supabase
+        .from('subscriptions')
+        .update({ credits: newCredits })
+        .eq('org_id', org.id);
+
+      await supabase.from('credit_transactions').insert({
+        org_id: org.id,
+        amount: -PDF_CREDIT_COST,
+        type: 'usage',
+        description: `Upload PDF: "${finalTitle}"`,
+      });
+
       fastify.log.info(
-        { title: finalTitle, chunksInserted: result.chunks_inserted },
+        { title: finalTitle, chunksInserted: result.chunks_inserted, creditsRemaining: newCredits },
         'PDF ingestion complete'
       );
 
       return reply.status(201).send({
         success: true,
-        message: `"${finalTitle}" ingested successfully.`,
-        data: result,
+        message: `"${finalTitle}" berhasil diproses. ${PDF_CREDIT_COST} kredit dipotong, sisa ${newCredits} kredit.`,
+        data: { ...result, credits_used: PDF_CREDIT_COST, credits_remaining: newCredits },
       });
     }
   );
@@ -180,7 +210,7 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ success: false, message: 'Organization not found' });
       }
 
-      const { url, title: titleOverride } = request.body;
+      const { url, title: titleOverride, projectId } = request.body;
 
       if (!url || typeof url !== 'string' || url.trim().length === 0) {
         return reply.status(400).send({
@@ -189,18 +219,27 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const { data: sub } = await supabase.from('subscriptions').select('plan_type').eq('org_id', org.id).maybeSingle();
+      const resolvedProjectId = projectId || (await resolveDefaultProjectId(org.id));
+      if (!resolvedProjectId) {
+        return reply.status(500).send({ success: false, message: 'Tidak dapat menentukan Project untuk dokumen ini.' });
+      }
+
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan_type, credits')
+        .eq('org_id', org.id)
+        .maybeSingle();
+
       const plan = sub?.plan_type || 'free';
+      const currentCredits = sub?.credits ?? 0;
 
-      const { data: existingDocs } = await supabase.from('knowledge_nodes').select('title').eq('org_id', org.id);
-      const uniqueTitles = new Set(existingDocs?.map(d => d.title));
-
-      // Free plan: max 1 document. Any paid subscription: unlimited.
-      const isFree = plan === 'free';
-      if (isFree && uniqueTitles.size >= 1) {
+      // ── Credit Check: 1 URL = 10 credits ──────────────────────────────────
+      const URL_CREDIT_COST = 10;
+      if (currentCredits < URL_CREDIT_COST) {
         return reply.status(403).send({
           success: false,
-          message: 'Limit tercapai. Paket Free hanya mendukung 1 dokumen. Silakan upgrade ke paket berbayar untuk upload tidak terbatas.',
+          message: `Kredit tidak cukup. Proses 1 URL membutuhkan ${URL_CREDIT_COST} kredit, saldo Anda saat ini ${currentCredits} kredit. Silakan top-up atau tunggu reset kredit bulanan Anda.`,
+          data: { required_credits: URL_CREDIT_COST, current_credits: currentCredits },
         });
       }
 
@@ -213,20 +252,35 @@ export default async function ingestRoutes(fastify: FastifyInstance) {
         text,
         title: finalTitle,
         orgId: org.id,
+        projectId: resolvedProjectId,
         sourceType: 'url',
         sourceUrl: resolvedUrl,
         metadata: { originalUrl: url },
       });
 
+      // ── Deduct credits after successful ingestion ──────────────────────────
+      const newCredits = currentCredits - URL_CREDIT_COST;
+      await supabase
+        .from('subscriptions')
+        .update({ credits: newCredits })
+        .eq('org_id', org.id);
+
+      await supabase.from('credit_transactions').insert({
+        org_id: org.id,
+        amount: -URL_CREDIT_COST,
+        type: 'usage',
+        description: `Scrape URL: "${finalTitle}"`,
+      });
+
       fastify.log.info(
-        { title: finalTitle, chunksInserted: result.chunks_inserted },
+        { title: finalTitle, chunksInserted: result.chunks_inserted, creditsRemaining: newCredits },
         'URL ingestion complete'
       );
 
       return reply.status(201).send({
         success: true,
-        message: `"${finalTitle}" scraped and ingested successfully.`,
-        data: result,
+        message: `"${finalTitle}" berhasil diproses. ${URL_CREDIT_COST} kredit dipotong, sisa ${newCredits} kredit.`,
+        data: { ...result, credits_used: URL_CREDIT_COST, credits_remaining: newCredits },
       });
     }
   );
@@ -247,6 +301,7 @@ interface ProcessOptions {
   text: string;
   title: string;
   orgId: string;
+  projectId: string;
   sourceType: 'pdf' | 'url';
   fileName?: string;
   sourceUrl?: string;
@@ -263,7 +318,7 @@ async function processAndStore(opts: ProcessOptions): Promise<{
   chunks_inserted: number;
   total_words: number;
 }> {
-  const { text, title, orgId, sourceType, fileName, sourceUrl, metadata = {} } = opts;
+  const { text, title, orgId, projectId, sourceType, fileName, sourceUrl, metadata = {} } = opts;
 
   // 1. Chunk the text
   const textChunks = chunkText(text);
@@ -280,6 +335,7 @@ async function processAndStore(opts: ProcessOptions): Promise<{
 
   const nodes = textChunks.map((chunk, i) => ({
     org_id: orgId,
+    project_id: projectId,
     title,
     content: chunk.text,
     embedding: embeddings[i],

@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { AppDataProvider } from './contexts/AppDataContext';
+import { ProjectProvider } from './contexts/ProjectContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import DashboardLayout from './layouts/DashboardLayout';
@@ -14,6 +15,7 @@ import KnowledgePage from './pages/KnowledgePage';
 import BotSettingsPage from './pages/BotSettingsPage';
 import LeadsPage from './pages/LeadsPage';
 import PricingPage from './pages/PricingPage';
+import ProjectsPage from './pages/ProjectsPage';
 import WidgetIntegrationPage from './pages/WidgetIntegrationPage';
 import WhatsAppIntegrationPage from './pages/WhatsAppIntegrationPage';
 import PublicChatWidget from './pages/PublicChatWidget';
@@ -27,6 +29,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <AppDataProvider>
+      <ProjectProvider>
       <Router>
         <Routes>
           {/* Public Routes */}
@@ -37,8 +40,8 @@ const App: React.FC = () => {
           <Route path="/widget" element={<PublicChatWidget />} />
 
           {/* Protected Routes inside Dashboard Layout */}
-          <Route 
-            path="/" 
+          <Route
+            path="/"
             element={
               <ProtectedRoute>
                 <DashboardLayout />
@@ -47,6 +50,7 @@ const App: React.FC = () => {
           >
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="bot-settings" element={<BotSettingsPage />} />
             <Route path="leads" element={<LeadsPage />} />
@@ -62,6 +66,7 @@ const App: React.FC = () => {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
+      </ProjectProvider>
       </AppDataProvider>
     </AuthProvider>
   );

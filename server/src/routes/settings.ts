@@ -87,4 +87,57 @@ export default async function settingsRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ success: false, message: error.message });
     }
   });
+
+  /**
+   * GET /api/credits
+   * Returns the current credit balance and recent transaction history.
+   */
+  fastify.get('/credits', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const userId = (request as any).user?.id;
+
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (orgError) throw orgError;
+      if (!org) {
+        return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
+      }
+
+      const orgId = org.id;
+
+      // Get current credits + plan
+      const { data: sub, error: subError } = await supabase
+        .from('subscriptions')
+        .select('credits, plan_type')
+        .eq('org_id', orgId)
+        .maybeSingle();
+
+      if (subError) throw subError;
+
+      // Get last 10 transactions
+      const { data: transactions } = await supabase
+        .from('credit_transactions')
+        .select('amount, type, description, created_at')
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      return reply.send({
+        success: true,
+        data: {
+          credits: sub?.credits ?? 0,
+          plan_type: sub?.plan_type ?? 'free',
+          pdf_credit_cost: 10,
+          transactions: transactions ?? [],
+        },
+      });
+    } catch (error: any) {
+      fastify.log.error(error, 'Failed to fetch credits');
+      return reply.status(500).send({ success: false, message: error.message });
+    }
+  });
 }
