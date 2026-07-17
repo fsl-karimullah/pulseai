@@ -137,7 +137,8 @@ export default async function chatRoutes(fastify: FastifyInstance) {
             tone,
             instructions,
             adminWhatsApp,
-            resolvedOrgId
+            resolvedOrgId,
+            resolvedProjectId
           }
         });
 

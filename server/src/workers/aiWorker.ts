@@ -20,7 +20,8 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       tone,
       instructions,
       adminWhatsApp,
-      resolvedOrgId
+      resolvedOrgId,
+      resolvedProjectId
     } = data;
 
     const { message: botReply, triggerLeadCapture } = await generateChatResponse(
@@ -32,7 +33,10 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       tone,
       instructions,
       adminWhatsApp,
-      resolvedOrgId
+      resolvedOrgId,
+      true, // hasValidPhone
+      false, // isFirstMessage
+      resolvedProjectId
     );
 
     return { botReply, triggerLeadCapture };
@@ -63,6 +67,7 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       leadPhone,
       isSubscriber,
       currentCredits,
+      resolvedProjectId
     } = data;
 
     let { message: botReply, triggerLeadCapture } = await generateChatResponse(
@@ -76,7 +81,8 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       adminWhatsApp,
       resolvedOrgId,
       hasValidPhone,
-      isFirstMessage
+      isFirstMessage,
+      resolvedProjectId
     );
 
     if (!hasValidPhone) {

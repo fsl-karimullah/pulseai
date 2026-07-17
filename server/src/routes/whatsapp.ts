@@ -376,6 +376,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           instructions,
           adminWhatsApp,
           resolvedOrgId,
+          resolvedProjectId,
           hasValidPhone,
           isFirstMessage: history.length === 0,
           lead,
