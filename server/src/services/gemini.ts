@@ -77,14 +77,19 @@ function getRandomResponse(pool: string[]): string {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-async function fetchKnowledgeBaseTopics(orgId: string): Promise<string[]> {
+async function fetchKnowledgeBaseTopics(orgId: string, projectId?: string): Promise<string[]> {
   if (!orgId) return [];
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('knowledge_nodes')
       .select('title')
-      .eq('org_id', orgId)
-      .limit(100);
+      .eq('org_id', orgId);
+      
+    if (projectId) {
+      query = query.eq('project_id', projectId);
+    }
+    
+    const { data, error } = await query.limit(100);
       
     if (error || !data) return [];
     const uniqueTitles = Array.from(new Set(data.map((item: any) => item.title).filter(Boolean)));
@@ -335,7 +340,8 @@ export async function generateChatResponse(
   adminWhatsApp: string = '',
   orgId: string = '',
   hasValidPhone: boolean = true,
-  isFirstMessage: boolean = false
+  isFirstMessage: boolean = false,
+  projectId?: string
 ): Promise<GeminiResponse> {
 
   const intent = classifyIntent(userMessage);
@@ -361,7 +367,7 @@ export async function generateChatResponse(
   }
 
   // ── Questions and small talk go to the model ──
-  const topics = await fetchKnowledgeBaseTopics(orgId);
+  const topics = await fetchKnowledgeBaseTopics(orgId, projectId);
   const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite-preview'];
 
   // Keep last 6 messages — scrub any assistant turns that contain the company name
