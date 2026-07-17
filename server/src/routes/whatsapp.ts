@@ -5,7 +5,7 @@ import { generateChatResponse, type ChatMessage } from '../services/gemini';
 import { resolveDefaultProjectId } from '../services/projects';
 import axios from 'axios';
 import { authenticate } from '../middleware/auth';
-
+import { aiQueue } from '../config/redis';
 // ──────────────────────────────────────────────────────────────────────────
 // Resolves which Project a WhatsApp number (org_id + phoneLabel) belongs to.
 //
@@ -363,180 +363,36 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         '[Lead] Resolved phone for lead storage'
       );
 
-      // ── Step 8: Generate AI response ────────────────────────────────────
-      const isFirstMessage = history.length === 0;
-      let { message: botReply, triggerLeadCapture } = await generateChatResponse(
-        message,
-        history,
-        context,
-        botName,
-        company,
-        tone,
-        instructions,
-        adminWhatsApp,
-        resolvedOrgId,
-        hasValidPhone,
-        isFirstMessage
-      );
-
-      // Programmatically enforce lead capture delay until phone number is known
-      // This prevents the LLM from hallucinating true prematurely
-      if (!hasValidPhone) {
-        triggerLeadCapture = false;
-      }
-
-      // ── Step 9: Persist lead + conversation history ──────────────────────
-      const newHistory = [
-        ...history,
-        { role: 'user',      content: message  },
-        { role: 'assistant', content: botReply },
-      ].slice(-10); // cap at 10 turns to limit DB payload size
-
-      const metadata = {
-        ...(lead?.metadata as Record<string, any> || {}),
-        history: newHistory,
-        jid: cleanSender,
-        bot_number: botNumber ?? (lead?.metadata as any)?.bot_number ?? null, // persist for chat history lookup
-        source: triggerLeadCapture
-          ? 'whatsapp_handover'
-          : ((lead?.metadata as any)?.source || 'whatsapp_chat'),
-      };
-
-      if (!lead) {
-        await supabase.from('leads').insert({
-          org_id:       resolvedOrgId,
-          name:         pushName || 'WhatsApp User',
-          whatsapp:     leadPhone,
-          last_message: message,
-          metadata,
-        });
-      } else {
-        await supabase.from('leads')
-          .update({ 
-            whatsapp:     leadPhone,
-            last_message: message, 
-            metadata 
-          })
-          .eq('id', lead.id);
-      }
-
-      // ── Step 9: Hot-lead admin notification (human fallback) ─────────────
-      if (triggerLeadCapture) {
-        fastify.log.info({ sender, resolvedOrgId }, 'Lead capture triggered from WhatsApp');
-
-        if (adminWhatsApp) {
-          const adminNumbers = adminWhatsApp
-            .split(/[,;]+/)
-            .map((n: string) => n.trim())
-            .filter(Boolean);
-
-          for (const rawNum of adminNumbers) {
-            let cleanAdminWa = rawNum.replace(/\D/g, '');
-            if (cleanAdminWa.startsWith('0')) cleanAdminWa = '62' + cleanAdminWa.substring(1);
-
-            if (cleanAdminWa && cleanAdminWa !== cleanSender) {
-              const now = new Date();
-              const wibTimestamp = now.toLocaleString('id-ID', {
-                timeZone: 'Asia/Jakarta',
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-                hour: '2-digit', minute: '2-digit', hour12: false,
-              }) + ' WIB';
-
-              const previewMessage = message.length > 200 ? message.slice(0, 200) + '...' : message;
-
-              // Build the contact line using hasValidPhone — the authoritative flag
-              // computed at Step 7, so we don't re-evaluate LID logic here.
-              const displayContact = hasValidPhone
-                ? `📱 WhatsApp: wa.me/${leadPhone}`
-                : `📱 Multi-device (LID) — tidak ada nomor HP.\n   JID: ${replyTo}\n   ⚠️ Tidak bisa dibuka via wa.me`;
-
-              const adminMsg =
-`🚨 *NOTIFIKASI HOT LEADS - ${company.toUpperCase()}* 🚨
-
-Ada calon peserta yang butuh bantuan admin manusia segera!
-
-👤 *Kontak Leads:*
-   ${displayContact}
-
-💬 *Pesan Terakhir:*
-"_${previewMessage}_"
-
-🕐 *Waktu:* ${wibTimestamp}
-
-➡️ Silakan balas langsung ke nomor di atas ya Kak!`;
-
-              try {
-                // Reply uses userId (gateway key) + phoneLabel (socket identifier)
-                // so the notification comes from the SAME bot number that received the lead
-                await axios.post(`${gatewayUrl}/api/session/send`, {
-                  userId,
-                  phoneLabel,
-                  to:      cleanAdminWa,
-                  message: adminMsg,
-                });
-                fastify.log.info({ adminWa: cleanAdminWa, leadsWa: sender, botNumber }, 'Hot leads notification sent');
-              } catch (err: any) {
-                fastify.log.error({ err: err.message, adminWa: cleanAdminWa }, 'Failed to notify admin');
-              }
-            }
-          }
+      // ── Step 8: Enqueue job to AI Worker ─────────────────────────────────
+      await aiQueue.add('process-whatsapp', {
+        type: 'whatsapp',
+        data: {
+          message,
+          history,
+          context,
+          botName,
+          company,
+          tone,
+          instructions,
+          adminWhatsApp,
+          resolvedOrgId,
+          hasValidPhone,
+          isFirstMessage: history.length === 0,
+          lead,
+          cleanSender,
+          botNumber,
+          replyTo,
+          userId,
+          phoneLabel,
+          sender,
+          pushName,
+          leadPhone,
+          isSubscriber,
+          currentCredits,
         }
+      });
 
-        botReply += `\n\n_(Info: Permintaan Anda telah diteruskan ke tim kami dan agen manusia akan segera membalas pesan ini ya Kak!)_`;
-      }
-
-      // ── Step 10: Branding watermark for free-tier orgs ──────────────────
-      if (!isSubscriber) {
-        botReply += `\n\n---\n🤖 Powered by PulseAI.biz.id - Buat Bot WA Tokomu Gratis Sekarang!`;
-      }
-
-      // ── Step 11: Send reply via Gateway ─────────────────────────────────
-      // userId + phoneLabel = gateway socket routing (NOT the orgId).
-      // The reply MUST go out from the same bot number (botNumber) that received the chat.
-      const typingDurationMs = Math.min(botReply.length * 28, 4_000);
-      try {
-        await axios.post(`${gatewayUrl}/api/session/send`, {
-          userId,       // gateway session key — routes to the correct Baileys socket
-          phoneLabel,   // identifies the exact number slot within that session
-          to: replyTo,  // full JID (with @lid or @s.whatsapp.net) — critical for LID users
-          message: botReply,
-          typingDurationMs,
-        });
-        fastify.log.info({ sender, replyTo, botNumber, resolvedOrgId }, 'Reply sent via WhatsApp Gateway');
-
-        // Log the outbound (assistant) message
-        await supabase.from('chat_logs').insert({
-          tenant_id: resolvedOrgId,
-          bot_number: botNumber ?? '',
-          customer_number: sender,
-          sender: 'bot',
-          message_text: botReply,
-        });
-
-        // ── Deduct 1 credit: HANYA untuk free user, subscriber gratis ─────────
-        if (!isSubscriber) {
-          try {
-            const newCredits = Math.max(0, currentCredits - 1);
-            await supabase
-              .from('subscriptions')
-              .update({ credits: newCredits })
-              .eq('org_id', resolvedOrgId);
-
-            await supabase.from('credit_transactions').insert({
-              org_id: resolvedOrgId,
-              amount: -1,
-              type: 'usage',
-              description: 'AI Chatbot — 1 pesan balasan (WhatsApp)',
-            });
-          } catch (creditErr) {
-            fastify.log.warn({ creditErr }, '[Credits] Failed to deduct whatsapp credit');
-          }
-        }
-      } catch (err: any) {
-        fastify.log.error({ err: err.message }, 'Failed to send reply via Gateway');
-      }
-
-      return reply.send({ success: true, message: 'Webhook processed and replied' });
+      return reply.code(202).send({ success: true, message: 'Webhook accepted and queued' });
     } catch (error: any) {
       fastify.log.error(error, 'Error processing WhatsApp webhook');
       return reply.status(500).send({ success: false, message: 'Internal Server Error' });

@@ -3,7 +3,7 @@ import { retrieveContextByProject, buildContextBlock } from '../services/rag';
 import { generateChatResponse, generateChatResponseStream, type ChatMessage } from '../services/gemini';
 import { resolveDefaultProjectId } from '../services/projects';
 import { supabase } from '../config/supabase';
-
+import { aiQueue, aiQueueEvents } from '../config/redis';
 interface ChatBody {
   message: string;
   history?: ChatMessage[];
@@ -123,20 +123,26 @@ export default async function chatRoutes(fastify: FastifyInstance) {
       fastify.log.info({ chunksFound: chunks.length, projectId: resolvedProjectId }, '[RAG] context retrieved');
       const context = buildContextBlock(chunks);
 
-      // 2 — Generate response
+      // 2 — Generate response via Queue
       const startTime = performance.now();
       try {
-        const { message: botReply, triggerLeadCapture } = await generateChatResponse(
-          message,
-          history,
-          context,
-          resolvedBotName,
-          resolvedCompany,
-          tone,
-          instructions,
-          adminWhatsApp,
-          resolvedOrgId
-        );
+        const job = await aiQueue.add('process-chat', {
+          type: 'chat',
+          data: {
+            message,
+            history,
+            context,
+            resolvedBotName,
+            resolvedCompany,
+            tone,
+            instructions,
+            adminWhatsApp,
+            resolvedOrgId
+          }
+        });
+
+        const { botReply, triggerLeadCapture } = await job.waitUntilFinished(aiQueueEvents);
+        
         const durationMs = Math.round(performance.now() - startTime);
 
         // ── Deduct 1 credit: HANYA untuk free user, subscriber gratis ─────────

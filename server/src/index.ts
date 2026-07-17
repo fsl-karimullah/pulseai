@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { createServer } from './app';
-
+import './workers/aiWorker';
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 
 async function start() {
