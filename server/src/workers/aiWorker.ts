@@ -44,7 +44,7 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
   
   else if (type === 'whatsapp') {
     // For WhatsApp Gateway
-    let {
+    const {
       message,
       history,
       context,

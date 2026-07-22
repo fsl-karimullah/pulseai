@@ -21,7 +21,7 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
       }
 
       // Initialize Snap client
-      let snap = new midtransClient.Snap({
+      const snap = new midtransClient.Snap({
         isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
         serverKey: process.env.MIDTRANS_SERVER_KEY || '',
         clientKey: process.env.MIDTRANS_CLIENT_KEY || '',
@@ -276,7 +276,7 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
       const { orderId } = request.params as { orderId: string };
       
       // Initialize Snap client
-      let snap = new midtransClient.Snap({
+      const snap = new midtransClient.Snap({
         isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
         serverKey: process.env.MIDTRANS_SERVER_KEY || '',
         clientKey: process.env.MIDTRANS_CLIENT_KEY || '',
@@ -414,7 +414,7 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
       }
 
-      let snap = new midtransClient.Snap({
+      const snap = new midtransClient.Snap({
         isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
         serverKey: process.env.MIDTRANS_SERVER_KEY || '',
         clientKey: process.env.MIDTRANS_CLIENT_KEY || '',
@@ -536,7 +536,7 @@ export default async function paymentsRoutes(fastify: FastifyInstance) {
     try {
       const { orderId } = request.params as { orderId: string };
 
-      let snap = new midtransClient.Snap({
+      const snap = new midtransClient.Snap({
         isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
         serverKey: process.env.MIDTRANS_SERVER_KEY || '',
         clientKey: process.env.MIDTRANS_CLIENT_KEY || '',

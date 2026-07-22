@@ -934,13 +934,14 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
 
         const { data: sub } = await supabase
           .from('subscriptions')
-          .select('plan_type, credits, pdf_upload_limit')
+          .select('plan_type, credits, pdf_upload_limit, bulk_cv_limit')
           .eq('org_id', org.id)
           .maybeSingle();
 
         const isSubscriber = sub && sub.plan_type !== 'free';
         const pdfLimit = sub?.pdf_upload_limit ?? 0;
         const currentCredits = sub?.credits ?? 0;
+        const bulkCvLimit = sub?.bulk_cv_limit ?? 10;
 
         let monthlyCount = 0;
         if (isSubscriber) {
@@ -962,11 +963,342 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
             isSubscriber,
             pdfLimit,
             monthlyCount,
-            currentCredits
+            currentCredits,
+            bulkCvLimit,
           }
         });
       } catch (err: any) {
         return reply.status(500).send({ success: false, message: err.message });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POST /api/v1/jobs/:jobId/apply-bulk
+  //
+  // Internal HR endpoint (authenticated) — called by the HRD dashboard when
+  // uploading multiple CVs at once for a single job vacancy.
+  //
+  // Flow:
+  //   1. Validate job exists and is active
+  //   2. Parse all uploaded PDF files (field name "cv" repeated, or "cv[]")
+  //   3. Check plan: free → max 10 files; premium → max bulk_cv_limit (30)
+  //   4. Check credits: count how many CVs will consume credits (accounting
+  //      for monthly quota), warn if insufficient
+  //   5. Process all CVs in parallel with Promise.allSettled — if one fails
+  //      the rest still succeed
+  //   6. Persist each successful result to `applicants`, grouped by a shared
+  //      bulk_session_id UUID
+  //   7. Deduct credits only for successfully processed CVs
+  //   8. Return a leaderboard sorted by ats_score desc + partial error list
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.post<{ Params: { jobId: string } }>(
+    '/v1/jobs/:jobId/apply-bulk',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { jobId: string } }>, reply: FastifyReply) => {
+      const { jobId } = request.params;
+      const userId = (request as any).user?.id;
+
+      try {
+        // ── 1. Fetch the job vacancy ────────────────────────────────────────
+        const { data: job, error: jobError } = await supabase
+          .from('job_vacancies')
+          .select('id, org_id, title, description, requirements, is_active')
+          .eq('id', jobId)
+          .maybeSingle();
+
+        if (jobError || !job) {
+          return reply.status(404).send({ success: false, message: 'Lowongan kerja tidak ditemukan.' });
+        }
+        if (!job.is_active) {
+          return reply.status(410).send({ success: false, message: 'Lowongan kerja ini sudah ditutup.' });
+        }
+
+        // ── 1b. Verify ownership ────────────────────────────────────────────
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id, name')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org || org.id !== job.org_id) {
+          return reply.status(403).send({ success: false, message: 'Akses ditolak.' });
+        }
+
+        // ── 2. Fetch subscription (credits + plan info) ─────────────────────
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('plan_type, credits, pdf_upload_limit, bulk_cv_limit')
+          .eq('org_id', job.org_id)
+          .maybeSingle();
+
+        const isSubscriber = sub && sub.plan_type !== 'free';
+        const pdfLimit = sub?.pdf_upload_limit ?? 0;
+        const currentCredits = sub?.credits ?? 0;
+        // Plan-level max: free=10, premium=bulk_cv_limit (default 30)
+        const maxBulkFiles = isSubscriber ? (sub?.bulk_cv_limit ?? 30) : 10;
+
+        // ── 3. Parse uploaded PDF files from multipart request ──────────────
+        interface CvFile { buffer: Buffer; mimeType: string; originalName: string; }
+        const cvFiles: CvFile[] = [];
+        const parts = request.parts();
+
+        for await (const part of parts) {
+          if (part.type === 'file' && (part.fieldname === 'cv' || part.fieldname === 'cv[]')) {
+            const buf = await part.toBuffer();
+            if (buf.length > 0 && buf.length <= MAX_CV_SIZE_BYTES) {
+              const isPdf =
+                part.mimetype === 'application/pdf' ||
+                (part.filename || '').toLowerCase().endsWith('.pdf');
+              if (isPdf) {
+                cvFiles.push({ buffer: buf, mimeType: part.mimetype || 'application/pdf', originalName: part.filename || 'cv.pdf' });
+              }
+            }
+            // Hard stop once we hit the plan limit (don't waste memory)
+            if (cvFiles.length >= maxBulkFiles) break;
+          }
+        }
+
+        if (cvFiles.length === 0) {
+          return reply.status(400).send({
+            success: false,
+            message: 'Tidak ada file CV PDF yang valid ditemukan. Pastikan field bernama "cv" atau "cv[]" dan berformat PDF.',
+          });
+        }
+
+        // ── 4. Credit check ─────────────────────────────────────────────────
+        // Count how many of the uploaded CVs will cost credits (10/CV):
+        //   - Subscriber within monthly quota: those in-quota slots are FREE
+        //   - Beyond quota or free user: 10 credits/CV
+        let freeSlotsRemaining = 0;
+        if (isSubscriber) {
+          const startOfMonth = new Date();
+          startOfMonth.setDate(1);
+          startOfMonth.setHours(0, 0, 0, 0);
+
+          const { count: monthlyCount } = await supabase
+            .from('applicants')
+            .select('*', { count: 'exact', head: true })
+            .eq('org_id', job.org_id)
+            .gte('created_at', startOfMonth.toISOString());
+
+          freeSlotsRemaining = Math.max(0, pdfLimit - (monthlyCount ?? 0));
+        }
+
+        const paidCvCount = Math.max(0, cvFiles.length - freeSlotsRemaining);
+        const creditsRequired = paidCvCount * 10;
+
+        if (paidCvCount > 0 && currentCredits < creditsRequired) {
+          return reply.status(402).send({
+            success: false,
+            code: 'CREDITS_INSUFFICIENT',
+            message: `Saldo kredit tidak cukup untuk memproses ${cvFiles.length} CV. Dibutuhkan: ${creditsRequired} kredit (${paidCvCount} CV × 10 kredit). Saldo Anda: ${currentCredits} kredit.`,
+            credits_required: creditsRequired,
+            credits_available: currentCredits,
+            cv_count: cvFiles.length,
+            free_slots: freeSlotsRemaining,
+            paid_cv_count: paidCvCount,
+          });
+        }
+
+        // ── 5. Build job context string (shared by all CVs) ─────────────────
+        const jobContext = [
+          `Posisi: ${job.title}`,
+          '',
+          'Deskripsi Pekerjaan:',
+          job.description,
+          '',
+          'Persyaratan:',
+          job.requirements,
+        ].join('\n');
+
+        // ── 6. Generate a shared bulk session ID ────────────────────────────
+        // All applicants from this batch share the same bulk_session_id so HR
+        // can identify them as a group.
+        const crypto = await import('crypto');
+        const bulkSessionId = crypto.randomUUID();
+
+        fastify.log.info(
+          { jobId, orgId: job.org_id, cvCount: cvFiles.length, bulkSessionId, paidCvCount },
+          '[BulkCV] Starting parallel analysis...'
+        );
+
+        // ── 7. Process all CVs in parallel with Promise.allSettled ──────────
+        // If one CV fails (bad PDF, Gemini error) the rest still succeed.
+        type CvSuccess = { status: 'fulfilled'; fileName: string; analysisResult: any };
+        type CvFailure = { status: 'rejected'; fileName: string; reason: string };
+        type CvOutcome = CvSuccess | CvFailure;
+
+        const results: CvOutcome[] = await Promise.allSettled(
+          cvFiles.map(async (cvFile) => {
+            const result = await analyzeCVWithGemini(jobContext, cvFile.buffer, cvFile.mimeType);
+            return { fileName: cvFile.originalName, analysisResult: result };
+          })
+        ).then((settled) =>
+          settled.map((outcome, idx) => {
+            if (outcome.status === 'fulfilled') {
+              return {
+                status: 'fulfilled' as const,
+                fileName: cvFiles[idx].originalName,
+                analysisResult: outcome.value.analysisResult,
+              };
+            } else {
+              return {
+                status: 'rejected' as const,
+                fileName: cvFiles[idx].originalName,
+                reason: outcome.reason?.message ?? 'Gagal dianalisis.',
+              };
+            }
+          })
+        );
+
+        const successful = results.filter((r): r is CvSuccess => r.status === 'fulfilled');
+        const failed = results.filter((r): r is CvFailure => r.status === 'rejected');
+
+        fastify.log.info(
+          { bulkSessionId, successful: successful.length, failed: failed.length },
+          '[BulkCV] Analysis complete.'
+        );
+
+        // ── 8. Persist successful results to `applicants` table ─────────────
+        let savedCount = 0;
+        const leaderboard: any[] = [];
+
+        if (successful.length > 0) {
+          const rows = successful.map((s) => ({
+            org_id:           job.org_id,
+            job_id:           job.id,
+            name:             s.analysisResult.nama_pelamar || 'Unknown',
+            email:            s.analysisResult.email || '',
+            whatsapp:         s.analysisResult.whatsapp || '',
+            ats_score:        s.analysisResult.ats_score,
+            analysis_result:  s.analysisResult,
+            status:           s.analysisResult.rekomendasi_status,
+            cv_file_path:     null,
+            bulk_session_id:  bulkSessionId,
+          }));
+
+          const { data: savedRows, error: insertError } = await supabase
+            .from('applicants')
+            .insert(rows)
+            .select('id');
+
+          if (insertError) {
+            fastify.log.error(insertError, '[BulkCV] Failed to persist applicants');
+            // Non-fatal in terms of API response, but log it clearly
+          } else {
+            savedCount = savedRows?.length ?? 0;
+          }
+
+          // Build leaderboard from successful analyses (sorted desc by ats_score)
+          const sorted = [...successful].sort(
+            (a, b) => b.analysisResult.ats_score - a.analysisResult.ats_score
+          );
+
+          leaderboard.push(
+            ...sorted.map((s, idx) => ({
+              rank:                    idx + 1,
+              file_name:               s.fileName,
+              candidate_name:          s.analysisResult.nama_pelamar || 'Unknown',
+              match_score:             s.analysisResult.ats_score,
+              recommendation_status:   s.analysisResult.rekomendasi_status,
+              experience_level:        (() => {
+                const score = s.analysisResult.ats_score;
+                if (score >= 85) return 'Senior';
+                if (score >= 65) return 'Mid';
+                if (score >= 45) return 'Entry';
+                return 'Not Recommended';
+              })(),
+              key_strengths:           s.analysisResult.kelebihan || [],
+              risk_notes:              (s.analysisResult.red_flags || []).join('. ') || s.analysisResult.kekurangan?.[0] || '',
+              suggested_interview_questions: [], // kept for future use
+              email:                   s.analysisResult.email || '',
+              whatsapp:                s.analysisResult.whatsapp || '',
+              pendidikan_terakhir:     s.analysisResult.pendidikan_terakhir || '',
+              red_flags:               s.analysisResult.red_flags || [],
+              draft_whatsapp:          fillCompanyNamePlaceholder(s.analysisResult.draft_whatsapp, org.name),
+            }))
+          );
+        }
+
+        // ── 9. Deduct credits only for CVs that were SUCCESSFULLY processed ─
+        // Count credit-costing successes: apply free slots first to successful CVs
+        const paidSuccessCount = Math.max(0, successful.length - freeSlotsRemaining);
+        const creditsDeducted = paidSuccessCount * 10;
+
+        if (creditsDeducted > 0) {
+          try {
+            const { data: latestSub } = await supabase
+              .from('subscriptions')
+              .select('credits')
+              .eq('org_id', job.org_id)
+              .maybeSingle();
+
+            const newCredits = Math.max(0, (latestSub?.credits ?? 0) - creditsDeducted);
+            await supabase.from('subscriptions').update({ credits: newCredits }).eq('org_id', job.org_id);
+            await supabase.from('credit_transactions').insert({
+              org_id:      job.org_id,
+              amount:      -creditsDeducted,
+              type:        'usage',
+              description: `Bulk CV Scan — ${successful.length} CV berhasil dianalisis untuk posisi ${job.title} (${freeSlotsRemaining > 0 ? freeSlotsRemaining + ' CV gratis, ' : ''}${paidSuccessCount} CV dipotong kredit)`,
+              reference:   bulkSessionId,
+            });
+
+            fastify.log.info(
+              { orgId: job.org_id, creditsDeducted, newCredits },
+              '[BulkCV] Credits deducted.'
+            );
+          } catch (creditErr) {
+            // Non-fatal — don't fail the whole response for a credit deduction error
+            fastify.log.warn({ creditErr }, '[BulkCV] Credit deduction error (non-fatal)');
+          }
+        } else {
+          fastify.log.info({ orgId: job.org_id }, '[BulkCV] All CVs within monthly quota — no credits deducted.');
+        }
+
+        // ── 10. Fire-and-forget analytics ───────────────────────────────────
+        supabase.from('analytics_events').insert({
+          org_id:     job.org_id,
+          event_type: 'bulk_cv_screened',
+          metadata: {
+            jobId,
+            bulkSessionId,
+            total: cvFiles.length,
+            success: successful.length,
+            failed: failed.length,
+            creditsDeducted,
+          },
+        }).then();
+
+        // ── 11. Build credit warning if saldo is getting low ────────────────
+        const updatedCredits = currentCredits - creditsDeducted;
+        const lowCreditWarning =
+          updatedCredits <= 20 && updatedCredits > 0
+            ? `⚠️ Saldo kredit Anda tersisa ${updatedCredits} kredit. Segera top-up agar proses screening tidak terganggu.`
+            : updatedCredits <= 0
+            ? '⚠️ Saldo kredit Anda habis. Top-up kredit sekarang untuk melanjutkan screening.'
+            : null;
+
+        // ── 12. Return response ──────────────────────────────────────────────
+        return reply.status(200).send({
+          success: true,
+          bulk_session_id: bulkSessionId,
+          total_uploaded:  cvFiles.length,
+          total_processed: successful.length,
+          total_failed:    failed.length,
+          credits_deducted: creditsDeducted,
+          credits_remaining: updatedCredits,
+          low_credit_warning: lowCreditWarning,
+          failed_files: failed.map((f) => ({ file_name: f.fileName, reason: f.reason })),
+          leaderboard,
+        });
+
+      } catch (err: any) {
+        fastify.log.error(err, '[BulkCV] Unexpected error');
+        return reply.status(500).send({
+          success: false,
+          message: err?.message ?? 'Terjadi kesalahan tak terduga saat memproses CV secara massal.',
+        });
       }
     }
   );

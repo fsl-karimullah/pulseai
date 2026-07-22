@@ -40,9 +40,9 @@ export async function createServer() {
 
   await server.register(multipart, {
     limits: {
-      fileSize: MAX_FILE_SIZE_MB * 1024 * 1024, // 25 MB
-      files: 1,                                  
-      fields: 5,
+      fileSize: MAX_FILE_SIZE_MB * 1024 * 1024, // 50 MB total
+      files: 30,   // Up to 30 for bulk CV upload (premium: 30, free: 10 — enforced at route level)
+      fields: 10,
     },
   });
 
