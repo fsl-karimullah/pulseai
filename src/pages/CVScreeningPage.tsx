@@ -668,13 +668,11 @@ function BulkLeaderboardModal({
 
 function BulkUploadPanel({
   jobId,
-  jobTitle,
   quotaInfo,
   session,
   onDone,
 }: {
   jobId: string;
-  jobTitle: string;
   quotaInfo: QuotaInfo | null;
   session: any;
   onDone: (result: BulkResult) => void;
@@ -1482,7 +1480,6 @@ const CVScreeningPage: React.FC = () => {
                     </div>
                     <BulkUploadPanel
                       jobId={job.id}
-                      jobTitle={job.title}
                       quotaInfo={quotaInfo}
                       session={session}
                       onDone={(result) => {
