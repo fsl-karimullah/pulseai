@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Briefcase,
@@ -28,6 +28,11 @@ import {
   ThumbsUp,
   ThumbsDown,
   Send,
+  Files,
+  Trophy,
+  AlertTriangle,
+  Zap,
+  Crown,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -73,6 +78,43 @@ interface CVAnalysisResult {
   draft_email_body: string;
 }
 
+interface BulkLeaderboardEntry {
+  rank: number;
+  file_name: string;
+  candidate_name: string;
+  match_score: number;
+  recommendation_status: 'LOLOS_INTERVIEW' | 'TALENT_POOL' | 'TOLAK';
+  experience_level: string;
+  key_strengths: string[];
+  risk_notes: string;
+  email: string;
+  whatsapp: string;
+  pendidikan_terakhir: string;
+  red_flags: string[];
+  draft_whatsapp: string;
+}
+
+interface BulkResult {
+  success: boolean;
+  bulk_session_id: string;
+  total_uploaded: number;
+  total_processed: number;
+  total_failed: number;
+  credits_deducted: number;
+  credits_remaining: number;
+  low_credit_warning: string | null;
+  failed_files: { file_name: string; reason: string }[];
+  leaderboard: BulkLeaderboardEntry[];
+}
+
+interface QuotaInfo {
+  isSubscriber: boolean;
+  pdfLimit: number;
+  monthlyCount: number;
+  currentCredits: number;
+  bulkCvLimit: number;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG = {
@@ -114,6 +156,18 @@ const STATUS_CONFIG = {
   },
 };
 
+const RANK_CONFIG = [
+  { bg: 'bg-gradient-to-br from-yellow-400 to-amber-500', text: 'text-white', icon: '🥇', ring: 'ring-2 ring-amber-400' },
+  { bg: 'bg-gradient-to-br from-slate-400 to-slate-500', text: 'text-white', icon: '🥈', ring: 'ring-2 ring-slate-400' },
+  { bg: 'bg-gradient-to-br from-orange-400 to-amber-600', text: 'text-white', icon: '🥉', ring: 'ring-2 ring-orange-400' },
+];
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 function ScoreRing({ score }: { score: number }) {
   const color =
     score >= 70 ? '#10b981' : score >= 45 ? '#3b82f6' : '#ef4444';
@@ -137,6 +191,16 @@ function ScoreRing({ score }: { score: number }) {
         <span className="text-sm font-black" style={{ color }}>{score}</span>
       </div>
     </div>
+  );
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 70 ? '#10b981' : score >= 45 ? '#3b82f6' : '#ef4444';
+  const bg = score >= 70 ? 'bg-emerald-50' : score >= 45 ? 'bg-blue-50' : 'bg-red-50';
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm font-black ${bg}`} style={{ color }}>
+      {score}
+    </span>
   );
 }
 
@@ -252,8 +316,7 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 my-4">
-        {/* Header */}
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 my-4">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="font-bold text-slate-900 flex items-center gap-2">
             <CheckCircle2 size={18} className="text-emerald-500" />
@@ -264,108 +327,103 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
-          {/* Top Row — Identity + Score */}
-          <div className="flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-black text-lg flex-shrink-0">
-              {result.nama_pelamar?.charAt(0)?.toUpperCase() || '?'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-900 text-base">{result.nama_pelamar || 'Nama tidak terdeteksi'}</p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {result.pendidikan_terakhir || <span className="italic text-slate-400">Pendidikan tidak tercantum di CV</span>}
-              </p>
-              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                {result.email
-                  ? <span className="text-xs text-slate-500">{result.email}</span>
-                  : <span className="text-xs text-slate-400 italic">Email tidak ditemukan</span>
-                }
-                {result.whatsapp && <span className="text-xs text-slate-500">• {result.whatsapp}</span>}
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          <div className="space-y-5">
+            <div className="flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-black text-lg flex-shrink-0">
+                {result.nama_pelamar?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-slate-900 text-base">{result.nama_pelamar || 'Nama tidak terdeteksi'}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {result.pendidikan_terakhir || <span className="italic text-slate-400">Pendidikan tidak tercantum di CV</span>}
+                </p>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  {result.email
+                    ? <span className="text-xs text-slate-500">{result.email}</span>
+                    : <span className="text-xs text-slate-400 italic">Email tidak ditemukan</span>
+                  }
+                  {result.whatsapp && <span className="text-xs text-slate-500">• {result.whatsapp}</span>}
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                <ScoreRing score={result.ats_score} />
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ATS Score</span>
               </div>
             </div>
-            <div className="flex flex-col items-center gap-1 flex-shrink-0">
-              <ScoreRing score={result.ats_score} />
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ATS Score</span>
+
+            <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${cfg.bg}`}>
+              <span className={`w-2 h-2 rounded-full ${cfg.dot} animate-pulse`} />
+              <span className={`text-sm font-bold ${cfg.text}`}>Rekomendasi AI: {cfg.label}</span>
             </div>
-          </div>
 
-          {/* Status Badge */}
-          <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${cfg.bg}`}>
-            <span className={`w-2 h-2 rounded-full ${cfg.dot} animate-pulse`} />
-            <span className={`text-sm font-bold ${cfg.text}`}>Rekomendasi AI: {cfg.label}</span>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Star size={11} /> Kelebihan
+                </h4>
+                {Array.isArray(result.kelebihan) && result.kelebihan.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {result.kelebihan.map((k, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                        <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                        {k}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 border border-dashed border-slate-200">
+                    <CheckCircle2 size={13} className="text-slate-300 flex-shrink-0" />
+                    <p className="text-xs text-slate-400 italic">Tidak ada kelebihan yang teridentifikasi dari CV ini.</p>
+                  </div>
+                )}
+              </div>
 
-          {/* Kelebihan / Kekurangan */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* ── Kelebihan ── */}
-            <div>
-              <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Star size={11} /> Kelebihan
-              </h4>
-              {Array.isArray(result.kelebihan) && result.kelebihan.length > 0 ? (
+              <div>
+                <h4 className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <TrendingUp size={11} /> Kekurangan
+                </h4>
+                {Array.isArray(result.kekurangan) && result.kekurangan.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {result.kekurangan.map((k, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                        <AlertCircle size={12} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                        {k}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 border border-dashed border-slate-200">
+                    <AlertCircle size={13} className="text-slate-300 flex-shrink-0" />
+                    <p className="text-xs text-slate-400 italic">Tidak ada kekurangan yang teridentifikasi.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {Array.isArray(result.red_flags) && result.red_flags.length > 0 ? (
+              <div className="p-4 rounded-xl bg-red-50 border border-red-100">
+                <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Shield size={11} /> Red Flags Terdeteksi
+                </h4>
                 <ul className="space-y-1.5">
-                  {result.kelebihan.map((k, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
-                      <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                      {k}
+                  {result.red_flags.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-red-700">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 mt-1.5" />
+                      {f}
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 border border-dashed border-slate-200">
-                  <CheckCircle2 size={13} className="text-slate-300 flex-shrink-0" />
-                  <p className="text-xs text-slate-400 italic">Tidak ada kelebihan yang teridentifikasi dari CV ini.</p>
-                </div>
-              )}
-            </div>
-
-            {/* ── Kekurangan ── */}
-            <div>
-              <h4 className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <TrendingUp size={11} /> Kekurangan
-              </h4>
-              {Array.isArray(result.kekurangan) && result.kekurangan.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {result.kekurangan.map((k, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
-                      <AlertCircle size={12} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                      {k}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 border border-dashed border-slate-200">
-                  <AlertCircle size={13} className="text-slate-300 flex-shrink-0" />
-                  <p className="text-xs text-slate-400 italic">Tidak ada kekurangan yang teridentifikasi.</p>
-                </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
+                <Shield size={13} className="text-emerald-500 flex-shrink-0" />
+                <p className="text-xs text-emerald-700 font-medium">Tidak ada red flag yang terdeteksi. 🎉</p>
+              </div>
+            )}
           </div>
 
-          {/* Red Flags */}
-          {Array.isArray(result.red_flags) && result.red_flags.length > 0 ? (
-            <div className="p-4 rounded-xl bg-red-50 border border-red-100">
-              <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Shield size={11} /> Red Flags Terdeteksi
-              </h4>
-              <ul className="space-y-1.5">
-                {result.red_flags.map((f, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-red-700">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 mt-1.5" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
-              <Shield size={13} className="text-emerald-500 flex-shrink-0" />
-              <p className="text-xs text-emerald-700 font-medium">Tidak ada red flag yang terdeteksi. 🎉</p>
-            </div>
-          )}
-
-          {/* Draft WhatsApp */}
-          <div>
+          <div className="flex flex-col h-full">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
                 <MessageCircle size={11} /> Draft Pesan WhatsApp
@@ -381,11 +439,11 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
               )}
             </div>
             {result.draft_whatsapp ? (
-              <div className="p-3 bg-[#dcf8c6] rounded-xl rounded-tl-none text-sm text-slate-800 leading-relaxed font-sans border border-green-200/50 whitespace-pre-wrap">
+              <div className="flex-1 p-4 bg-[#dcf8c6] rounded-xl rounded-tl-none text-sm text-slate-800 leading-relaxed font-sans border border-green-200/50 whitespace-pre-wrap">
                 {result.draft_whatsapp}
               </div>
             ) : (
-              <div className="flex items-center gap-2 px-3 py-3 rounded-xl bg-slate-50 border border-dashed border-slate-200">
+              <div className="flex-1 flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-slate-50 border border-dashed border-slate-200">
                 <MessageCircle size={14} className="text-slate-300 flex-shrink-0" />
                 <p className="text-xs text-slate-400 italic">Draft pesan WhatsApp tidak berhasil digenerate oleh AI.</p>
               </div>
@@ -399,6 +457,412 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Bulk Leaderboard Modal ────────────────────────────────────────────────────
+
+function BulkLeaderboardModal({
+  result,
+  jobTitle,
+  onClose,
+}: {
+  result: BulkResult;
+  jobTitle: string;
+  onClose: () => void;
+}) {
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+
+  const copyWa = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(null), 2000);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 mb-6">
+        {/* Header */}
+        <div className="px-6 py-5 bg-gradient-to-r from-violet-600 to-indigo-600 relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10"
+            style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, white 1px, transparent 1px), radial-gradient(circle at 80% 20%, white 1px, transparent 1px)', backgroundSize: '40px 40px' }}
+          />
+          <div className="relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Trophy size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-lg">Hasil Bulk Screening</h3>
+                  <p className="text-violet-200 text-xs mt-0.5">{jobTitle}</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-all">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Summary stats */}
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              {[
+                { label: 'Diproses', value: result.total_processed, color: 'text-emerald-300', icon: CheckCircle2 },
+                { label: 'Kredit Dipotong', value: result.credits_deducted, color: 'text-amber-300', icon: Zap },
+                { label: 'Gagal', value: result.total_failed, color: result.total_failed > 0 ? 'text-red-300' : 'text-white/50', icon: AlertCircle },
+              ].map(({ label, value, color, icon: Icon }) => (
+                <div key={label} className="bg-white/10 rounded-xl px-3 py-2.5 text-center">
+                  <Icon size={14} className={`${color} mx-auto mb-1`} />
+                  <p className="text-white font-black text-xl">{value}</p>
+                  <p className="text-violet-200 text-[10px] font-medium">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Low credit warning */}
+        {result.low_credit_warning && (
+          <div className="mx-5 mt-4 flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50 border border-amber-200">
+            <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800 font-medium">{result.low_credit_warning}</p>
+          </div>
+        )}
+
+        {/* Failed files */}
+        {result.failed_files.length > 0 && (
+          <div className="mx-5 mt-4 rounded-xl border border-red-100 overflow-hidden">
+            <div className="px-4 py-2.5 bg-red-50 flex items-center gap-2">
+              <AlertCircle size={14} className="text-red-500" />
+              <span className="text-xs font-bold text-red-700">{result.failed_files.length} CV gagal diproses</span>
+            </div>
+            <div className="divide-y divide-red-50">
+              {result.failed_files.map((f, i) => (
+                <div key={i} className="px-4 py-2.5 flex items-start gap-3">
+                  <FileText size={13} className="text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-700 truncate">{f.file_name}</p>
+                    <p className="text-xs text-red-600 mt-0.5">{f.reason}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Leaderboard */}
+        <div className="p-5">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Trophy size={12} /> Leaderboard Kandidat — Urutan Terbaik
+          </h4>
+          <div className="space-y-2.5">
+            {result.leaderboard.map((entry) => {
+              const statusCfg = STATUS_CONFIG[entry.recommendation_status] || STATUS_CONFIG.PENDING;
+              const rankCfg = RANK_CONFIG[entry.rank - 1];
+              const isTop3 = entry.rank <= 3;
+
+              return (
+                <div
+                  key={entry.rank}
+                  className={`relative flex items-start gap-3 p-4 rounded-xl border transition-all ${
+                    isTop3
+                      ? 'border-violet-100 bg-gradient-to-r from-violet-50/50 to-white shadow-sm'
+                      : 'border-slate-100 bg-white hover:bg-slate-50/50'
+                  }`}
+                >
+                  {/* Rank badge */}
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-black ${
+                      isTop3 ? rankCfg.bg + ' ' + rankCfg.text + ' ' + rankCfg.ring : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {isTop3 ? rankCfg.icon : `#${entry.rank}`}
+                  </div>
+
+                  {/* Candidate info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-slate-900 text-sm">{entry.candidate_name}</span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusCfg.badgeBg} ${statusCfg.badgeText} ${statusCfg.badgeBorder}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot}`} />
+                        {statusCfg.label}
+                      </span>
+                      {entry.experience_level && entry.experience_level !== 'Not Recommended' && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-100">
+                          {entry.experience_level}
+                        </span>
+                      )}
+                    </div>
+                    {entry.pendidikan_terakhir && (
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">{entry.pendidikan_terakhir}</p>
+                    )}
+                    {entry.key_strengths.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {entry.key_strengths.slice(0, 2).map((s, i) => (
+                          <span key={i} className="px-2 py-0.5 text-[10px] rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium">{s}</span>
+                        ))}
+                        {entry.key_strengths.length > 2 && (
+                          <span className="px-2 py-0.5 text-[10px] rounded-md bg-slate-100 text-slate-500 font-medium">+{entry.key_strengths.length - 2} lagi</span>
+                        )}
+                      </div>
+                    )}
+                    {entry.risk_notes && (
+                      <p className="text-[10px] text-amber-700 mt-1 bg-amber-50 rounded-md px-2 py-1 border border-amber-100 inline-block max-w-full truncate">
+                        ⚠️ {entry.risk_notes}
+                      </p>
+                    )}
+                    {entry.red_flags.length > 0 && (
+                      <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-600 text-[10px] font-bold border border-red-100">
+                        <Shield size={9} /> {entry.red_flags.length} flag
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Score + actions */}
+                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <ScoreBadge score={entry.match_score} />
+                    <div className="flex items-center gap-1">
+                      {entry.draft_whatsapp && (
+                        <button
+                          onClick={() => copyWa(entry.draft_whatsapp, entry.rank)}
+                          title="Salin draft WA"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
+                        >
+                          {copiedIdx === entry.rank ? <Check size={13} className="text-emerald-500" /> : <MessageCircle size={13} />}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 max-w-[80px] truncate text-right">{entry.file_name}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {result.leaderboard.length === 0 && (
+            <div className="text-center py-8 text-slate-400">
+              <FileText size={24} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Tidak ada CV yang berhasil diproses.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            Data tersimpan di tabel pelamar. Refresh untuk melihat daftar lengkap.
+          </p>
+          <button
+            onClick={onClose}
+            className="px-5 py-2 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-sm shadow-violet-600/30 transition-all"
+          >
+            Selesai
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bulk Upload Panel ─────────────────────────────────────────────────────────
+
+function BulkUploadPanel({
+  jobId,
+  jobTitle,
+  quotaInfo,
+  session,
+  onDone,
+}: {
+  jobId: string;
+  jobTitle: string;
+  quotaInfo: QuotaInfo | null;
+  session: any;
+  onDone: (result: BulkResult) => void;
+}) {
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const maxFiles = quotaInfo?.bulkCvLimit ?? 10;
+  const isSubscriber = quotaInfo?.isSubscriber ?? false;
+  const freeSlotsRemaining = isSubscriber
+    ? Math.max(0, (quotaInfo?.pdfLimit ?? 0) - (quotaInfo?.monthlyCount ?? 0))
+    : 0;
+  const paidCvCount = Math.max(0, selectedFiles.length - freeSlotsRemaining);
+  const creditsNeeded = paidCvCount * 10;
+  const creditsAvailable = quotaInfo?.currentCredits ?? 0;
+  const insufficientCredits = paidCvCount > 0 && creditsAvailable < creditsNeeded;
+
+  const addFiles = useCallback((newFiles: FileList | null) => {
+    if (!newFiles) return;
+    const pdfs = Array.from(newFiles).filter(
+      f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+    );
+    setSelectedFiles(prev => {
+      const combined = [...prev, ...pdfs];
+      const unique = Array.from(new Map(combined.map(f => [f.name + f.size, f])).values());
+      return unique.slice(0, maxFiles);
+    });
+    setError('');
+  }, [maxFiles]);
+
+  const removeFile = (idx: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSubmit = async () => {
+    if (selectedFiles.length === 0) return;
+    if (insufficientCredits) {
+      setError(`Kredit tidak cukup. Dibutuhkan ${creditsNeeded} kredit, tersedia ${creditsAvailable}.`);
+      return;
+    }
+
+    setUploading(true);
+    setError('');
+
+    const formData = new FormData();
+    selectedFiles.forEach(f => formData.append('cv', f));
+
+    try {
+      const res = await fetch(`/api/v1/jobs/${jobId}/apply-bulk`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Gagal memproses CV massal.');
+      setSelectedFiles([]);
+      onDone(data as BulkResult);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Dropzone */}
+      <div
+        className={`relative border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all
+          ${dragOver ? 'border-violet-400 bg-violet-50' : 'border-slate-200 hover:border-violet-300 hover:bg-violet-50/30'}
+          ${uploading ? 'opacity-50 pointer-events-none' : ''}
+        `}
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          multiple
+          className="hidden"
+          onChange={e => addFiles(e.target.files)}
+        />
+        <div className="flex flex-col items-center gap-1.5">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-1 ${dragOver ? 'bg-violet-100' : 'bg-slate-100'}`}>
+            <Files size={18} className={dragOver ? 'text-violet-500' : 'text-slate-400'} />
+          </div>
+          <p className="text-sm font-semibold text-slate-700">Drag & drop CV disini</p>
+          <p className="text-xs text-slate-400">atau klik untuk pilih file (PDF, maks {maxFiles} file × 10MB)</p>
+        </div>
+      </div>
+
+      {/* Plan limit notice */}
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${isSubscriber ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'bg-slate-50 text-slate-600 border border-slate-200'}`}>
+        {isSubscriber ? <Crown size={12} className="text-indigo-500 flex-shrink-0" /> : <Zap size={12} className="text-slate-400 flex-shrink-0" />}
+        {isSubscriber
+          ? `Plan Premium — maks. ${maxFiles} CV per batch`
+          : `Plan Free — maks. ${maxFiles} CV per batch. Upgrade untuk ${(quotaInfo?.bulkCvLimit ?? 30)} CV sekaligus.`
+        }
+      </div>
+
+      {/* Selected files list */}
+      {selectedFiles.length > 0 && (
+        <div className="rounded-xl border border-slate-100 overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-600">{selectedFiles.length} file dipilih</span>
+            <button onClick={() => setSelectedFiles([])} className="text-xs text-red-500 hover:text-red-700 font-semibold transition-colors">
+              Hapus semua
+            </button>
+          </div>
+          <div className="max-h-44 overflow-y-auto divide-y divide-slate-50">
+            {selectedFiles.map((file, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <FileText size={13} className="text-red-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-slate-700 truncate">{file.name}</p>
+                  <p className="text-[10px] text-slate-400">{formatBytes(file.size)}</p>
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); removeFile(i); }}
+                  className="w-5 h-5 rounded-md flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Credit estimation */}
+      {selectedFiles.length > 0 && (
+        <div className={`p-3 rounded-xl border text-xs space-y-1.5 ${insufficientCredits ? 'bg-red-50 border-red-200' : freeSlotsRemaining >= selectedFiles.length ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+          <div className="flex items-center gap-1.5 font-bold">
+            {insufficientCredits
+              ? <><AlertTriangle size={12} className="text-red-500" /><span className="text-red-700">Kredit tidak cukup!</span></>
+              : freeSlotsRemaining >= selectedFiles.length
+              ? <><CheckCircle2 size={12} className="text-emerald-600" /><span className="text-emerald-700">Semua CV gratis (dalam kuota bulanan)</span></>
+              : <><Zap size={12} className="text-amber-600" /><span className="text-amber-700">Estimasi Pemotongan Kredit</span></>
+            }
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <span className="text-slate-600">Total CV:</span><span className="font-semibold text-slate-800">{selectedFiles.length} file</span>
+            {isSubscriber && freeSlotsRemaining > 0 && (
+              <><span className="text-slate-600">Slot gratis tersisa:</span><span className="font-semibold text-emerald-700">{Math.min(freeSlotsRemaining, selectedFiles.length)} CV</span></>
+            )}
+            {paidCvCount > 0 && (
+              <><span className="text-slate-600">CV berbayar:</span><span className="font-semibold">{paidCvCount} × 10 = {creditsNeeded} kredit</span></>
+            )}
+            <span className="text-slate-600">Saldo kredit:</span>
+            <span className={`font-semibold ${insufficientCredits ? 'text-red-600' : 'text-slate-800'}`}>{creditsAvailable} kredit</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-100">
+          <AlertCircle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-700">{error}</p>
+        </div>
+      )}
+
+      {/* Submit */}
+      <button
+        onClick={handleSubmit}
+        disabled={selectedFiles.length === 0 || uploading || insufficientCredits}
+        className="w-full py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-violet-500/30 transition-all flex items-center justify-center gap-2"
+      >
+        {uploading ? (
+          <>
+            <Loader2 size={15} className="animate-spin" />
+            Memproses {selectedFiles.length} CV dengan AI...
+          </>
+        ) : (
+          <>
+            <Zap size={15} />
+            Analisis {selectedFiles.length > 0 ? selectedFiles.length : ''} CV Sekaligus
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -419,12 +883,21 @@ const CVScreeningPage: React.FC = () => {
   const [applicants, setApplicants] = useState<Record<string, Applicant[]>>({});
   const [loadingApplicants, setLoadingApplicants] = useState<Record<string, boolean>>({});
 
-  // CV Upload state
+  // Single CV Upload state
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<CVAnalysisResult | null>(null);
   const [uploadError, setUploadError] = useState<Record<string, string>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Bulk CV state
+  const [uploadMode, setUploadMode] = useState<Record<string, 'single' | 'bulk'>>({});
+  const [bulkResult, setBulkResult] = useState<{ result: BulkResult; jobTitle: string } | null>(null);
+
+  // Quota Info State
+  const [quotaInfo, setQuotaInfo] = useState<QuotaInfo | null>(null);
+  const [showQuotaInfo, setShowQuotaInfo] = useState(false);
+  const [loadingQuota, setLoadingQuota] = useState(false);
 
   // ── Fetch jobs ─────────────────────────────────────────────────────────────
   const fetchJobs = async () => {
@@ -442,11 +915,6 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // Quota Info State
-  const [quotaInfo, setQuotaInfo] = useState<any>(null);
-  const [showQuotaInfo, setShowQuotaInfo] = useState(false);
-  const [loadingQuota, setLoadingQuota] = useState(false);
-
   // ── Fetch quota info ───────────────────────────────────────────────────────
   const fetchQuotaInfo = async () => {
     setLoadingQuota(true);
@@ -455,9 +923,7 @@ const CVScreeningPage: React.FC = () => {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       const data = await res.json();
-      if (data.success) {
-        setQuotaInfo(data.data);
-      }
+      if (data.success) setQuotaInfo(data.data as QuotaInfo);
     } catch (err) {
       console.error('Failed to fetch CV quota', err);
     } finally {
@@ -465,8 +931,8 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  useEffect(() => { 
-    fetchJobs(); 
+  useEffect(() => {
+    fetchJobs();
     fetchQuotaInfo();
   }, [session]);
 
@@ -478,9 +944,7 @@ const CVScreeningPage: React.FC = () => {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       const data = await res.json();
-      if (data.success) {
-        setApplicants(prev => ({ ...prev, [jobId]: data.data || [] }));
-      }
+      if (data.success) setApplicants(prev => ({ ...prev, [jobId]: data.data || [] }));
     } catch (err) {
       console.error('Failed to fetch applicants', err);
     } finally {
@@ -518,7 +982,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── CV Upload & Analysis ───────────────────────────────────────────────────
+  // ── Single CV Upload & Analysis ────────────────────────────────────────────
   const processCV = async (jobId: string, file: File) => {
     if (!file || file.type !== 'application/pdf') {
       setUploadError(prev => ({ ...prev, [jobId]: 'Hanya file PDF yang diterima.' }));
@@ -536,22 +1000,18 @@ const CVScreeningPage: React.FC = () => {
     formData.append('cv', file);
 
     try {
-      const res = await fetch(`/api/v1/jobs/${jobId}/apply`, {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch(`/api/v1/jobs/${jobId}/apply`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || 'Analisis gagal.');
 
       setUploadResult(data.data as CVAnalysisResult);
-      // Refresh applicants list
       fetchApplicants(jobId);
+      fetchQuotaInfo();
       if (expandedJob !== jobId) setExpandedJob(jobId);
     } catch (err: any) {
       setUploadError(prev => ({ ...prev, [jobId]: err.message }));
     } finally {
       setUploadingFor(null);
-      // Reset file input
       if (fileInputRefs.current[jobId]) fileInputRefs.current[jobId]!.value = '';
     }
   };
@@ -572,8 +1032,6 @@ const CVScreeningPage: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        // Changing status invalidates any previously sent email (content no
-        // longer matches) — reset locally so HR is prompted to send again.
         setApplicants(prev => ({
           ...prev,
           [jobId]: (prev[jobId] || []).map(a =>
@@ -689,6 +1147,10 @@ const CVScreeningPage: React.FC = () => {
     ? Math.round(allApplicants.reduce((s, a) => s + a.ats_score, 0) / totalApplicants)
     : 0;
 
+  const getMode = (jobId: string) => uploadMode[jobId] || 'single';
+  const setMode = (jobId: string, mode: 'single' | 'bulk') =>
+    setUploadMode(prev => ({ ...prev, [jobId]: mode }));
+
   return (
     <div className="space-y-6">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -709,6 +1171,12 @@ const CVScreeningPage: React.FC = () => {
           >
             <AlertCircle size={15} className="text-slate-500" />
             <span className="hidden sm:inline">Info Kuota</span>
+            {quotaInfo && (
+              <span className="flex items-center gap-0.5 text-amber-600 font-bold text-xs">
+                <Star size={11} className="fill-current" />
+                {quotaInfo.currentCredits}
+              </span>
+            )}
           </button>
           <button
             onClick={() => { setEditingJob(undefined); setShowJobModal(true); }}
@@ -735,47 +1203,62 @@ const CVScreeningPage: React.FC = () => {
                 <X size={15} />
               </button>
             </div>
-            
+
             <div className="p-6 space-y-5">
-              {/* Usage Stats */}
               {loadingQuota ? (
                 <div className="flex justify-center py-4"><Loader2 className="animate-spin text-slate-400" /></div>
               ) : quotaInfo ? (
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Penggunaan Bulan Ini</h4>
-                  
-                  {quotaInfo.isSubscriber ? (
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-slate-600">Kuota Bulanan Gratis</span>
-                        <span className="font-bold text-slate-900">{quotaInfo.monthlyCount} / {quotaInfo.pdfLimit} Scan</span>
+                <div className="space-y-4">
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Penggunaan Bulan Ini</h4>
+
+                    {quotaInfo.isSubscriber ? (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-slate-600">Kuota Bulanan Gratis</span>
+                          <span className="font-bold text-slate-900">{quotaInfo.monthlyCount} / {quotaInfo.pdfLimit} Scan</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2">
+                          <div
+                            className={`h-1.5 rounded-full ${quotaInfo.monthlyCount >= quotaInfo.pdfLimit ? 'bg-red-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.min(100, (quotaInfo.monthlyCount / (quotaInfo.pdfLimit || 1)) * 100)}%` }}
+                          />
+                        </div>
+                        {quotaInfo.monthlyCount >= quotaInfo.pdfLimit && (
+                          <p className="text-xs text-amber-600 font-medium">⚠️ Kuota bulanan habis. Scan selanjutnya akan menggunakan 10 kredit/scan.</p>
+                        )}
                       </div>
-                      <div className="w-full bg-slate-200 rounded-full h-1.5 mb-4">
-                        <div 
-                          className={`h-1.5 rounded-full ${quotaInfo.monthlyCount >= quotaInfo.pdfLimit ? 'bg-red-500' : 'bg-emerald-500'}`} 
-                          style={{ width: `${Math.min(100, (quotaInfo.monthlyCount / (quotaInfo.pdfLimit || 1)) * 100)}%` }}
-                        ></div>
+                    ) : (
+                      <div className="text-sm text-slate-600">
+                        Anda menggunakan paket <strong>Free</strong>. Setiap scan CV akan memotong saldo kredit Anda.
                       </div>
-                      {quotaInfo.monthlyCount >= quotaInfo.pdfLimit && (
-                        <p className="text-xs text-amber-600 font-medium">⚠️ Kuota bulanan habis. Scan selanjutnya akan menggunakan 10 kredit/scan.</p>
+                    )}
+
+                    <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center text-sm">
+                      <span className="text-slate-600">Saldo Kredit Tersedia</span>
+                      <span className="font-bold text-amber-600 flex items-center gap-1">
+                        <Star size={14} className="fill-current" /> {quotaInfo.currentCredits} Kredit
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Batas Bulk Upload</h4>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {quotaInfo.isSubscriber ? <Crown size={16} className="text-indigo-500" /> : <Zap size={16} className="text-slate-400" />}
+                        <span className="text-sm text-slate-700">
+                          {quotaInfo.isSubscriber ? 'Premium' : 'Free'} — maks. <strong>{quotaInfo.bulkCvLimit} CV</strong> per batch
+                        </span>
+                      </div>
+                      {!quotaInfo.isSubscriber && (
+                        <span className="text-xs text-indigo-600 font-semibold">Upgrade → 30 CV</span>
                       )}
                     </div>
-                  ) : (
-                    <div className="text-sm text-slate-600">
-                      Anda menggunakan paket <strong>Free</strong>. Setiap scan CV akan memotong saldo kredit Anda.
-                    </div>
-                  )}
-
-                  <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center text-sm">
-                    <span className="text-slate-600">Saldo Kredit Tersedia</span>
-                    <span className="font-bold text-amber-600 flex items-center gap-1">
-                      <Star size={14} className="fill-current" /> {quotaInfo.currentCredits} Kredit
-                    </span>
                   </div>
                 </div>
               ) : null}
 
-              {/* Rules Explanation */}
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Aturan Pemotongan</h4>
                 <ul className="space-y-2">
@@ -849,6 +1332,7 @@ const CVScreeningPage: React.FC = () => {
             const jobApplicants = applicants[job.id] || [];
             const isUploading = uploadingFor === job.id;
             const err = uploadError[job.id];
+            const mode = getMode(job.id);
 
             return (
               <div key={job.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden transition-all duration-200">
@@ -872,34 +1356,52 @@ const CVScreeningPage: React.FC = () => {
                     </p>
                   </div>
 
-                  {/* Upload CV area (compact) */}
-                  <div
-                    className={`hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-dashed cursor-pointer transition-all text-xs font-semibold
-                      ${dragOver === job.id
-                        ? 'border-violet-400 bg-violet-50 text-violet-600'
-                        : 'border-slate-200 text-slate-400 hover:border-violet-300 hover:text-violet-500 hover:bg-violet-50/30'
-                      }
-                      ${isUploading ? 'opacity-50 pointer-events-none' : ''}
-                    `}
-                    onClick={() => fileInputRefs.current[job.id]?.click()}
-                    onDragOver={e => { e.preventDefault(); setDragOver(job.id); }}
-                    onDragLeave={() => setDragOver(null)}
-                    onDrop={e => {
-                      e.preventDefault();
-                      setDragOver(null);
-                      const file = e.dataTransfer.files[0];
-                      if (file) processCV(job.id, file);
-                    }}
-                  >
-                    <input
-                      ref={el => { fileInputRefs.current[job.id] = el; }}
-                      type="file" accept=".pdf,application/pdf" className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) processCV(job.id, f); }}
-                    />
-                    {isUploading
-                      ? <><Loader2 size={14} className="animate-spin text-violet-500" /> Menganalisis...</>
-                      : <><Upload size={14} /> Upload CV (.pdf)</>
-                    }
+                  {/* Desktop Upload Mode Switcher + Upload area */}
+                  <div className="hidden sm:flex items-center gap-2">
+                    {/* Mode Toggle */}
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-semibold">
+                      <button
+                        onClick={() => setMode(job.id, 'single')}
+                        className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${mode === 'single' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        <FileText size={12} /> 1 CV
+                      </button>
+                      <button
+                        onClick={() => setMode(job.id, 'bulk')}
+                        className={`px-2.5 py-1.5 flex items-center gap-1 transition-colors ${mode === 'bulk' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        <Files size={12} /> Bulk
+                      </button>
+                    </div>
+
+                    {/* Single upload dropzone (compact) */}
+                    {mode === 'single' && (
+                      <div
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-dashed cursor-pointer transition-all text-xs font-semibold
+                          ${dragOver === job.id ? 'border-violet-400 bg-violet-50 text-violet-600' : 'border-slate-200 text-slate-400 hover:border-violet-300 hover:text-violet-500 hover:bg-violet-50/30'}
+                          ${isUploading ? 'opacity-50 pointer-events-none' : ''}
+                        `}
+                        onClick={() => fileInputRefs.current[job.id]?.click()}
+                        onDragOver={e => { e.preventDefault(); setDragOver(job.id); }}
+                        onDragLeave={() => setDragOver(null)}
+                        onDrop={e => {
+                          e.preventDefault();
+                          setDragOver(null);
+                          const file = e.dataTransfer.files[0];
+                          if (file) processCV(job.id, file);
+                        }}
+                      >
+                        <input
+                          ref={el => { fileInputRefs.current[job.id] = el; }}
+                          type="file" accept=".pdf,application/pdf" className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) processCV(job.id, f); }}
+                        />
+                        {isUploading
+                          ? <><Loader2 size={14} className="animate-spin text-violet-500" /> Menganalisis...</>
+                          : <><Upload size={14} /> Upload CV</>
+                        }
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -927,31 +1429,73 @@ const CVScreeningPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Mobile Upload + Error */}
-                <div className="sm:hidden px-4 pb-3">
-                  <div
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all text-xs font-semibold
-                      ${dragOver === job.id ? 'border-violet-400 bg-violet-50 text-violet-600' : 'border-slate-200 text-slate-400 hover:border-violet-300 hover:text-violet-500'}
-                      ${isUploading ? 'opacity-50 pointer-events-none' : ''}
-                    `}
-                    onClick={() => fileInputRefs.current[`mobile-${job.id}`]?.click()}
-                    onDragOver={e => { e.preventDefault(); setDragOver(job.id); }}
-                    onDragLeave={() => setDragOver(null)}
-                    onDrop={e => { e.preventDefault(); setDragOver(null); const file = e.dataTransfer.files[0]; if (file) processCV(job.id, file); }}
-                  >
-                    <input
-                      ref={el => { fileInputRefs.current[`mobile-${job.id}`] = el; }}
-                      type="file" accept=".pdf,application/pdf" className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) processCV(job.id, f); }}
-                    />
-                    {isUploading
-                      ? <><Loader2 size={13} className="animate-spin text-violet-500" /> Menganalisis CV dengan AI...</>
-                      : <><Upload size={13} /> Upload CV untuk dianalisis</>
-                    }
+                {/* Mobile Upload */}
+                <div className="sm:hidden px-4 pb-3 space-y-2">
+                  {/* Mobile mode toggle */}
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-semibold">
+                    <button
+                      onClick={() => setMode(job.id, 'single')}
+                      className={`flex-1 py-2 flex items-center justify-center gap-1.5 transition-colors ${mode === 'single' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                      <FileText size={12} /> Upload 1 CV
+                    </button>
+                    <button
+                      onClick={() => setMode(job.id, 'bulk')}
+                      className={`flex-1 py-2 flex items-center justify-center gap-1.5 transition-colors ${mode === 'bulk' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                      <Files size={12} /> Bulk Upload
+                    </button>
                   </div>
+                  {mode === 'single' && (
+                    <div
+                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all text-xs font-semibold
+                        ${dragOver === job.id ? 'border-violet-400 bg-violet-50 text-violet-600' : 'border-slate-200 text-slate-400 hover:border-violet-300 hover:text-violet-500'}
+                        ${isUploading ? 'opacity-50 pointer-events-none' : ''}
+                      `}
+                      onClick={() => fileInputRefs.current[`mobile-${job.id}`]?.click()}
+                      onDragOver={e => { e.preventDefault(); setDragOver(job.id); }}
+                      onDragLeave={() => setDragOver(null)}
+                      onDrop={e => { e.preventDefault(); setDragOver(null); const file = e.dataTransfer.files[0]; if (file) processCV(job.id, file); }}
+                    >
+                      <input
+                        ref={el => { fileInputRefs.current[`mobile-${job.id}`] = el; }}
+                        type="file" accept=".pdf,application/pdf" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) processCV(job.id, f); }}
+                      />
+                      {isUploading
+                        ? <><Loader2 size={13} className="animate-spin text-violet-500" /> Menganalisis CV dengan AI...</>
+                        : <><Upload size={13} /> Upload CV untuk dianalisis</>
+                      }
+                    </div>
+                  )}
                 </div>
 
-                {err && (
+                {/* Bulk Upload Panel (shown inline when mode=bulk) */}
+                {mode === 'bulk' && (
+                  <div className="mx-4 mb-4 p-4 rounded-xl border border-violet-100 bg-violet-50/30">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-6 h-6 rounded-lg bg-violet-100 flex items-center justify-center">
+                        <Files size={12} className="text-violet-600" />
+                      </div>
+                      <span className="text-sm font-bold text-violet-800">Bulk CV Upload</span>
+                      <span className="text-xs text-violet-500 font-medium">— Analisis banyak CV sekaligus</span>
+                    </div>
+                    <BulkUploadPanel
+                      jobId={job.id}
+                      jobTitle={job.title}
+                      quotaInfo={quotaInfo}
+                      session={session}
+                      onDone={(result) => {
+                        setBulkResult({ result, jobTitle: job.title });
+                        fetchApplicants(job.id);
+                        fetchQuotaInfo();
+                        if (expandedJob !== job.id) setExpandedJob(job.id);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {err && mode === 'single' && (
                   <div className="mx-4 mb-3 flex items-start gap-2 p-2.5 rounded-xl bg-red-50 border border-red-100">
                     <AlertCircle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-red-700">{err}</p>
@@ -1035,7 +1579,6 @@ const CVScreeningPage: React.FC = () => {
                                         <option value="TALENT_POOL">Talent Pool</option>
                                         <option value="TOLAK">Ditolak</option>
                                       </select>
-                                      {/* Quick decision — one click regardless of the AI's fit score */}
                                       <button
                                         onClick={() => handleUpdateStatus(job.id, applicant.id, 'LOLOS_INTERVIEW')}
                                         disabled={updatingStatus[applicant.id] || applicant.status === 'LOLOS_INTERVIEW'}
@@ -1161,6 +1704,14 @@ const CVScreeningPage: React.FC = () => {
         <ResultModal
           result={uploadResult}
           onClose={() => setUploadResult(null)}
+        />
+      )}
+
+      {bulkResult && (
+        <BulkLeaderboardModal
+          result={bulkResult.result}
+          jobTitle={bulkResult.jobTitle}
+          onClose={() => setBulkResult(null)}
         />
       )}
     </div>

@@ -84,13 +84,13 @@ async function fetchKnowledgeBaseTopics(orgId: string, projectId?: string): Prom
       .from('knowledge_nodes')
       .select('title')
       .eq('org_id', orgId);
-      
+
     if (projectId) {
       query = query.eq('project_id', projectId);
     }
-    
+
     const { data, error } = await query.limit(100);
-      
+
     if (error || !data) return [];
     const uniqueTitles = Array.from(new Set(data.map((item: any) => item.title).filter(Boolean)));
     return uniqueTitles as string[];
@@ -118,7 +118,7 @@ const buildSystemPrompt = (
   isFirstMessage: boolean = false
 ): string => {
   const hasContext = context && !context.includes('No relevant knowledge base articles found');
-  
+
   let cleanWa = '';
   if (adminWhatsApp) {
     const firstAdmin = adminWhatsApp.split(/[,;]+/)[0]?.trim() || '';
@@ -134,14 +134,14 @@ const buildSystemPrompt = (
   // ── Derive forbidden industry terms from the brand name that are absent from RAG topics
   // e.g. "Berl Cosmetics" → candidate forbidden terms: ["kosmetik", "kecantikan", "skincare", "makeup"]
   const BRAND_INDUSTRY_MAP: Record<string, string[]> = {
-    cosmetic:  ['kosmetik', 'kecantikan', 'skincare', 'makeup', 'beauty', 'serum', 'moisturizer'],
-    beauty:    ['kecantikan', 'kosmetik', 'skincare', 'makeup', 'serum'],
-    fashion:   ['fashion', 'pakaian', 'baju', 'outfit', 'clothing'],
-    food:      ['makanan', 'kuliner', 'restoran', 'menu', 'catering'],
-    tech:      ['elektronik', 'gadget', 'laptop', 'smartphone'],
-    gold:      ['emas', 'logam mulia', 'perhiasan', 'jewelry'],
-    jewelry:   ['perhiasan', 'emas', 'cincin', 'kalung', 'gelang'],
-    pharmacy:  ['obat', 'apotek', 'farmasi', 'suplemen'],
+    cosmetic: ['kosmetik', 'kecantikan', 'skincare', 'makeup', 'beauty', 'serum', 'moisturizer'],
+    beauty: ['kecantikan', 'kosmetik', 'skincare', 'makeup', 'serum'],
+    fashion: ['fashion', 'pakaian', 'baju', 'outfit', 'clothing'],
+    food: ['makanan', 'kuliner', 'restoran', 'menu', 'catering'],
+    tech: ['elektronik', 'gadget', 'laptop', 'smartphone'],
+    gold: ['emas', 'logam mulia', 'perhiasan', 'jewelry'],
+    jewelry: ['perhiasan', 'emas', 'cincin', 'kalung', 'gelang'],
+    pharmacy: ['obat', 'apotek', 'farmasi', 'suplemen'],
   };
   const companyLower = company.toLowerCase();
   const ragText = topics.join(' ').toLowerCase();
@@ -259,8 +259,8 @@ const buildSystemPrompt = (
     lines.push(`Dalam SATU balasan yang mengalir, lakukan hal berikut:`);
     lines.push(`1. Sapa dengan hangat dan perkenalkan diri secara singkat sebagai ${botName} dari ${company}.`);
     lines.push(`2. Jawab pertanyaan user secara singkat dan jelas (JIKA mereka langsung bertanya sesuatu).`);
-    lines.push(`3. Tutup dengan bertanya santai untuk berkenalan (gabungkan ke dalam kalimat yang natural, JANGAN buat format list/poin).`); 
-    
+    lines.push(`3. Tutup dengan bertanya santai untuk berkenalan (gabungkan ke dalam kalimat yang natural, JANGAN buat format list/poin).`);
+
     if (!hasValidPhone) {
       lines.push(`Yang perlu ditanyakan: Nama, Asal Perusahaan/Instansi, dan Nomor WA / Email aktif.`);
       lines.push(`Contoh gaya bicara (HANYA CONTOH): "Halo Kak! 👋 Salam kenal, aku ${botName} dari ${company}. [Jawaban singkat jika ditanya]. Oh ya, biar kita ngobrolnya lebih enak, boleh tau nama Kakak, dari perusahaan apa, dan ada nomor WA/email yang bisa dihubungi?"`);
@@ -268,7 +268,7 @@ const buildSystemPrompt = (
       lines.push(`Yang perlu ditanyakan: Nama dan Asal Perusahaan/Instansi.`);
       lines.push(`Contoh gaya bicara (HANYA CONTOH): "Halo Kak! 👋 Salam kenal, aku ${botName} dari ${company}. [Jawaban singkat jika ditanya]. Biar ngobrolnya lebih enak, boleh kenalan dulu? Nama Kakak siapa dan dari perusahaan/instansi mana ya?"`);
     }
-    
+
     lines.push(``);
     lines.push(`PENTING: Jangan buat tulisan yang terlalu formal/baku. Buat se-natural mungkin seperti chat WA dengan teman/CS manusia.`);
     lines.push(``);
@@ -368,7 +368,7 @@ export async function generateChatResponse(
 
   // ── Questions and small talk go to the model ──
   const topics = await fetchKnowledgeBaseTopics(orgId, projectId);
-  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite-preview'];
+  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3-flash-preview'];
 
   // Keep last 6 messages — scrub any assistant turns that contain the company name
   // to prevent hallucinated brand responses from bleeding into the current session
@@ -445,7 +445,7 @@ export async function generateChatResponse(
       // Robust JSON extraction: handles truncation and trailing garbage
       const sanitizeJson = (text: string): GeminiResponse | null => {
         // 1. Try direct parse first (fastest path)
-        try { return JSON.parse(text); } catch {}
+        try { return JSON.parse(text); } catch { }
         // 2. Extract first complete JSON object using brace depth counting
         let depth = 0, start = -1;
         for (let i = 0; i < text.length; i++) {
@@ -453,7 +453,7 @@ export async function generateChatResponse(
           else if (text[i] === '}') {
             depth--;
             if (depth === 0 && start !== -1) {
-              try { return JSON.parse(text.slice(start, i + 1)); } catch {}
+              try { return JSON.parse(text.slice(start, i + 1)); } catch { }
             }
           }
         }

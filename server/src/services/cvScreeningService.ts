@@ -321,7 +321,7 @@ CV pelamar telah dilampirkan sebagai file PDF di bawah ini. Lakukan analisis men
    * Try primary model first; fall back to the next if 503 / quota / rate-limit hit.
    * Pattern matches the existing gemini.ts retry approach in the codebase.
    */
-  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite-preview'];
+  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
   for (const modelId of modelsToTry) {
     try {
