@@ -1324,7 +1324,6 @@ const CVScreeningPage: React.FC = () => {
   const [waGatewayStatus, setWaGatewayStatus] = useState<'loading' | 'connected' | 'disconnected'>('loading');
   const [waGatewayPhone, setWaGatewayPhone] = useState<string | null>(null);
   const [waModal, setWaModal] = useState<{ applicant: Applicant; jobId: string } | null>(null);
-  const [sendingWa, setSendingWa] = useState<Record<string, boolean>>({});
   const [showWaInfo, setShowWaInfo] = useState(false);
   const [showWaQrModal, setShowWaQrModal] = useState(false);
 
