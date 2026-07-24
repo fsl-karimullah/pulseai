@@ -2142,9 +2142,7 @@ const CVScreeningPage: React.FC = () => {
                                           }`}
                                           disabled={waGatewayStatus !== 'connected'}
                                         >
-                                          {sendingWa[applicant.id]
-                                            ? <Loader2 size={15} className="animate-spin" />
-                                            : <MessageSquare size={15} />}
+                                          <MessageSquare size={15} />
                                         </button>
                                       )}
                                       {applicant.draft_whatsapp && (
