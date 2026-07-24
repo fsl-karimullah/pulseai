@@ -126,6 +126,15 @@ if (!process.env.VERCEL) {
 
   process.on('SIGTERM', () => handleShutdown('SIGTERM'));
   process.on('SIGINT', () => handleShutdown('SIGINT'));
+
+  // ─── Global Error Handlers to Prevent Crash ──────────────────────────────────
+  process.on('uncaughtException', (err) => {
+    logger.error({ err: err.message, stack: err.stack }, '[Server] Uncaught Exception — continuing');
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error({ reason }, '[Server] Unhandled Promise Rejection — continuing');
+  });
 }
 
 export default app;

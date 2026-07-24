@@ -33,9 +33,14 @@ import {
   AlertTriangle,
   Zap,
   Crown,
+  Phone,
+  MessageSquare,
+  Wifi,
+  WifiOff,
+  Info,
 } from 'lucide-react';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// --- Types --------------------------------------------------------------------
 
 interface JobVacancy {
   id: string;
@@ -59,6 +64,8 @@ interface Applicant {
   draft_email_subject?: string;
   draft_email_body?: string;
   email_sent_at?: string | null;
+  whatsapp_sent_at?: string | null;
+  whatsapp_number_used?: string | null;
   analysis_result?: CVAnalysisResult;
   created_at: string;
 }
@@ -115,7 +122,7 @@ interface QuotaInfo {
   bulkCvLimit: number;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------------------
 
 const STATUS_CONFIG = {
   LOLOS_INTERVIEW: {
@@ -204,9 +211,424 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
+// --- Sub-components ----------------------------------------------------------
 
-function JobModal({ onClose, onSaved, initialData }: { onClose: () => void; onSaved: (job: JobVacancy, isEdit: boolean) => void; initialData?: JobVacancy }) {
+// --- WhatsApp Message Modal --------------------------------------------------------
+
+interface WaTemplateMap { [key: string]: (name: string) => string }
+const WA_TEMPLATES: WaTemplateMap = {
+  LOLOS_INTERVIEW: (name) =>
+    `Halo ${name},\n\nKami dengan senang hati menginformasikan bahwa Anda *lolos seleksi administrasi* dan kami ingin mengundang Anda untuk mengikuti tahapan *interview* bersama tim kami.\n\nKami akan segera menghubungi Anda untuk konfirmasi jadwal. Mohon pastikan nomor ini aktif.\n\nTerima kasih atas antusiasme Anda! 🎉\n\nSalam,\nTim HRD`,
+  TALENT_POOL: (name) =>
+    `Halo ${name},\n\nTerima kasih telah mengirimkan lamaran kepada kami. Setelah melalui proses seleksi, kami menyimpan profil Anda di *talent pool* perusahaan kami.\n\nKami akan menghubungi kembali apabila ada posisi yang sesuai dengan profil Anda di masa mendatang.\n\nSalam,\nTim HRD`,
+  TOLAK: (name) =>
+    `Halo ${name},\n\nTerima kasih telah meluangkan waktu untuk melamar ke perusahaan kami. Setelah melalui proses seleksi, kami menyampaikan bahwa posisi ini telah diisi oleh kandidat lain yang kualifikasinya lebih sesuai saat ini.\n\nKami mengapresiasi antusiasme dan waktu Anda. Semoga sukses untuk perjalanan karier Anda ke depannya. 🙏\n\nSalam,\nTim HRD`,
+};
+
+function normalizePhonePreview(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  let n = digits;
+  if (n.startsWith('0')) n = '62' + n.slice(1);
+  else if (!n.startsWith('62')) n = '62' + n;
+  return n;
+}
+
+type WhatsappMessageModalProps = {
+  applicant: Applicant;
+  jobId: string;
+  session: any;
+  onClose: () => void;
+  onSent: (applicantId: string, phone: string) => void;
+};
+function WhatsappMessageModal({
+  applicant,
+  jobId,
+  session,
+  onClose,
+  onSent,
+}: WhatsappMessageModalProps) {
+  const [phone, setPhone] = useState(applicant.whatsapp || '');
+  const [editingPhone, setEditingPhone] = useState(!applicant.whatsapp);
+  const [phoneError, setPhoneError] = useState('');
+  const [message, setMessage] = useState(
+    applicant.draft_whatsapp || WA_TEMPLATES[applicant.status]?.(applicant.name) || ''
+  );
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const [disclaimerRead, setDisclaimerRead] = useState(false);
+
+  const phonePreview = normalizePhonePreview(phone);
+  const isPhoneValid = phonePreview.length >= 10 && phonePreview.length <= 16;
+  const cfg = STATUS_CONFIG[applicant.status] || STATUS_CONFIG.PENDING;
+
+  const handleTemplateSelect = (status: string) => {
+    const tpl = WA_TEMPLATES[status];
+    if (tpl) setMessage(tpl(applicant.name));
+  };
+
+  const validatePhone = (val: string) => {
+    const digits = val.replace(/\D/g, '');
+    if (!digits) { setPhoneError('Nomor tidak boleh kosong.'); return false; }
+    const preview = normalizePhonePreview(val);
+    if (preview.length < 10 || preview.length > 16) {
+      setPhoneError('Nomor tidak valid. Minimal 9 digit (contoh: 081234567890).');
+      return false;
+    }
+    setPhoneError('');
+    return true;
+  };
+
+  const handleSend = async () => {
+    if (!validatePhone(phone)) return;
+    if (!message.trim()) { setSendError('Pesan tidak boleh kosong.'); return; }
+    if (!disclaimerRead) { setSendError('Harap centang konfirmasi disclaimer terlebih dahulu.'); return; }
+
+    setSending(true);
+    setSendError('');
+    try {
+      const res = await fetch(`/api/v1/jobs/${jobId}/applicants/${applicant.id}/send-whatsapp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ message: message.trim(), phone: phone.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Gagal mengirim WhatsApp.');
+      onSent(applicant.id, data.phone_used || phonePreview);
+      onClose();
+    } catch (err: any) {
+      setSendError(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 my-4 flex flex-col max-h-[90vh]">
+
+        {/* Header */}
+        <div className="px-5 py-4 bg-gradient-to-r from-emerald-500 to-green-600 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+              <MessageSquare size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-white">Kirim Notifikasi WhatsApp</h3>
+              <p className="text-emerald-100 text-xs mt-0.5">via WA Gateway</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-all">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto">
+
+          {/* Left Column: Information */}
+          <div className="space-y-5">
+            {/* ⚠️ Disclaimer */}
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-amber-800 mb-1.5">⚠️ Disclaimer Penggunaan WhatsApp</p>
+                  <ul className="space-y-1 text-xs text-amber-700">
+                    <li className="flex items-start gap-1.5"><span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />Kirim pesan hanya untuk notifikasi rekrutmen resmi, bukan promosi/spam.</li>
+                    <li className="flex items-start gap-1.5"><span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />Frekuensi wajar: <strong>1 pesan per kandidat</strong> untuk topik yang sama.</li>
+                    <li className="flex items-start gap-1.5"><span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />Pengiriman massal atau berulang dapat menyebabkan nomor WA HRD <strong>diblokir</strong> oleh WhatsApp.</li>
+                    <li className="flex items-start gap-1.5"><span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />Pastikan peserta memang menunggu kabar dari perusahaan Anda.</li>
+                  </ul>
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={disclaimerRead}
+                      onChange={e => setDisclaimerRead(e.target.checked)}
+                      className="w-4 h-4 rounded border-amber-400 text-amber-600 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-semibold text-amber-800">Saya mengerti dan berkomitmen menggunakan fitur ini secara wajar.</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* 📋 Verifikasi Data Pelamar */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Info size={11} /> Verifikasi Data Pelamar
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                <span className="text-slate-500">Nama</span>
+                <span className="font-semibold text-slate-800 truncate">{applicant.name}</span>
+                {applicant.email && (<>
+                  <span className="text-slate-500">Email</span>
+                  <span className="font-medium text-slate-700 truncate">{applicant.email}</span>
+                </>)}
+                {applicant.pendidikan_terakhir && (<>
+                  <span className="text-slate-500">Pendidikan</span>
+                  <span className="font-medium text-slate-700 truncate">{applicant.pendidikan_terakhir}</span>
+                </>)}
+                <span className="text-slate-500">Status AI</span>
+                <span className={`font-bold ${cfg.badgeText}`}>{cfg.label}</span>
+                <span className="text-slate-500">ATS Score</span>
+                <span className="font-bold text-slate-800">{applicant.ats_score}/100</span>
+              </div>
+              {applicant.whatsapp_sent_at && (
+                <div className="mt-3 pt-3 border-t border-slate-200 flex items-center gap-2">
+                  <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />
+                  <p className="text-xs text-slate-600">
+                    WA sudah pernah dikirim ke <strong>{applicant.whatsapp_number_used}</strong> pada{' '}
+                    {new Date(applicant.whatsapp_sent_at).toLocaleString('id-ID')}. Kirim lagi?
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* 📞 Nomor WA Tujuan */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                  <Phone size={11} /> Nomor WhatsApp Tujuan
+                </label>
+                {!editingPhone && (
+                  <button
+                    onClick={() => setEditingPhone(true)}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-semibold transition-colors"
+                  >
+                    <Pencil size={11} /> Edit Nomor
+                  </button>
+                )}
+              </div>
+
+              {!applicant.whatsapp && !editingPhone && (
+                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 mb-2">
+                  <AlertTriangle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700">AI tidak berhasil mendeteksi nomor WhatsApp dari CV. Masukkan nomor secara manual.</p>
+                </div>
+              )}
+
+              {editingPhone ? (
+                <div className="space-y-1.5">
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={e => { setPhone(e.target.value); validatePhone(e.target.value); }}
+                    placeholder="Contoh: 081234567890"
+                    className={`w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 transition-all ${
+                      phoneError
+                        ? 'border-red-300 focus:ring-red-400/40 focus:border-red-400 bg-red-50'
+                        : 'border-slate-200 focus:ring-emerald-400/40 focus:border-emerald-400'
+                    }`}
+                    autoFocus
+                  />
+                  {phoneError && (
+                    <p className="text-xs text-red-600 flex items-center gap-1">
+                      <AlertCircle size={11} />{phoneError}
+                    </p>
+                  )}
+                  {phone && isPhoneValid && (
+                    <p className="text-xs text-slate-500">
+                      Format terkirim: <code className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-emerald-700">{phonePreview}@s.whatsapp.net</code>
+                    </p>
+                  )}
+                  {phone && !editingPhone && (
+                    <button onClick={() => setEditingPhone(false)} className="text-xs text-slate-500 hover:text-slate-700 transition-colors">
+                      Batalkan
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 px-3 py-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                  <Phone size={14} className="text-emerald-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800">{phone || <span className="text-slate-400 italic">Belum ada nomor</span>}</p>
+                    {phone && isPhoneValid && (
+                      <p className="text-[10px] text-slate-400">→ {phonePreview}@s.whatsapp.net</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
+                <Info size={10} /> Nomor diambil dari CV oleh AI dan mungkin tidak akurat. Selalu verifikasi sebelum kirim.
+              </p>
+            </div>
+          </div>
+
+          {/* Right Column: Message Input */}
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Pesan WhatsApp</label>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-slate-400 mr-1 hidden sm:inline">Template:</span>
+                {(['LOLOS_INTERVIEW', 'TALENT_POOL', 'TOLAK'] as const).map(s => {
+                  const c = STATUS_CONFIG[s];
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => handleTemplateSelect(s)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-all hover:opacity-80 ${c.badgeBg} ${c.badgeText} ${c.badgeBorder}`}
+                    >
+                      {c.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <textarea
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              placeholder="Tulis pesan WhatsApp untuk peserta..."
+              className="w-full flex-1 min-h-[250px] px-4 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all resize-none font-sans bg-slate-50 focus:bg-white"
+            />
+            
+            <div className="flex items-center justify-between mt-2 mb-3">
+              <p className="text-[11px] text-slate-400">Mendukung format *bold* WhatsApp.</p>
+              <p className={`text-[11px] font-medium ${message.length > 1500 ? 'text-red-500' : 'text-slate-400'}`}>
+                {message.length} karakter
+              </p>
+            </div>
+
+            {/* Error */}
+            {sendError && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-3">
+                <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">{sendError}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 text-sm font-semibold text-slate-700 border border-slate-200 rounded-xl hover:bg-white transition-all"
+          >
+            Batal
+          </button>
+          <button
+            onClick={handleSend}
+            disabled={sending || !disclaimerRead || !message.trim() || !isPhoneValid || !!phoneError}
+            className="px-6 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-sm shadow-emerald-500/30 transition-all flex items-center justify-center gap-2 min-w-[160px]"
+          >
+            {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+            {sending ? 'Mengirim...' : 'Kirim WhatsApp'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- WA QR Code Modal ---
+type WaQrModalProps = { session: any; onClose: () => void; onConnected: (phone: string) => void };
+function WaQrModal({ session, onClose, onConnected }: WaQrModalProps) {
+  const [qrBase64, setQrBase64] = useState<string | null>(null);
+  const [status, setStatus] = useState<'loading' | 'qr' | 'connected' | 'error'>('loading');
+  const [errorMsg, setErrorMsg] = useState('');
+  
+  const fetchQr = async () => {
+    try {
+      setStatus('loading');
+      const res = await fetch('/api/v1/whatsapp-gateway/start', {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Gagal mengambil QR Code');
+      
+      if (data.status === 'open' || data.status === 'connected') {
+        setStatus('connected');
+        onConnected(data.phoneNumber || '');
+      } else if (data.qrBase64) {
+        setQrBase64(data.qrBase64);
+        setStatus('qr');
+      } else {
+        throw new Error('QR Code tidak tersedia. Pastikan Gateway Server berjalan.');
+      }
+    } catch (err: any) {
+      setStatus('error');
+      setErrorMsg(err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchQr();
+    
+    // Polling status
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/v1/whatsapp-gateway/status', {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        const data = await res.json();
+        if (data.success && (data.status === 'open' || data.status === 'connected')) {
+          setStatus('connected');
+          onConnected(data.phoneNumber || '');
+          clearInterval(interval);
+          setTimeout(onClose, 2000);
+        }
+      } catch (err) {}
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [session]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <Wifi size={18} className="text-emerald-500" /> Hubungkan WhatsApp HRD
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={18} /></button>
+        </div>
+        <div className="p-6 flex flex-col items-center text-center space-y-4">
+          {status === 'loading' && (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <Loader2 size={32} className="animate-spin text-emerald-500" />
+              <p className="text-sm text-slate-500">Menyiapkan QR Code...</p>
+            </div>
+          )}
+          {status === 'error' && (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <AlertTriangle size={32} className="text-red-500" />
+              <p className="text-sm text-red-600">{errorMsg}</p>
+              <button onClick={fetchQr} className="px-4 py-2 mt-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg transition-all">Coba Lagi</button>
+            </div>
+          )}
+          {status === 'qr' && qrBase64 && (
+            <>
+              <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                <img src={qrBase64} alt="WhatsApp QR Code" className="w-48 h-48 object-contain" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-slate-800">Scan QR Code</p>
+                <p className="text-xs text-slate-500">Buka WhatsApp di HP Anda, buka menu <strong>Linked Devices (Perangkat Taut)</strong>, lalu scan QR code ini.</p>
+              </div>
+            </>
+          )}
+          {status === 'connected' && (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 size={32} className="text-emerald-600" />
+              </div>
+              <p className="text-sm font-bold text-emerald-700">Berhasil Terhubung!</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type JobModalProps = { onClose: () => void; onSaved: (job: JobVacancy, isEdit: boolean) => void; initialData?: JobVacancy };
+function JobModal({ onClose, onSaved, initialData }: JobModalProps) {
   const { session } = useAuth();
   const [title, setTitle] = useState(initialData?.title || '');
   const [description, setDescription] = useState(initialData?.description || '');
@@ -303,7 +725,8 @@ function JobModal({ onClose, onSaved, initialData }: { onClose: () => void; onSa
   );
 }
 
-function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: () => void }) {
+type ResultModalProps = { result: CVAnalysisResult; onClose: () => void };
+function ResultModal({ result, onClose }: ResultModalProps) {
   const [copied, setCopied] = useState(false);
   const cfg = STATUS_CONFIG[result.rekomendasi_status];
 
@@ -461,7 +884,7 @@ function ResultModal({ result, onClose }: { result: CVAnalysisResult; onClose: (
   );
 }
 
-// ─── Bulk Leaderboard Modal ────────────────────────────────────────────────────
+// --- Bulk Leaderboard Modal ----------------------------------------------------
 
 function BulkLeaderboardModal({
   result,
@@ -664,7 +1087,7 @@ function BulkLeaderboardModal({
   );
 }
 
-// ─── Bulk Upload Panel ─────────────────────────────────────────────────────────
+// --- Bulk Upload Panel ---------------------------------------------------------
 
 function BulkUploadPanel({
   jobId,
@@ -865,7 +1288,7 @@ function BulkUploadPanel({
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// --- Main Page ----------------------------------------------------------------
 
 const CVScreeningPage: React.FC = () => {
   const { session } = useAuth();
@@ -897,7 +1320,15 @@ const CVScreeningPage: React.FC = () => {
   const [showQuotaInfo, setShowQuotaInfo] = useState(false);
   const [loadingQuota, setLoadingQuota] = useState(false);
 
-  // ── Fetch jobs ─────────────────────────────────────────────────────────────
+  // WhatsApp gateway state
+  const [waGatewayStatus, setWaGatewayStatus] = useState<'loading' | 'connected' | 'disconnected'>('loading');
+  const [waGatewayPhone, setWaGatewayPhone] = useState<string | null>(null);
+  const [waModal, setWaModal] = useState<{ applicant: Applicant; jobId: string } | null>(null);
+  const [sendingWa, setSendingWa] = useState<Record<string, boolean>>({});
+  const [showWaInfo, setShowWaInfo] = useState(false);
+  const [showWaQrModal, setShowWaQrModal] = useState(false);
+
+  // -- Fetch jobs -------------------------------------------------------------
   const fetchJobs = async () => {
     setLoadingJobs(true);
     try {
@@ -913,7 +1344,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Fetch quota info ───────────────────────────────────────────────────────
+  // -- Fetch quota info -------------------------------------------------------
   const fetchQuotaInfo = async () => {
     setLoadingQuota(true);
     try {
@@ -932,9 +1363,63 @@ const CVScreeningPage: React.FC = () => {
   useEffect(() => {
     fetchJobs();
     fetchQuotaInfo();
+    fetchWaGatewayStatus();
+
+    // Poll WA gateway status every 10 seconds to detect disconnects
+    const interval = setInterval(() => {
+      fetch('/api/v1/whatsapp-gateway/status', {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            setWaGatewayStatus(data.connected ? 'connected' : 'disconnected');
+            if (data.phoneNumber) setWaGatewayPhone(data.phoneNumber);
+          } else {
+            setWaGatewayStatus('disconnected');
+          }
+        })
+        .catch(() => {
+          setWaGatewayStatus('disconnected');
+        });
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, [session]);
 
-  // ── Fetch applicants for a job ─────────────────────────────────────────────
+  // -- Fetch WA Gateway status (initial load) ---------------------------------------------
+  const fetchWaGatewayStatus = async () => {
+    setWaGatewayStatus('loading');
+    try {
+      const res = await fetch('/api/v1/whatsapp-gateway/status', {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWaGatewayStatus(data.connected ? 'connected' : 'disconnected');
+        setWaGatewayPhone(data.phoneNumber || null);
+      } else {
+        setWaGatewayStatus('disconnected');
+      }
+    } catch {
+      setWaGatewayStatus('disconnected');
+    }
+  };
+
+  // -- Handle WA sent callback -----------------------------------------------
+  const handleWaSent = (jobId: string, applicantId: string, phoneUsed: string) => {
+    setApplicants(prev => ({
+      ...prev,
+      [jobId]: (prev[jobId] || []).map(a =>
+        a.id === applicantId
+          ? { ...a, whatsapp_sent_at: new Date().toISOString(), whatsapp_number_used: phoneUsed }
+          : a
+      ),
+    }));
+  };
+
+
+  // -- Fetch applicants for a job ---------------------------------------------
   const fetchApplicants = async (jobId: string) => {
     setLoadingApplicants(prev => ({ ...prev, [jobId]: true }));
     try {
@@ -959,7 +1444,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Delete Job ─────────────────────────────────────────────────────────────
+  // -- Delete Job -------------------------------------------------------------
   const handleDeleteJob = async (jobId: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus lowongan ini? Semua data pelamar di dalamnya akan ikut terhapus secara permanen.')) return;
     try {
@@ -980,7 +1465,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Single CV Upload & Analysis ────────────────────────────────────────────
+  // -- Single CV Upload & Analysis --------------------------------------------
   const processCV = async (jobId: string, file: File) => {
     if (!file || file.type !== 'application/pdf') {
       setUploadError(prev => ({ ...prev, [jobId]: 'Hanya file PDF yang diterima.' }));
@@ -1014,7 +1499,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Update Applicant Status ────────────────────────────────────────────────
+  // -- Update Applicant Status ------------------------------------------------
   const [updatingStatus, setUpdatingStatus] = useState<Record<string, boolean>>({});
 
   const handleUpdateStatus = async (jobId: string, applicantId: string, status: Applicant['status']) => {
@@ -1047,7 +1532,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Send Email to Applicant ────────────────────────────────────────────────
+  // -- Send Email to Applicant ------------------------------------------------
   const [sendingEmail, setSendingEmail] = useState<Record<string, boolean>>({});
 
   const handleSendEmail = async (jobId: string, applicantId: string) => {
@@ -1076,7 +1561,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Send Email to ALL Eligible Applicants (bulk, 1-click) ──────────────────
+  // -- Send Email to ALL Eligible Applicants (bulk, 1-click) ------------------
   const [sendingBulkEmail, setSendingBulkEmail] = useState<Record<string, boolean>>({});
 
   const getEligibleForBulkEmail = (jobId: string) =>
@@ -1114,7 +1599,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Delete Applicant ───────────────────────────────────────────────────────
+  // -- Delete Applicant -------------------------------------------------------
   const handleDeleteApplicant = async (jobId: string, applicantId: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus pelamar ini?')) return;
     try {
@@ -1137,7 +1622,7 @@ const CVScreeningPage: React.FC = () => {
     }
   };
 
-  // ── Stats ──────────────────────────────────────────────────────────────────
+  // -- Stats ------------------------------------------------------------------
   const allApplicants = Object.values(applicants).flat();
   const totalApplicants  = allApplicants.length;
   const lolos            = allApplicants.filter(a => a.status === 'LOLOS_INTERVIEW').length;
@@ -1151,7 +1636,7 @@ const CVScreeningPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* -- Header ----------------------------------------------------------- */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
@@ -1176,6 +1661,34 @@ const CVScreeningPage: React.FC = () => {
               </span>
             )}
           </button>
+          {/* WA Status Badge */}
+          <button
+            onClick={() => {
+              if (waGatewayStatus === 'loading') return;
+              if (waGatewayStatus === 'connected') setShowWaInfo(true);
+              else setShowWaQrModal(true);
+            }}
+            title={waGatewayStatus === 'connected' ? 'WhatsApp HRD Terhubung — Klik untuk detail' : 'WhatsApp HRD Belum Terhubung — Klik untuk hubungkan'}
+            className={`flex items-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-xl border transition-all ${
+              waGatewayStatus === 'loading'
+                ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-wait'
+                : waGatewayStatus === 'connected'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
+            }`}
+          >
+            {waGatewayStatus === 'loading' ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : waGatewayStatus === 'connected' ? (
+              <Wifi size={14} />
+            ) : (
+              <WifiOff size={14} />
+            )}
+            <span className="hidden sm:inline">
+              {waGatewayStatus === 'loading' ? 'Memeriksa WA...' : waGatewayStatus === 'connected' ? 'WA HRD Aktif' : 'Hubungkan WA HRD'}
+            </span>
+          </button>
+
           <button
             onClick={() => { setEditingJob(undefined); setShowJobModal(true); }}
             className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm shadow-violet-600/30 transition-all active:scale-95"
@@ -1186,7 +1699,7 @@ const CVScreeningPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Quota Info Modal ─────────────────────────────────────────────────── */}
+      {/* -- Quota Info Modal --------------------------------------------------- */}
       {showQuotaInfo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -1285,7 +1798,7 @@ const CVScreeningPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Stats Row ──────────────────────────────────────────────────────── */}
+      {/* -- Stats Row -------------------------------------------------------- */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Total Lowongan', value: jobs.length, icon: Briefcase, color: 'text-violet-600', bg: 'bg-violet-50' },
@@ -1303,7 +1816,7 @@ const CVScreeningPage: React.FC = () => {
         ))}
       </div>
 
-      {/* ── Jobs List ──────────────────────────────────────────────────────── */}
+      {/* -- Jobs List -------------------------------------------------------- */}
       <div className="space-y-3">
         {loadingJobs ? (
           <div className="flex justify-center py-16">
@@ -1610,6 +2123,31 @@ const CVScreeningPage: React.FC = () => {
                                           <Eye size={15} />
                                         </button>
                                       )}
+                                      {/* WhatsApp Button */}
+                                      {applicant.whatsapp_sent_at ? (
+                                        <button
+                                          disabled
+                                          title={`WA sudah dikirim ke ${applicant.whatsapp_number_used} (${new Date(applicant.whatsapp_sent_at).toLocaleString('id-ID')})`}
+                                          className="p-1.5 rounded-lg text-emerald-500 cursor-default"
+                                        >
+                                          <MessageSquare size={15} />
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => setWaModal({ applicant, jobId: job.id })}
+                                          title={applicant.whatsapp ? `Kirim WA ke ${applicant.whatsapp}` : 'Kirim WA (masukkan nomor manual)'}
+                                          className={`p-1.5 rounded-lg transition-all ${
+                                            waGatewayStatus !== 'connected'
+                                              ? 'text-slate-300 cursor-not-allowed'
+                                              : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                          }`}
+                                          disabled={waGatewayStatus !== 'connected'}
+                                        >
+                                          {sendingWa[applicant.id]
+                                            ? <Loader2 size={15} className="animate-spin" />
+                                            : <MessageSquare size={15} />}
+                                        </button>
+                                      )}
                                       {applicant.draft_whatsapp && (
                                         <button
                                           onClick={() => navigator.clipboard.writeText(applicant.draft_whatsapp!)}
@@ -1680,7 +2218,7 @@ const CVScreeningPage: React.FC = () => {
         )}
       </div>
 
-      {/* ── Modals ─────────────────────────────────────────────────────────── */}
+      {/* -- Modals ----------------------------------------------------------- */}
       {showJobModal && (
         <JobModal
           initialData={editingJob}
@@ -1709,6 +2247,114 @@ const CVScreeningPage: React.FC = () => {
           result={bulkResult.result}
           jobTitle={bulkResult.jobTitle}
           onClose={() => setBulkResult(null)}
+        />
+      )}
+
+      {/* WA Gateway Info Modal */}
+      {showWaInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className={`px-5 py-4 flex items-center justify-between ${
+              waGatewayStatus === 'connected' ? 'bg-emerald-50 border-b border-emerald-100' : 'bg-red-50 border-b border-red-100'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                {waGatewayStatus === 'connected'
+                  ? <Wifi size={18} className="text-emerald-600" />
+                  : <WifiOff size={18} className="text-red-500" />
+                }
+                <h3 className={`font-bold ${
+                  waGatewayStatus === 'connected' ? 'text-emerald-800' : 'text-red-700'
+                }`}>
+                  {waGatewayStatus === 'connected' ? 'WA Gateway Terhubung' : 'WA Gateway Belum Terhubung'}
+                </h3>
+              </div>
+              <button onClick={() => setShowWaInfo(false)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {waGatewayStatus === 'connected' ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                    <CheckCircle2 size={16} className="text-emerald-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-800">WhatsApp aktif &amp; siap kirim</p>
+                      {waGatewayPhone && <p className="text-xs text-emerald-600 mt-0.5">Nomor: {waGatewayPhone}</p>}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">Klik tombol <strong>📱</strong> di baris pelamar untuk mengirim notifikasi WhatsApp.</p>
+                  
+                  {/* Disconnect Button */}
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Apakah Anda yakin ingin memutuskan WhatsApp HRD?')) return;
+                      try {
+                        setWaGatewayStatus('loading');
+                        await fetch('/api/v1/whatsapp-gateway/logout', { method: 'DELETE', headers: { Authorization: `Bearer ${session?.access_token}` } });
+                        fetchWaGatewayStatus();
+                        setShowWaInfo(false);
+                      } catch (err) {
+                        console.error('Logout error', err);
+                      }
+                    }}
+                    className="w-full mt-2 py-2 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-all"
+                  >
+                    Putuskan Koneksi WhatsApp
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-100">
+                    <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700">WhatsApp HRD belum terhubung. Scan QR untuk menghubungkan nomor WhatsApp HRD Anda.</p>
+                  </div>
+                  <button
+                    onClick={() => { setShowWaInfo(false); setShowWaQrModal(true); }}
+                    className="w-full py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <Wifi size={15} />
+                    Scan QR &amp; Hubungkan WhatsApp
+                  </button>
+                  <button
+                    onClick={() => { fetchWaGatewayStatus(); }}
+                    className="w-full py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <Loader2 size={13} className={waGatewayStatus === 'loading' ? 'animate-spin' : ''} />
+                    Cek Ulang Status
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button onClick={() => setShowWaInfo(false)} className="px-4 py-2 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all">Tutup</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Message Modal */}
+      {waModal && (
+        <WhatsappMessageModal
+          applicant={waModal.applicant}
+          jobId={waModal.jobId}
+          session={session}
+          onClose={() => setWaModal(null)}
+          onSent={(applicantId, phoneUsed) => {
+            handleWaSent(waModal.jobId, applicantId, phoneUsed);
+            setWaModal(null);
+          }}
+        />
+      )}
+
+      {/* QR Modal for HRD Connection */}
+      {showWaQrModal && (
+        <WaQrModal
+          session={session}
+          onClose={() => setShowWaQrModal(false)}
+          onConnected={(phone) => {
+            setWaGatewayStatus('connected');
+            setWaGatewayPhone(phone);
+          }}
         />
       )}
     </div>

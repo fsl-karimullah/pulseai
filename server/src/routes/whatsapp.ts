@@ -156,6 +156,14 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ success: false, message: 'Missing required fields: sender, message, userId' });
       }
 
+      // ── Step 0.5: Skip HRD bot auto-reply ─────────────────────────────
+      // HRD numbers are strictly for outbound sending (CV Screening).
+      // We don't want the AI chatbot to auto-reply to candidates here.
+      if (phoneLabel === 'hrd') {
+        fastify.log.info({ sender, phoneLabel }, 'Skipping AI auto-reply for HRD number');
+        return reply.send({ success: true, message: 'Ignored (HRD number does not auto-reply)' });
+      }
+
       // The address we actually send replies TO — use replyJid when provided (handles @lid contacts)
       // Falls back to raw sender if gateway didn't send replyJid (backward compat)
       const replyTo = replyJid || sender;

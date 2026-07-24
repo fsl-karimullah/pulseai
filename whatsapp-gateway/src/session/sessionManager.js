@@ -330,8 +330,7 @@ export async function createSession(userId, phoneLabel = 'default', opts = {}) {
         sessions.delete(key);
         fs.rmSync(sessionDir(userId, phoneLabel), { recursive: true, force: true });
       } else {
-        // Transient disconnect — notify server then auto-reconnect
-        pushSessionStatus({ userId, phoneLabel, botNumber: session.phoneNumber, status: 'DISCONNECTED' });
+        // Transient disconnect — auto-reconnect without broadcasting DISCONNECTED to UI
         logger.info({ userId, phoneLabel }, '[SessionManager] Transient disconnect — reconnecting in 3s');
         setTimeout(() => createSession(userId, phoneLabel, opts), 3_000);
       }
@@ -594,7 +593,18 @@ export async function destroySession(userId, phoneLabel = 'default', removeFromM
  * @param {number} [typingDurationMs]  - optional composing duration in ms
  */
 export async function sendMessage(userId, phoneLabel = 'default', recipientPhone, text, typingDurationMs = null) {
-  const session = sessions.get(buildKey(userId, phoneLabel));
+  let session = sessions.get(buildKey(userId, phoneLabel));
+  
+  // Wait up to 10 seconds if session exists but is temporarily disconnected
+  if (session && session.status !== 'open') {
+    logger.info({ userId, phoneLabel }, '[SessionManager] Waiting for session to reconnect before sending...');
+    for (let i = 0; i < 20; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      session = sessions.get(buildKey(userId, phoneLabel));
+      if (session && session.status === 'open') break;
+    }
+  }
+
   if (!session || session.status !== 'open') {
     throw new Error(`Session for userId '${userId}' / phoneLabel '${phoneLabel}' is not connected.`);
   }

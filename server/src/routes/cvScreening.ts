@@ -34,6 +34,31 @@ import { buildOrgSenderDisplay } from '../config/email';
 // ─── Max file size for CV uploads (separate from the global limit in app.ts) ──
 const MAX_CV_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
+// ─── WhatsApp Gateway base URL ───────────────────────────────────────────────
+// Supports both WA_GATEWAY_URL (new) and WHATSAPP_GATEWAY_URL (legacy) env names.
+const WA_GATEWAY_URL = (process.env.WA_GATEWAY_URL || process.env.WHATSAPP_GATEWAY_URL || 'http://localhost:4000').replace(/\/$/, '');
+
+/**
+ * Normalizes a WhatsApp phone number to the format required by Baileys:
+ * digits only, prefixed with country code 62 (Indonesia).
+ * Accepts: 08xx, 628xx, +628xx, 8xx.
+ * Returns: '628xxxxxxxxxx' or null if invalid.
+ */
+function normalizePhoneNumber(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 9) return null;
+
+  let normalized = digits;
+  if (normalized.startsWith('0')) {
+    normalized = '62' + normalized.slice(1);
+  } else if (!normalized.startsWith('62')) {
+    normalized = '62' + normalized;
+  }
+  // Basic sanity: Indonesian numbers are 10–15 digits total after normalization
+  if (normalized.length < 10 || normalized.length > 16) return null;
+  return normalized;
+}
+
 // Resend's Batch Email API accepts at most 100 emails per call.
 const EMAIL_BATCH_SIZE = 100;
 
@@ -1299,6 +1324,264 @@ export default async function cvScreeningRoutes(fastify: FastifyInstance) {
           success: false,
           message: err?.message ?? 'Terjadi kesalahan tak terduga saat memproses CV secara massal.',
         });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/v1/whatsapp-gateway/status
+  //
+  // Checks whether the WhatsApp gateway is connected for the authenticated
+  // org. The gateway uses orgId as the userId/tenantId identifier.
+  // Returns: { connected: boolean, phoneNumber?: string, phoneLabel: string }
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.get(
+    '/v1/whatsapp-gateway/status',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const userId = (request as any).user?.id;
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
+        }
+
+        const gwRes = await fetch(
+          `${WA_GATEWAY_URL}/api/session/status?userId=${encodeURIComponent(org.id)}&phoneLabel=hrd`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+
+        if (!gwRes.ok) {
+          return reply.send({ success: true, connected: false });
+        }
+
+        const gwData = await gwRes.json() as any;
+        const connected = gwData?.status === 'open' || gwData?.status === 'connected';
+
+        return reply.send({
+          success: true,
+          connected,
+          phoneNumber: gwData?.phoneNumber ?? null,
+          phoneLabel: gwData?.phoneLabel ?? 'hrd',
+          status: gwData?.status ?? 'disconnected',
+        });
+      } catch (err: any) {
+        // Gateway unreachable — treat as disconnected, not a server error
+        fastify.log.warn({ err: err?.message }, '[WA-Gateway] Status check failed — gateway unreachable');
+        return reply.send({ success: true, connected: false, error: 'Gateway tidak dapat dihubungi.' });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POST /api/v1/jobs/:jobId/applicants/:applicantId/send-whatsapp
+  //
+  // Sends a WhatsApp message to a specific applicant via the WA gateway.
+  // HR can provide a custom phone number (overriding the AI-extracted one)
+  // and edit the message before sending.
+  //
+  // Body: { message: string, phone: string }
+  //   - phone: any format (08xx / 628xx / +628xx) — normalized server-side
+  //   - message: the final text to send (may differ from AI draft)
+  //
+  // On success, records whatsapp_sent_at + whatsapp_number_used in DB.
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.post<{
+    Params: { jobId: string; applicantId: string };
+    Body: { message: string; phone: string };
+  }>(
+    '/v1/jobs/:jobId/applicants/:applicantId/send-whatsapp',
+    { preHandler: [authenticate] },
+    async (
+      request: FastifyRequest<{ Params: { jobId: string; applicantId: string }; Body: { message: string; phone: string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { jobId, applicantId } = request.params;
+        const { message, phone } = request.body;
+
+        if (!message?.trim()) {
+          return reply.status(400).send({ success: false, message: 'Pesan tidak boleh kosong.' });
+        }
+        if (!phone?.trim()) {
+          return reply.status(400).send({ success: false, message: 'Nomor WhatsApp tidak boleh kosong.' });
+        }
+
+        // ── Normalize phone number ────────────────────────────────────────
+        const normalizedPhone = normalizePhoneNumber(phone.trim());
+        if (!normalizedPhone) {
+          return reply.status(400).send({
+            success: false,
+            message: `Format nomor WhatsApp tidak valid: "${phone}". Gunakan format: 08xx, 628xx, atau +628xx.`,
+          });
+        }
+
+        // ── Verify org ownership ──────────────────────────────────────────
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan.' });
+        }
+
+        // ── Verify applicant belongs to this org+job ──────────────────────
+        const { data: applicant } = await supabase
+          .from('applicants')
+          .select('id, name')
+          .eq('id', applicantId)
+          .eq('job_id', jobId)
+          .eq('org_id', org.id)
+          .maybeSingle();
+
+        if (!applicant) {
+          return reply.status(404).send({ success: false, message: 'Pelamar tidak ditemukan.' });
+        }
+
+        // ── Send via WA gateway ───────────────────────────────────────────
+        const waTarget = `${normalizedPhone}@s.whatsapp.net`;
+
+        const gwRes = await fetch(`${WA_GATEWAY_URL}/api/session/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: org.id,
+            phoneLabel: 'hrd',
+            to: waTarget,
+            message: message.trim(),
+            typingDurationMs: 1200, // realistic typing simulation
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        const gwData = await gwRes.json() as any;
+
+        if (!gwRes.ok || !gwData?.success) {
+          let reason = gwData?.message || 'Pesan gagal dikirim oleh WhatsApp gateway.';
+          if (reason.includes('is not connected')) {
+            reason = 'Koneksi ke HP HRD sedang terputus atau offline. Pastikan HP HRD menyala dan terhubung ke internet, lalu coba lagi.';
+          } else if (reason.includes('Timeout')) {
+            reason = 'Gateway tidak merespons (Timeout). Silakan coba lagi.';
+          }
+
+          fastify.log.warn({ applicantId, normalizedPhone, reason }, '[WA-Gateway] Send failed');
+          return reply.status(502).send({
+            success: false,
+            message: `Gagal mengirim WhatsApp: ${reason}`,
+          });
+        }
+
+        // ── Record send timestamp + number used ───────────────────────────
+        await supabase
+          .from('applicants')
+          .update({
+            whatsapp_sent_at: new Date().toISOString(),
+            whatsapp_number_used: normalizedPhone,
+          })
+          .eq('id', applicantId)
+          .eq('org_id', org.id);
+
+        fastify.log.info(
+          { applicantId, to: waTarget },
+          '[WA-Gateway] Message sent successfully'
+        );
+
+        return reply.send({
+          success: true,
+          message: `Pesan WhatsApp berhasil dikirim ke ${normalizedPhone}.`,
+          phone_used: normalizedPhone,
+        });
+
+      } catch (err: any) {
+        fastify.log.error(err, '[WA-Gateway] send-whatsapp failed');
+        return reply.status(500).send({
+          success: false,
+          message: err?.message ?? 'Terjadi kesalahan saat mengirim WhatsApp.',
+        });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/v1/whatsapp-gateway/start
+  //
+  // Requests the WA gateway to start a new connection for slot 'hrd'.
+  // If not yet connected, it returns a qrBase64 string.
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.get(
+    '/v1/whatsapp-gateway/start',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) return reply.status(404).send({ success: false, message: 'Not found' });
+
+        const gwRes = await fetch(
+          `${WA_GATEWAY_URL}/api/session/start?userId=${encodeURIComponent(org.id)}&phoneLabel=hrd`,
+          { signal: AbortSignal.timeout(10000) }
+        );
+
+        if (!gwRes.ok) {
+          throw new Error('Gagal menginisiasi koneksi dengan gateway.');
+        }
+
+        const gwData = await gwRes.json() as any;
+        return reply.send({
+          success: true,
+          ...gwData, // contains status, qrBase64, phoneLabel, etc.
+        });
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DELETE /api/v1/whatsapp-gateway/logout
+  //
+  // Disconnects and destroys the 'hrd' session in the WA gateway.
+  // ─────────────────────────────────────────────────────────────────────────
+  fastify.delete(
+    '/v1/whatsapp-gateway/logout',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) return reply.status(404).send({ success: false, message: 'Not found' });
+
+        const gwRes = await fetch(
+          `${WA_GATEWAY_URL}/api/session/logout?userId=${encodeURIComponent(org.id)}&phoneLabel=hrd`,
+          { method: 'DELETE', signal: AbortSignal.timeout(5000) }
+        );
+
+        if (!gwRes.ok) {
+          throw new Error('Gagal logout dari gateway.');
+        }
+
+        return reply.send({ success: true, message: 'Berhasil logout' });
+      } catch (err: any) {
+        return reply.status(500).send({ success: false, message: err.message });
       }
     }
   );
