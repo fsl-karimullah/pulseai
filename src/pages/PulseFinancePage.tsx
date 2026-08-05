@@ -20,6 +20,7 @@ import {
   Users,
   Home,
   Package,
+  Trash2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -324,6 +325,23 @@ const PulseFinancePage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const handleDeleteTransaction = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('finance_transactions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchData();
+    } catch (err) {
+      console.error('Error deleting transaction:', err);
+      alert('Gagal menghapus transaksi.');
+    }
+  };
+
   // Hitung estimasi pajak
   // PPh Final UMKM: 0.5% x omzet (income)
   const annualIncomeEstimate = summary.totalIncome * 12; // estimasi setahun dari bulan ini
@@ -528,9 +546,18 @@ const PulseFinancePage: React.FC = () => {
                           </span>
                         </div>
                       </div>
-                      <p className={`text-sm font-black flex-shrink-0 ${isIncome ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {isIncome ? '+' : '-'}{formatRp(Number(tx.amount))}
-                      </p>
+                      <div className="flex items-center gap-3">
+                        <p className={`text-sm font-black flex-shrink-0 ${isIncome ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {isIncome ? '+' : '-'}{formatRp(Number(tx.amount))}
+                        </p>
+                        <button
+                          onClick={() => handleDeleteTransaction(tx.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                          title="Hapus transaksi"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
