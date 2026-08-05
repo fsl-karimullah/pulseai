@@ -21,6 +21,7 @@ import {
   Home,
   Package,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -75,20 +76,21 @@ const formatRp = (val: number) =>
 
 const MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 
-// ── Modal Tambah Transaksi ─────────────────────────────────────────────────────
+// ── Modal Tambah/Edit Transaksi ─────────────────────────────────────────────────────
 interface AddTxModalProps {
   onClose: () => void;
   onSaved: () => void;
   orgId: string;
+  transactionToEdit?: Transaction | null;
 }
 
-const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId }) => {
-  const [type, setType] = useState<TransactionType>('income');
-  const [category, setCategory] = useState('');
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [notes, setNotes] = useState('');
+const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId, transactionToEdit }) => {
+  const [type, setType] = useState<TransactionType>(transactionToEdit?.type || 'income');
+  const [category, setCategory] = useState(transactionToEdit?.category || '');
+  const [description, setDescription] = useState(transactionToEdit?.description || '');
+  const [amount, setAmount] = useState(transactionToEdit ? Math.abs(transactionToEdit.amount).toLocaleString('id-ID') : '');
+  const [date, setDate] = useState(transactionToEdit?.date || new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState(transactionToEdit?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,7 +105,7 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId }) => {
     setLoading(true);
     setError(null);
     try {
-      const { error: dbErr } = await supabase.from('finance_transactions').insert({
+      const payload = {
         org_id: orgId,
         type,
         category,
@@ -111,7 +113,17 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId }) => {
         amount: numAmount,
         date,
         notes: notes || null,
-      });
+      };
+
+      let dbErr;
+      if (transactionToEdit) {
+        const { error } = await supabase.from('finance_transactions').update(payload).eq('id', transactionToEdit.id);
+        dbErr = error;
+      } else {
+        const { error } = await supabase.from('finance_transactions').insert(payload);
+        dbErr = error;
+      }
+      
       if (dbErr) throw dbErr;
       onSaved();
     } catch (err: any) {
@@ -132,7 +144,7 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId }) => {
         
         {/* Header */}
         <div className="sticky top-0 bg-white/95 backdrop-blur px-6 py-5 border-b border-slate-100 flex items-center justify-between rounded-t-3xl z-10">
-          <h2 className="text-lg font-black text-slate-900">Tambah Transaksi</h2>
+          <h2 className="text-lg font-black text-slate-900">{transactionToEdit ? 'Edit Transaksi' : 'Tambah Transaksi'}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">
             <X size={16} />
           </button>
@@ -270,6 +282,7 @@ const PulseFinancePage: React.FC = () => {
   const [summary, setSummary] = useState<Summary>({ totalIncome: 0, totalExpense: 0, netProfit: 0, transactionCount: 0 });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear] = useState(new Date().getFullYear());
@@ -489,7 +502,7 @@ const PulseFinancePage: React.FC = () => {
                 <p className="text-xs text-slate-400 mt-0.5">{summary.transactionCount} transaksi dicatat</p>
               </div>
               <button
-                onClick={() => setShowModal(true)}
+                onClick={() => { setEditingTransaction(null); setShowModal(true); }}
                 className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors"
               >
                 <PlusCircle size={13} /> Tambah
@@ -514,7 +527,7 @@ const PulseFinancePage: React.FC = () => {
                   <p className="text-sm text-slate-400 mt-1">Klik "Tambah Transaksi" untuk mulai mencatat</p>
                 </div>
                 <button
-                  onClick={() => setShowModal(true)}
+                  onClick={() => { setEditingTransaction(null); setShowModal(true); }}
                   className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-md shadow-emerald-500/20 transition-all hover:bg-emerald-700"
                 >
                   <PlusCircle size={15} /> Tambah Transaksi Pertama
@@ -550,13 +563,22 @@ const PulseFinancePage: React.FC = () => {
                         <p className={`text-sm font-black flex-shrink-0 ${isIncome ? 'text-emerald-600' : 'text-rose-600'}`}>
                           {isIncome ? '+' : '-'}{formatRp(Number(tx.amount))}
                         </p>
-                        <button
-                          onClick={() => handleDeleteTransaction(tx.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                          title="Hapus transaksi"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            onClick={() => { setEditingTransaction(tx); setShowModal(true); }}
+                            className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
+                            title="Edit transaksi"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTransaction(tx.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                            title="Hapus transaksi"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -679,8 +701,13 @@ const PulseFinancePage: React.FC = () => {
       {showModal && orgId && (
         <AddTxModal
           orgId={orgId}
-          onClose={() => setShowModal(false)}
-          onSaved={() => { setShowModal(false); fetchData(); }}
+          transactionToEdit={editingTransaction}
+          onClose={() => { setShowModal(false); setEditingTransaction(null); }}
+          onSaved={() => {
+            setShowModal(false);
+            setEditingTransaction(null);
+            fetchData();
+          }}
         />
       )}
     </div>
