@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   TrendingUp,
-  TrendingDown,
   PlusCircle,
   Wallet,
   BarChart3,
@@ -263,7 +262,7 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId }) => {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 const PulseFinancePage: React.FC = () => {
-  const { session, user } = useAuth();
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);

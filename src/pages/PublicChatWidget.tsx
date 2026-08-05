@@ -61,7 +61,7 @@ const PublicChatWidget: React.FC = () => {
   const [attachments, setAttachments] = useState<{ mimeType: string; data: string; name: string }[]>([]);
   const [proactiveDelay, setProactiveDelay] = useState(0);
   const [followupDelay, setFollowupDelay] = useState(0);
-  const [handoffMode, setHandoffMode] = useState(false);
+
 
   // ── 1. Load history from localStorage on mount ───────────────────────────
   useEffect(() => {

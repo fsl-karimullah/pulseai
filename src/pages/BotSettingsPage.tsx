@@ -14,7 +14,6 @@ import {
   Loader2,
   PanelRightClose,
   PanelLeftClose,
-  Plus,
   X,
   Send,
   MessageSquareText,
