@@ -215,6 +215,32 @@ const DashboardPage: React.FC = () => {
         )}
       </div>
 
+      {/* Sales Funnel */}
+      {!loading && data?.funnel && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <h3 className="font-semibold text-slate-900 mb-4">Sales Funnel (Corong Penjualan)</h3>
+          <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-slate-50 p-6 rounded-xl border border-slate-100">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2"><ArrowDownRight size={20}/></div>
+              <p className="text-2xl font-bold">{data.funnel.widgetOpens}</p>
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-1">Widget Dibuka</p>
+            </div>
+            <div className="hidden sm:block h-px w-16 bg-slate-200" />
+            <div className="text-center">
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-2"><MessageSquare size={20}/></div>
+              <p className="text-2xl font-bold">{data.funnel.totalChats}</p>
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-1">Mulai Obrolan</p>
+            </div>
+            <div className="hidden sm:block h-px w-16 bg-slate-200" />
+            <div className="text-center">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2"><Users size={20}/></div>
+              <p className="text-2xl font-bold">{data.funnel.totalLeads}</p>
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-1">Jadi Leads</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chart + Activity Row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         {/* Bar Chart */}
@@ -319,6 +345,30 @@ const DashboardPage: React.FC = () => {
           ) : null}
         </div>
       </div>
+
+      {/* Missed Opportunities */}
+      {!loading && data?.missedOpportunities && data.missedOpportunities.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-rose-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-12 bg-rose-50 rounded-bl-full -z-10" />
+          <h3 className="font-semibold text-rose-900 mb-1 flex items-center gap-2">
+            <TrendingUp size={18} className="text-rose-500" />
+            Peluang Terlewat (Missed Opportunities)
+          </h3>
+          <p className="text-sm text-slate-500 mb-4">Pesan AI yang kurang relevan (mendapat respons 👎 dari pengunjung).</p>
+          
+          <div className="space-y-3">
+            {data.missedOpportunities.map((mo: any, idx: number) => (
+              <div key={idx} className="p-4 bg-rose-50/50 border border-rose-100 rounded-xl">
+                <p className="text-sm text-slate-800 line-clamp-2 leading-relaxed">"{mo.message_content}"</p>
+                <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
+                  <Clock size={12} />
+                  {new Date(mo.created_at).toLocaleString('id-ID')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

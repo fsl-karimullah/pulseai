@@ -10,6 +10,7 @@ interface ChatBody {
   conversationId?: string;
   botName?: string;
   company?: string;
+  attachments?: { mimeType: string; data: string }[];
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -231,6 +232,7 @@ export default async function chatRoutes(fastify: FastifyInstance) {
         projectId,
         botName = 'Aria',
         company = 'PulseAI',
+        attachments = [],
       } = request.body;
 
       if (!message?.trim()) {
@@ -292,7 +294,9 @@ export default async function chatRoutes(fastify: FastifyInstance) {
           tone,
           instructions,
           adminWhatsApp,
-          resolvedOrgId
+          resolvedOrgId,
+          true,
+          attachments
         );
 
         for await (const chunk of stream) {

@@ -30,6 +30,18 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     title: 'Widget Integration',
     subtitle: 'Embed the PulseAI chatbot into your website.',
   },
+  '/finance': {
+    title: '💰 Pulse Finance',
+    subtitle: 'Catat pemasukan & pengeluaran, pantau laba-rugi, dan estimasi pajak bisnis Anda.',
+  },
+  '/finance/transactions': {
+    title: '💰 Pulse Finance',
+    subtitle: 'Catat pemasukan & pengeluaran, pantau laba-rugi, dan estimasi pajak bisnis Anda.',
+  },
+  '/finance/tax': {
+    title: '💰 Pulse Finance',
+    subtitle: 'Catat pemasukan & pengeluaran, pantau laba-rugi, dan estimasi pajak bisnis Anda.',
+  },
 };
 
 const mobileNavItems = [

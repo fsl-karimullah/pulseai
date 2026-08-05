@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Bot, Loader2, Mail, Lock, ArrowRight, Eye, EyeOff, Sparkles, ShieldCheck, Zap } from 'lucide-react';
+import { Bot, Loader2, Mail, Lock, ArrowRight, Eye, EyeOff, MessageSquare, BriefcaseBusiness, Wallet, ShieldCheck } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -37,9 +37,9 @@ const LoginPage: React.FC = () => {
           <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full opacity-20 blur-[80px]"
             style={{ background: 'radial-gradient(circle, #10b981, transparent)' }} />
           <div className="absolute bottom-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full opacity-15 blur-[60px]"
-            style={{ background: 'radial-gradient(circle, #6366f1, transparent)' }} />
+            style={{ background: 'radial-gradient(circle, #f59e0b, transparent)' }} />
           <div className="absolute top-[40%] right-[10%] w-[300px] h-[300px] rounded-full opacity-10 blur-[80px]"
-            style={{ background: 'radial-gradient(circle, #0ea5e9, transparent)' }} />
+            style={{ background: 'radial-gradient(circle, #6366f1, transparent)' }} />
           {/* Grid pattern */}
           <div className="absolute inset-0 opacity-[0.03]"
             style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
@@ -59,26 +59,47 @@ const LoginPage: React.FC = () => {
         <div className="relative z-10 space-y-8">
           <div>
             <h1 className="text-4xl font-black text-white leading-tight mb-4">
-              Ubah Website-mu<br />
-              Jadi <span className="text-transparent bg-clip-text" style={{ backgroundImage: 'linear-gradient(90deg, #10b981, #06b6d4)' }}>Mesin Penjual 24/7</span>
+              Satu Platform.<br />
+              <span className="text-transparent bg-clip-text" style={{ backgroundImage: 'linear-gradient(90deg, #10b981, #f59e0b)' }}>Semua Kebutuhan Bisnis.</span>
             </h1>
             <p className="text-slate-400 text-base leading-relaxed max-w-xs">
-              AI agent bisnis yang menjawab pelanggan, menangkap leads, dan meningkatkan konversi — tanpa henti.
+              AI suite lengkap untuk otomatisasi chat, rekrutmen cerdas, dan pencatatan keuangan — dalam satu dashboard.
             </p>
           </div>
 
-          {/* Feature pills */}
+          {/* Product Showcase */}
           <div className="space-y-3">
             {[
-              { icon: Zap, text: 'Respon instan dalam milidetik', color: 'text-amber-400' },
-              { icon: ShieldCheck, text: 'Data tersimpan aman & terenkripsi', color: 'text-emerald-400' },
-              { icon: Sparkles, text: 'AI berbasis dokumen bisnis Anda', color: 'text-violet-400' },
-            ].map(({ icon: Icon, text, color }) => (
-              <div key={text} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                  <Icon size={15} className={color} />
+              {
+                icon: MessageSquare,
+                color: 'text-emerald-400',
+                bg: 'bg-emerald-500/10 border-emerald-500/20',
+                badge: 'Pulse Chat',
+                text: 'Chatbot AI & otomatisasi pesan 24/7',
+              },
+              {
+                icon: BriefcaseBusiness,
+                color: 'text-blue-400',
+                bg: 'bg-blue-500/10 border-blue-500/20',
+                badge: 'Pulse Career',
+                text: 'Screening CV otomatis & rekrutmen cerdas',
+              },
+              {
+                icon: Wallet,
+                color: 'text-amber-400',
+                bg: 'bg-amber-500/10 border-amber-500/20',
+                badge: 'Pulse Finance',
+                text: 'Pencatatan keuangan & estimasi pajak',
+              },
+            ].map(({ icon: Icon, color, bg, badge, text }) => (
+              <div key={badge} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${bg} backdrop-blur-sm`}>
+                <div className={`w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0`}>
+                  <Icon size={16} className={color} />
                 </div>
-                <span className="text-slate-300 text-sm">{text}</span>
+                <div>
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${color}`}>{badge}</span>
+                  <p className="text-slate-300 text-xs mt-0.5">{text}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -100,7 +121,7 @@ const LoginPage: React.FC = () => {
 
         {/* Bottom stats */}
         <div className="relative z-10 flex gap-8">
-          {[['100+', 'Bisnis aktif'], ['99.9%', 'Uptime'], ['<100ms', 'Response time']].map(([val, label]) => (
+          {[['100+', 'Bisnis aktif'], ['99.9%', 'Uptime'], ['3 Produk', 'AI Suite']].map(([val, label]) => (
             <div key={label}>
               <p className="text-white font-black text-lg">{val}</p>
               <p className="text-slate-500 text-xs">{label}</p>

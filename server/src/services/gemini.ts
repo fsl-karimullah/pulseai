@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type Content } from '@google/generative-ai';
+import { GoogleGenerativeAI, type Content, type Part } from '@google/generative-ai';
 import { supabase } from '../config/supabase';
 
 const apiKey = process.env.GOOGLE_AI_API_KEY;
@@ -7,7 +7,16 @@ if (!apiKey) {
 }
 const genai = new GoogleGenerativeAI(apiKey || 'MISSING_KEY');
 
-export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+export type ChatAttachment = {
+  mimeType: string;
+  data: string; // base64 string without data url prefix
+};
+
+export type ChatMessage = { 
+  role: 'user' | 'assistant'; 
+  content: string; 
+  attachments?: ChatAttachment[];
+};
 
 export type GeminiResponse = {
   message: string;
@@ -212,6 +221,18 @@ const buildSystemPrompt = (
     `   - Jika user menanyakan komposisi atau bahan dari produk yang ADA di [KNOWLEDGE BASE], kamu BOLEH menjelaskan fungsinya secara singkat menggunakan pengetahuan umum.`,
     `   - WAJIB sertakan link produk dari [KNOWLEDGE BASE] di akhir penjelasan.`,
     `   - OPTIONAL: Tambahkan ajakan WhatsApp (${escalationContact}) hanya jika user punya kondisi khusus (alergi, dll).`,
+    ``,
+    `7. **KARTU PRODUK BERGAMBAR (PRODUCT CARDS):**`,
+    `   - Jika user menanyakan produk dan di [KNOWLEDGE BASE] terdapat URL Gambar serta Harga untuk produk tersebut, kamu WAJIB menampilkan Kartu Produk dengan format sintaks berikut di baris baru:`,
+    `   [PRODUCT: Nama Produk | Harga | URL_Gambar]`,
+    `   - Contoh: [PRODUCT: Sepatu Lari | Rp 250.000 | https://example.com/sepatu.jpg]`,
+    `   - Hanya gunakan sintaks ini jika URL Gambar benar-benar ada di referensi [KNOWLEDGE BASE]. Jangan mengarang URL gambar.`,
+    ``,
+    `8. **ANALISIS GAMBAR (JIKA USER MENGIRIM GAMBAR):**`,
+    `   - Jika user melampirkan gambar, JANGAN abaikan gambar tersebut. Gambar adalah konteks utama dari pertanyaan user.`,
+    `   - Analisis konten visual gambar (misalnya: baca teks pada poster, kenali nama brand, lihat produk).`,
+    `   - Jawab pertanyaan user berdasarkan petunjuk yang ada di dalam gambar (misalnya nama event, tanggal, lokasi di poster) DIGABUNGKAN dengan informasi dari [KNOWLEDGE BASE].`,
+    `   - Jika informasi di gambar tidak ada di [KNOWLEDGE BASE], kamu tetap BOLEH menjawab berdasarkan teks/konteks yang jelas-jelas tertulis di dalam gambar tersebut.`,
     ``,
   ];
 
@@ -525,7 +546,8 @@ export async function generateChatResponseStream(
   customInstructions: string = '',
   adminWhatsApp: string = '',
   orgId: string = '',
-  hasValidPhone: boolean = true
+  hasValidPhone: boolean = true,
+  userAttachments?: ChatAttachment[]
 ): Promise<AsyncGenerator<string, void, unknown>> {
 
   const intent = classifyIntent(userMessage);
@@ -563,10 +585,23 @@ export async function generateChatResponseStream(
       }
       return true;
     })
-    .map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
+    .map((m) => {
+      const parts: Part[] = [{ text: m.content }];
+      if (m.attachments && m.attachments.length > 0) {
+        m.attachments.forEach(att => {
+          parts.push({
+            inlineData: {
+              mimeType: att.mimeType,
+              data: att.data
+            }
+          });
+        });
+      }
+      return {
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts,
+      };
+    });
 
   const STREAM_MAX_RETRIES = 3;
 
@@ -598,9 +633,21 @@ export async function generateChatResponseStream(
       }, requestOptions);
 
       const chat = model.startChat({ history: geminiHistory });
-      const resultStream = await chat.sendMessageStream(userMessage);
-
-      // Validate that the stream actually yields at least one chunk before returning
+      
+      let messageContent: string | Part[] = userMessage;
+      if (userAttachments && userAttachments.length > 0) {
+        messageContent = [{ text: userMessage }];
+        userAttachments.forEach(att => {
+          (messageContent as Part[]).push({
+            inlineData: {
+              mimeType: att.mimeType,
+              data: att.data
+            }
+          });
+        });
+      }
+      
+      const resultStream = await chat.sendMessageStream(messageContent);
       // to surface parse errors at this layer rather than leaking them to the caller
       return (async function* () {
         try {

@@ -43,7 +43,15 @@ export default async function analyticsRoutes(fastify: FastifyInstance) {
         .eq('org_id', orgId);
 
       const docsCount = nodesData ? new Set(nodesData.map((n) => n.title)).size : 0;
-// ... rest of the computation logic ...
+
+      // 2.5. Fetch Missed Opportunities (Negative Feedback)
+      const { data: negativeFeedbacks } = await supabase
+        .from('chat_feedbacks')
+        .select('message_content, created_at, reason')
+        .eq('org_id', orgId)
+        .eq('is_positive', false)
+        .order('created_at', { ascending: false })
+        .limit(5);
 
       // 3. Compute Conversation Metrics
       const chatEvents = evts.filter(e => e.event_type === 'chat_message');
@@ -102,6 +110,14 @@ export default async function analyticsRoutes(fastify: FastifyInstance) {
         return { id: e.id || index, type, text, time: timeStr };
       });
 
+      // Funnel metrics
+      const widgetOpenEvents = evts.filter(e => e.event_type === 'widget_opened');
+      const funnel = {
+        widgetOpens: widgetOpenEvents.length,
+        totalChats: totalConversations,
+        totalLeads: leadsCount ?? 0,
+      };
+
       // 5. Build Dashboard Response
       return reply.send({
         success: true,
@@ -117,6 +133,8 @@ export default async function analyticsRoutes(fastify: FastifyInstance) {
           { id: 'resolution', title: 'Tingkat Resolusi', value: resolutionRate.toFixed(1) + '%', change: +1.2, label: 'vs bulan lalu' },
         ],
         weeklyData,
+        funnel,
+        missedOpportunities: negativeFeedbacks || [],
         recentActivity,
         performance: [
           { label: 'Waktu Respons Rata-rata', value: avgResponseStr, sub: 'per pesan', bar: Math.min(100, (avgResponseMs / 5000) * 100) },
@@ -129,6 +147,25 @@ export default async function analyticsRoutes(fastify: FastifyInstance) {
     } catch (err) {
       fastify.log.error(err, 'Analytics error');
       return reply.status(500).send({ success: false, message: 'Gagal memuat analitik' });
+    }
+  });
+
+  // POST endpoint to track widget_opened
+  fastify.post('/analytics/event', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orgId, eventType, metadata } = request.body as any;
+      if (!orgId || !eventType) return reply.status(400).send({ success: false });
+
+      await supabase.from('analytics_events').insert([{
+        org_id: orgId,
+        event_type: eventType,
+        metadata: metadata || {}
+      }]);
+
+      return reply.send({ success: true });
+    } catch (err) {
+      fastify.log.error(err, 'Event error');
+      return reply.status(500).send({ success: false });
     }
   });
 }

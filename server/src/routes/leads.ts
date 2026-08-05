@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { supabase } from '../config/supabase';
 import { authenticate } from '../middleware/auth';
+import { sendTelegramMessage } from './telegram';
 
 interface LeadBody {
   name: string;
@@ -9,6 +10,7 @@ interface LeadBody {
   conversationId?: string;
   lastMessage?: string;
   metadata?: Record<string, unknown>;
+  history?: { role: string, content: string, timestamp?: string }[];
 }
 
 export default async function leadsRoutes(fastify: FastifyInstance) {
@@ -22,7 +24,7 @@ export default async function leadsRoutes(fastify: FastifyInstance) {
       request: FastifyRequest<{ Body: LeadBody & { orgId?: string } }>,
       reply: FastifyReply
     ) => {
-      const { name, whatsapp, orgId, botName, conversationId, lastMessage, metadata = {} } = request.body;
+      const { name, whatsapp, orgId, botName, conversationId, lastMessage, metadata = {}, history } = request.body;
 
       if (!name?.trim() || !whatsapp?.trim()) {
         return reply.status(400).send({
@@ -77,6 +79,63 @@ export default async function leadsRoutes(fastify: FastifyInstance) {
       });
 
       fastify.log.info({ leadId: data.id, name }, 'Lead captured');
+
+      // ── Save History to chat_logs ──────────────────────────────────────────
+      if (history && history.length > 0) {
+        try {
+          const chatLogEntries = history
+            .filter(m => m.content && m.content.trim() !== '')
+            .map(m => ({
+              tenant_id: resolvedOrgId,
+              bot_number: 'Web Widget',
+              customer_number: whatsapp.trim(),
+              sender: m.role === 'bot' ? 'bot' : 'customer',
+              message_text: m.content,
+              created_at: m.timestamp || new Date().toISOString()
+            }));
+
+          if (chatLogEntries.length > 0) {
+            await supabase.from('chat_logs').insert(chatLogEntries);
+          }
+        } catch (logErr) {
+          fastify.log.warn({ logErr }, 'Failed to save chat logs for lead');
+        }
+      }
+
+      // ── Telegram Notification (fire-and-forget) ─────────────────────────
+      try {
+        const { data: botCfg } = await supabase
+          .from('bot_settings')
+          .select('telegram_bot_token, telegram_chat_id, bot_name')
+          .eq('org_id', resolvedOrgId)
+          .maybeSingle();
+
+        if (botCfg?.telegram_bot_token && botCfg?.telegram_chat_id) {
+          const wib = new Date().toLocaleString('id-ID', {
+            timeZone: 'Asia/Jakarta',
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+          });
+          const msg =
+            `🔔 <b>Lead Baru dari Widget!</b>\n\n` +
+            `👤 Nama: <b>${name.trim()}</b>\n` +
+            `📞 WhatsApp: <code>${whatsapp.trim()}</code>\n` +
+            (lastMessage ? `💬 Pesan terakhir:\n<i>${lastMessage.slice(0, 200)}</i>\n` : '') +
+            `🤖 Bot: ${botCfg.bot_name || 'Aria'}\n` +
+            `🕒 ${wib} WIB\n\n` +
+            `<i>(Riwayat obrolan lengkap dapat dilihat di Dashboard menu History Chat)</i>`;
+
+          await sendTelegramMessage(
+            botCfg.telegram_bot_token,
+            botCfg.telegram_chat_id,
+            msg
+          );
+        }
+      } catch (tgErr) {
+        // Non-fatal: jangan gagalkan lead capture karena error Telegram
+        fastify.log.warn({ tgErr }, '[Telegram] Failed to send lead notification');
+      }
+
       return reply.status(201).send({ success: true, leadId: data.id });
     }
   );

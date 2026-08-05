@@ -14,6 +14,10 @@ import {
   Loader2,
   PanelRightClose,
   PanelLeftClose,
+  Plus,
+  X,
+  Send,
+  MessageSquareText,
 } from 'lucide-react';
 import type { BotSetting } from '../types';
 
@@ -27,6 +31,22 @@ const BotSettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
+  const [newQuickReply, setNewQuickReply] = useState('');
+
+  // ── Proactive & Follow-up state ───────────────────────────────────────────
+  const [proactiveDelay, setProactiveDelay] = useState<number>(0);
+  const [followupDelay, setFollowupDelay] = useState<number>(0);
+
+  // ── Telegram state ────────────────────────────────────────────────────────
+  const [tgBotToken, setTgBotToken]   = useState('');
+  const [tgChatId, setTgChatId]       = useState('');
+  const [tgMasked, setTgMasked]       = useState('');
+  const [tgHasToken, setTgHasToken]   = useState(false);
+  const [tgTesting, setTgTesting]     = useState(false);
+  const [tgSaving, setTgSaving]       = useState(false);
+  const [tgStatus, setTgStatus]       = useState<{ ok: boolean; msg: string } | null>(null);
 
   const adminWhatsAppVal = String(settings.find((s) => s.id === 'admin-whatsapp')?.value ?? '').trim();
   const hasWhatsAppError = adminWhatsAppVal.startsWith('08') || adminWhatsAppVal.startsWith('0') || adminWhatsAppVal.startsWith('+0');
@@ -104,7 +124,27 @@ const BotSettingsPage: React.FC = () => {
         ];
         setSettings(mappedSettings);
         setWidgetPlacement(d.widget_placement || 'bottom-right');
+        if (Array.isArray(d.quick_replies)) {
+          setQuickReplies(d.quick_replies);
+        }
+        setProactiveDelay(d.proactive_delay || 0);
+        setFollowupDelay(d.followup_delay || 0);
       }
+
+      // ── Fetch Telegram config ────────────────────────
+      const tgRes = await fetch('/api/telegram/config', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      });
+      const tgJson = await tgRes.json();
+      if (tgJson.success && tgJson.data) {
+        setTgHasToken(tgJson.data.hasBotToken);
+        setTgMasked(tgJson.data.maskedToken);
+        setTgChatId(tgJson.data.chatId);
+        // Don't set tgBotToken, keep it empty to show placeholder.
+      }
+
     } catch (err) {
       console.error('Gagal mengambil pengaturan:', err);
     } finally {
@@ -145,6 +185,9 @@ const BotSettingsPage: React.FC = () => {
         if (s.id === 'admin-whatsapp') body.admin_whatsapp = s.value;
       });
       body.widget_placement = widgetPlacement;
+      body.quick_replies = quickReplies;
+      body.proactive_delay = proactiveDelay;
+      body.followup_delay = followupDelay;
 
       const res = await fetch('/api/settings/bot', {
         method: 'POST',
@@ -175,6 +218,93 @@ const BotSettingsPage: React.FC = () => {
       alert('Gagal menyimpan pengaturan');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── Handlers untuk Quick Replies ───────────────────────────────────────────
+  const addQuickReply = () => {
+    const trimmed = newQuickReply.trim();
+    if (trimmed && quickReplies.length < 6 && trimmed.length <= 40) {
+      setQuickReplies([...quickReplies, trimmed]);
+      setNewQuickReply('');
+      setSaved(false);
+    }
+  };
+
+  const removeQuickReply = (index: number) => {
+    setQuickReplies(quickReplies.filter((_, i) => i !== index));
+    setSaved(false);
+  };
+
+  // ── Handlers untuk Telegram ────────────────────────────────────────────────
+  const handleSaveTelegram = async () => {
+    try {
+      setTgSaving(true);
+      setTgStatus(null);
+      const res = await fetch('/api/telegram/save', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ botToken: tgBotToken, chatId: tgChatId })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setTgStatus({ ok: true, msg: 'Konfigurasi Telegram tersimpan.' });
+        if (tgBotToken) {
+          setTgHasToken(true);
+          setTgMasked('••••••••••' + tgBotToken.slice(-6));
+          setTgBotToken('');
+        }
+      } else {
+        setTgStatus({ ok: false, msg: json.message || 'Gagal menyimpan Telegram.' });
+      }
+    } catch (err: any) {
+      setTgStatus({ ok: false, msg: err.message || 'Terjadi kesalahan.' });
+    } finally {
+      setTgSaving(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    try {
+      setTgTesting(true);
+      setTgStatus(null);
+      // Peringatan jika belum simpan token baru: test butuh token yang diinput (kalau ada) atau yang sudah tersimpan
+      if (!tgHasToken && !tgBotToken) {
+        setTgStatus({ ok: false, msg: 'Masukkan Bot Token terlebih dahulu.' });
+        setTgTesting(false);
+        return;
+      }
+      if (!tgChatId) {
+        setTgStatus({ ok: false, msg: 'Masukkan Chat ID terlebih dahulu.' });
+        setTgTesting(false);
+        return;
+      }
+
+      // We only pass botToken to test if user entered a new one, otherwise server uses saved? No, test endpoint expects it directly so we should pass what we have. Wait, the test endpoint takes botToken and chatId from body.
+      // Actually, if we just pass tgBotToken (which might be empty if we rely on masked), we can't test unless we fetch the real token. But the test endpoint uses the token passed in the request body. If the user didn't enter a new token, they can't test unless we change the endpoint to use the DB token.
+      // Let's just use what they type. If they type it, we use it. If not, and they want to test, we need them to input it or change backend to fallback to DB. Let's change backend to fallback to DB if not provided, but for now we just show a message or let it fail if not provided. Actually, wait. Let's just pass tgBotToken. If it's empty, backend fails if it doesn't fallback. I'll modify the backend `telegram.ts` to fallback to DB.
+
+      const res = await fetch('/api/telegram/test', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ botToken: tgBotToken, chatId: tgChatId })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setTgStatus({ ok: true, msg: 'Pesan test berhasil dikirim ke Telegram!' });
+      } else {
+        setTgStatus({ ok: false, msg: json.message || 'Gagal mengirim pesan test.' });
+      }
+    } catch (err: any) {
+      setTgStatus({ ok: false, msg: err.message || 'Terjadi kesalahan jaringan.' });
+    } finally {
+      setTgTesting(false);
     }
   };
 
@@ -516,6 +646,168 @@ const BotSettingsPage: React.FC = () => {
           <p className="text-xs text-slate-400 mt-1.5">
             Email HR (keputusan CV, dll) tetap dikirim dari alamat default PulseAI, tapi saat pelamar membalas, balasannya akan masuk ke alamat email perusahaan Anda ini — bukan hilang ke alamat noreply.
           </p>
+        </div>
+      </div>
+
+      {/* Proactive & Follow-up Settings */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mt-8">
+        <h3 className="text-sm font-bold text-slate-900 mb-4">Interaksi Otomatis</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Proactive Chat (Detik)</label>
+            <select
+              value={proactiveDelay}
+              onChange={(e) => { setProactiveDelay(Number(e.target.value)); setSaved(false); }}
+              className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
+            >
+              <option value={0}>Nonaktif</option>
+              <option value={5}>5 Detik</option>
+              <option value={10}>10 Detik</option>
+              <option value={15}>15 Detik</option>
+              <option value={30}>30 Detik</option>
+            </select>
+            <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+              Waktu tunda sebelum widget terbuka otomatis menyapa pengunjung baru.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Idle Follow-Up (Menit)</label>
+            <select
+              value={followupDelay}
+              onChange={(e) => { setFollowupDelay(Number(e.target.value)); setSaved(false); }}
+              className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all"
+            >
+              <option value={0}>Nonaktif</option>
+              <option value={1}>1 Menit</option>
+              <option value={2}>2 Menit</option>
+              <option value={3}>3 Menit</option>
+              <option value={5}>5 Menit</option>
+            </select>
+            <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+              Jika pengunjung diam selama batas waktu ini setelah dibalas bot, bot akan bertanya kembali.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Reply Buttons */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mt-8">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center border border-violet-200">
+            <MessageSquareText size={18} className="text-violet-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Quick Reply Buttons</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Pertanyaan cepat yang muncul di awal chat untuk memandu user.</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {quickReplies.map((qr, i) => (
+              <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 text-violet-700 text-xs font-semibold rounded-full border border-violet-200">
+                <span>{qr}</span>
+                <button 
+                  onClick={() => removeQuickReply(i)}
+                  className="p-0.5 hover:bg-violet-200 rounded-full transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {quickReplies.length < 6 && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newQuickReply}
+                onChange={(e) => setNewQuickReply(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addQuickReply()}
+                placeholder="Tambah quick reply baru... (max 40 karakter)"
+                maxLength={40}
+                className="flex-1 px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition-all"
+              />
+              <button
+                onClick={addQuickReply}
+                disabled={!newQuickReply.trim()}
+                className="px-4 py-2.5 bg-violet-100 text-violet-700 font-semibold rounded-xl hover:bg-violet-200 disabled:opacity-50 transition-colors text-sm"
+              >
+                Tambah
+              </button>
+            </div>
+          )}
+          <p className="text-xs text-slate-400">
+            Maksimal 6 tombol. Klik Simpan Perubahan di atas untuk menyimpan.
+          </p>
+        </div>
+      </div>
+
+      {/* Telegram Notification Setup */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm mt-8">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center border border-blue-100">
+              <Send size={18} className="text-blue-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Notifikasi Telegram</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Dapatkan notifikasi instan ke grup/chat Anda setiap ada lead baru masuk dari widget.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleTestTelegram}
+              disabled={tgTesting || (!tgBotToken && !tgHasToken) || !tgChatId}
+              className="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {tgTesting ? 'Menguji...' : 'Test Kirim'}
+            </button>
+            <button
+              onClick={handleSaveTelegram}
+              disabled={tgSaving}
+              className="px-3 py-2 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors shadow-sm shadow-blue-500/20 disabled:opacity-50"
+            >
+              {tgSaving ? 'Menyimpan...' : 'Simpan Config'}
+            </button>
+          </div>
+        </div>
+
+        {tgStatus && (
+          <div className={`mb-4 px-3 py-2 rounded-lg text-xs font-medium border ${
+            tgStatus.ok ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
+          }`}>
+            {tgStatus.msg}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Bot Token</label>
+            <input
+              type="text"
+              value={tgBotToken}
+              onChange={(e) => setTgBotToken(e.target.value)}
+              placeholder={tgHasToken ? tgMasked : "123456789:ABCdefGHIjklmNOPqrsTUVwxyz..."}
+              className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400 transition-all font-mono"
+            />
+            <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+              Dapatkan token dari <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">@BotFather</a> di Telegram.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Chat ID</label>
+            <input
+              type="text"
+              value={tgChatId}
+              onChange={(e) => setTgChatId(e.target.value)}
+              placeholder="contoh: -1001234567890"
+              className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400 transition-all font-mono"
+            />
+            <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+              ID grup (pakai -100) atau ID akun Anda. Anda bisa dapatkan ID dari bot seperti <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">@userinfobot</a>.
+            </p>
+          </div>
         </div>
       </div>
 

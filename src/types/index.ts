@@ -45,4 +45,5 @@ export type BotSetting = {
   options?: string[];
 };
 
-export type Page = 'dashboard' | 'projects' | 'knowledge' | 'bot-settings' | 'leads' | 'widget' | 'whatsapp' | 'billing' | 'pulse-internal' | 'pulse-hr' | 'cv-screening';
+export type Page = 'dashboard' | 'projects' | 'knowledge' | 'bot-settings' | 'leads' | 'widget' | 'whatsapp' | 'billing' | 'pulse-internal' | 'pulse-hr' | 'cv-screening' | 'finance' | 'finance-transactions' | 'finance-tax';
+

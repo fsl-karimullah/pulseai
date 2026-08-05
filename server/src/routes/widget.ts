@@ -58,7 +58,9 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     const hSide = placement === 'bottom-left' ? 'left' : 'right';
     const hValue = '20px';
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // Robust local testing check: if widget.js is loaded via localhost, point iframe to localhost
+    const isLocal = request.hostname.includes('localhost') || process.env.NODE_ENV === 'development';
+    const frontendUrl = isLocal ? 'http://localhost:5173' : (process.env.FRONTEND_URL || 'https://dashboard.pulseai.biz.id');
     const widgetUrl = `${frontendUrl}/widget?orgId=${resolvedOrgId}&projectId=${resolvedProjectId}&botName=${encodeURIComponent(botName)}&company=${encodeURIComponent(resolvedCompany)}&color=${encodeURIComponent(themeColor)}&logo=${encodeURIComponent(logoUrl)}`;
 
     const scriptContent = `
@@ -153,10 +155,20 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
     };
 
     window.addEventListener('message', function(event) {
-      if (event.data && event.data.type === 'PULSE_CHAT_CLOSE' && isOpen) {
+      if (!event.data) return;
+      if (event.data.type === 'PULSE_CHAT_CLOSE' && isOpen) {
+        btn.click();
+      }
+      if (event.data.type === 'PULSE_CHAT_OPEN' && !isOpen) {
         btn.click();
       }
     });
+
+    window.PulseAIWidget = {
+      open: function() { if (!isOpen) btn.click(); },
+      close: function() { if (isOpen) btn.click(); },
+      toggle: function() { btn.click(); }
+    };
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
@@ -168,5 +180,52 @@ export default async function widgetRoutes(fastify: FastifyInstance) {
 `;
 
     reply.type('application/javascript').send(scriptContent);
+  });
+
+  /**
+   * GET /api/widget-config
+   * Returns lightweight config for widget initialisation:
+   *   - quick_replies (array of strings)
+   *   - bot_name, color_theme, logo_url
+   * Called once when the iframe loads, before the user types anything.
+   */
+  fastify.get('/widget-config', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { orgId, projectId } = request.query as Record<string, string>;
+
+    let resolvedProjectId: string | undefined = projectId;
+    if (!resolvedProjectId && orgId) {
+      resolvedProjectId = (await resolveDefaultProjectId(orgId)) ?? undefined;
+    }
+
+    let query = supabase
+      .from('bot_settings')
+      .select('bot_name, color_theme, logo_url, quick_replies, proactive_delay, followup_delay');
+
+    if (resolvedProjectId) {
+      query = (query as any).eq('project_id', resolvedProjectId);
+    } else if (orgId) {
+      query = (query as any).eq('org_id', orgId);
+    } else {
+      return reply.status(400).send({ success: false, message: 'orgId or projectId required.' });
+    }
+
+    const { data: settings, error } = await (query as any).maybeSingle();
+
+    if (error) {
+      fastify.log.warn(error, 'widget-config fetch error');
+      return reply.status(500).send({ success: false, message: error.message });
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        botName: settings?.bot_name || 'Aria',
+        colorTheme: settings?.color_theme || '#059669',
+        logoUrl: settings?.logo_url || '',
+        quickReplies: Array.isArray(settings?.quick_replies) ? settings.quick_replies : [],
+        proactiveDelay: settings?.proactive_delay || 0,
+        followupDelay: settings?.followup_delay || 0,
+      },
+    });
   });
 }

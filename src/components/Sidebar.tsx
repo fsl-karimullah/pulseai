@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   BookOpen,
@@ -16,6 +16,8 @@ import {
   UsersRound,
   ClipboardList,
   FolderKanban,
+  TrendingUp,
+  Receipt,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -39,31 +41,48 @@ type NavItem = {
   comingSoon?: boolean;
 };
 
-const navGroups: { header: string; items: NavItem[] }[] = [
+const navGroups: { header: string; emoji: string; items: NavItem[] }[] = [
   {
-    header: 'Pengaturan Chat',
+    header: 'Main',
+    emoji: '',
     items: [
       { id: 'dashboard', path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'projects', path: '/projects', label: 'Projects', icon: FolderKanban },
+    ],
+  },
+  {
+    header: 'Pulse Chat',
+    emoji: '🤖',
+    items: [
+      { id: 'leads', path: '/leads', label: 'Prospek (Leads)', icon: Users, badge: true },
       { id: 'knowledge', path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
       { id: 'bot-settings', path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
-      { id: 'leads', path: '/leads', label: 'Lead', icon: Users, badge: true },
-      { id: 'widget', path: '/integration/widget', label: 'Widget', icon: Monitor },
-      { id: 'whatsapp', path: '/integration/whatsapp', label: 'Integrasi Whatsapp', icon: MessageCircle },
+      { id: 'widget', path: '/integration/widget', label: 'Widget Website', icon: Monitor },
+      { id: 'whatsapp', path: '/integration/whatsapp', label: 'Integrasi WhatsApp', icon: MessageCircle },
       { id: 'pulse-internal', path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
     ],
   },
   {
-    header: 'HR Tools',
+    header: 'Pulse Career',
+    emoji: '👔',
     items: [
       { id: 'cv-screening', path: '/cv-screening', label: 'AI CV Screening', icon: ClipboardList },
       { id: 'pulse-hr', path: '/dashboard/pulse-hr', label: 'PulseHR', icon: UsersRound, comingSoon: true },
     ],
   },
   {
-    header: 'Sistem',
+    header: 'Pulse Finance',
+    emoji: '💰',
     items: [
-      { id: 'billing', path: '/billing', label: 'Tagihan', icon: CreditCard },
+      { id: 'finance-transactions', path: '/finance/transactions', label: 'Transaksi', icon: Receipt },
+      { id: 'finance-tax', path: '/finance/tax', label: 'Estimasi Pajak', icon: TrendingUp },
+    ],
+  },
+  {
+    header: 'Sistem',
+    emoji: '',
+    items: [
+      { id: 'billing', path: '/billing', label: 'Tagihan & Limit', icon: CreditCard },
     ],
   },
 ];
@@ -76,7 +95,14 @@ const NavContent: React.FC<{
   subscription: any;
   onNavigate: (path: string) => void;
   onLogout: () => void;
-}> = ({ collapsed, currentPath, unreadLeads, user, subscription, onNavigate, onLogout }) => (
+}> = ({ collapsed, currentPath, unreadLeads, user, subscription, onNavigate, onLogout }) => {
+  const [openGroups, setOpenGroups] = useState<Record<number, boolean>>({ 0: true, 1: true, 2: true, 3: true, 4: false });
+
+  const toggleGroup = (index: number) => {
+    setOpenGroups(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  return (
   <>
     {/* Logo / Brand */}
     <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800 min-h-[72px]">
@@ -96,11 +122,22 @@ const NavContent: React.FC<{
       {navGroups.map((group, index) => (
         <div key={index} className="mb-4 last:mb-0">
           {!collapsed && (
-            <p className="px-3 pb-2 pt-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              {group.header}
-            </p>
+            <button
+              onClick={() => toggleGroup(index)}
+              className="w-full flex items-center justify-between px-3 pb-2 pt-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
+            >
+              <span className="flex items-center gap-1.5">
+                {group.emoji && <span className="text-[11px]">{group.emoji}</span>}
+                {group.header}
+              </span>
+              <ChevronRight
+                size={12}
+                className={`transition-transform duration-200 ${openGroups[index] ? 'rotate-90' : ''}`}
+              />
+            </button>
           )}
-          <div className="space-y-1">
+          {(openGroups[index] || collapsed) && (
+            <div className="space-y-1">
             {group.items.map(({ id, path, label, icon: Icon, badge, comingSoon }) => {
               const isActive = currentPath.startsWith(path);
               return (
@@ -145,6 +182,7 @@ const NavContent: React.FC<{
               );
             })}
           </div>
+          )}
         </div>
       ))}
 
@@ -188,7 +226,8 @@ const NavContent: React.FC<{
       )}
     </div>
   </>
-);
+  );
+};
 
 const Sidebar: React.FC<SidebarProps> = ({
   collapsed,

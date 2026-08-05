@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uji Coba PulseAI Widget V2</title>
+    <!-- Tailwind CSS (sekadar untuk styling halaman uji coba ini) -->
+    <script
+        src="http://localhost:3001/api/widget.js?orgId=0b2c513b-8cee-4660-a5b1-7f75bbaa12c7&projectId=b1bb31ef-6f4a-4408-be8a-c7501545b8fe&botName=Kantor%20Cabang%201&company=Kantor%20Cabang%201"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen">
+
+    <!-- Header / Navigasi -->
+    <header class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+            <h1 class="text-xl font-bold text-emerald-600 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    class="lucide lucide-bot">
+                    <path d="M12 8V4H8" />
+                    <rect width="16" height="12" x="4" y="8" rx="2" />
+                    <path d="M2 14h2" />
+                    <path d="M20 14h2" />
+                    <path d="M15 13v2" />
+                    <path d="M9 13v2" />
+                </svg>
+                MyToko B2B
+            </h1>
+            <nav class="hidden md:flex gap-6 text-sm font-medium text-slate-600">
+                <a href="#" class="hover:text-emerald-600">Beranda</a>
+                <a href="#" class="hover:text-emerald-600">Produk</a>
+                <a href="#" class="hover:text-emerald-600">Tentang Kami</a>
+                <a href="#" class="hover:text-emerald-600">Kontak</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <main class="max-w-6xl mx-auto px-4 py-12 md:py-20">
+        <div class="grid md:grid-cols-2 gap-12 items-center">
+            <div class="space-y-6">
+                <span
+                    class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold tracking-wider uppercase">Testing
+                    Environment</span>
+                <h2 class="text-4xl md:text-5xl font-extrabold leading-tight">
+                    Halaman Uji Coba <span class="text-emerald-600">Widget PulseAI</span>
+                </h2>
+                <p class="text-lg text-slate-600">
+                    Ini adalah simulasi website bisnis Anda. Anda dapat menguji fitur <strong>Proactive Chat</strong>,
+                    <strong>Idle Follow-up</strong>, dan <strong>Upload File</strong> di halaman ini.
+                </p>
+
+                <div class="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <h3 class="font-bold text-slate-900">Petunjuk Instalasi Widget:</h3>
+                    <ol class="list-decimal ml-5 text-sm space-y-2 text-slate-600">
+                        <li>Buka halaman <strong>Integrasi > Widget Website</strong> di dashboard PulseAI Anda.</li>
+                        <li>Salin (Copy) kode script yang berawalan
+                            <code>&lt;script src="..."&gt;&lt;/script&gt;</code>.
+                        </li>
+                        <li>Buka file <code>test-widget.html</code> ini menggunakan Text Editor (VS Code / Notepad).
+                        </li>
+                        <li>Ganti komentar <strong>&lt;!-- PASTE SCRIPT WIDGET ANDA DI SINI --&gt;</strong> di bagian
+                            bawah file ini dengan kode Anda.</li>
+                        <li>Refresh halaman ini dan lihat widget Anda muncul di pojok kanan bawah!</li>
+                    </ol>
+                </div>
+
+                <!-- Custom Trigger API Button -->
+                <div class="pt-4">
+                    <p class="text-xs text-slate-500 mb-2 font-medium">Uji Coba API Custom Trigger:</p>
+                    <button
+                        onclick="if(window.PulseAIWidget) window.PulseAIWidget.open(); else alert('Widget belum dimuat atau script belum dipasang!');"
+                        class="px-6 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/20">
+                        Tanya Sales Sekarang (Buka Widget)
+                    </button>
+                </div>
+            </div>
+
+            <div class="relative hidden md:block">
+                <div
+                    class="absolute inset-0 bg-gradient-to-tr from-emerald-100 to-blue-50 rounded-[3rem] rotate-3 scale-105">
+                </div>
+                <img src="https://images.unsplash.com/photo-1556761175-5973dc0f32d7?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+                    alt="B2B Sales" class="relative rounded-[3rem] shadow-2xl object-cover h-[500px] w-full" />
+            </div>
+        </div>
+    </main>
+
+
+    <!-- ========================================== -->
+    <!-- PASTE SCRIPT WIDGET ANDA DI BAWAH INI      -->
+    <!-- ========================================== -->
+
+    <!-- Contoh Format: 
+    <script src="http://localhost:3000/api/widget.js?orgId=XXX&projectId=XXX&botName=XXX&company=XXX"></script> 
+    -->
+
+</body>
+
+</html>

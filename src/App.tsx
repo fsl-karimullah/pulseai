@@ -22,6 +22,7 @@ import PublicChatWidget from './pages/PublicChatWidget';
 import PulseInternalPage from './pages/PulseInternalPage';
 import PulseHRPage from './pages/PulseHRPage';
 import CVScreeningPage from './pages/CVScreeningPage';
+import PulseFinancePage from './pages/PulseFinancePage';
 
 import './index.css';
 
@@ -60,6 +61,10 @@ const App: React.FC = () => {
             <Route path="dashboard/pulse-internal" element={<PulseInternalPage />} />
             <Route path="dashboard/pulse-hr" element={<PulseHRPage />} />
             <Route path="cv-screening" element={<CVScreeningPage />} />
+            {/* Pulse Finance Routes */}
+            <Route path="finance" element={<Navigate to="/finance/transactions" replace />} />
+            <Route path="finance/transactions" element={<PulseFinancePage />} />
+            <Route path="finance/tax" element={<PulseFinancePage />} />
           </Route>
 
           {/* Fallback */}

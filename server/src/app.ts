@@ -15,6 +15,8 @@ import cvScreeningRoutes from './routes/cvScreening';
 import projectsRoutes from './routes/projects';
 import widgetChannelsRoutes from './routes/widgetChannels';
 import emailDomainsRoutes from './routes/emailDomains';
+import telegramRoutes from './routes/telegram';
+import feedbackRoutes from './routes/feedback';
 
 const MAX_FILE_SIZE_MB = 50;
 
@@ -28,6 +30,7 @@ export async function createServer() {
         options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
       }
     } : true,
+    bodyLimit: 10 * 1024 * 1024, // 10MB to support base64 image uploads in chat
   });
 
   // ── Plugins ──────────────────────────────────────────────────────────────
@@ -61,6 +64,8 @@ export async function createServer() {
   await server.register(projectsRoutes,       { prefix: '/api' });
   await server.register(widgetChannelsRoutes, { prefix: '/api' });
   await server.register(emailDomainsRoutes,   { prefix: '/api' });
+  await server.register(telegramRoutes,        { prefix: '/api' });
+  await server.register(feedbackRoutes,        { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({
