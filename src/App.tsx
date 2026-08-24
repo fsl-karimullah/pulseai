@@ -64,6 +64,7 @@ const App: React.FC = () => {
             {/* Pulse Finance Routes */}
             <Route path="finance" element={<Navigate to="/finance/transactions" replace />} />
             <Route path="finance/transactions" element={<PulseFinancePage />} />
+            <Route path="finance/analytics" element={<PulseFinancePage />} />
             <Route path="finance/tax" element={<PulseFinancePage />} />
           </Route>
 

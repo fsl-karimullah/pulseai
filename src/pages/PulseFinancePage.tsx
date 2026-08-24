@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   TrendingUp,
   PlusCircle,
@@ -22,10 +22,16 @@ import {
   Package,
   Trash2,
   Pencil,
+  Sparkles,
+  Truck,
+  Zap,
+  LineChart,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { autoCategorizeTx } from '../services/geminiFinance';
+import FinanceDashboard from '../components/finance/FinanceDashboard';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type TransactionType = 'income' | 'expense';
@@ -57,11 +63,13 @@ const INCOME_CATEGORIES = [
 ];
 
 const EXPENSE_CATEGORIES = [
-  { label: 'Gaji Karyawan', icon: Users, color: 'text-rose-500' },
-  { label: 'Sewa & Utilitas', icon: Home, color: 'text-orange-500' },
-  { label: 'Pemasaran', icon: Megaphone, color: 'text-amber-500' },
-  { label: 'Pembelian Barang', icon: Package, color: 'text-blue-500' },
   { label: 'Operasional', icon: Coffee, color: 'text-teal-500' },
+  { label: 'Bahan Baku', icon: Package, color: 'text-blue-500' },
+  { label: 'Gaji', icon: Users, color: 'text-rose-500' },
+  { label: 'Marketing', icon: Megaphone, color: 'text-amber-500' },
+  { label: 'Transportasi', icon: Truck, color: 'text-indigo-500' },
+  { label: 'Sewa', icon: Home, color: 'text-orange-500' },
+  { label: 'Utilitas', icon: Zap, color: 'text-yellow-500' },
   { label: 'Pajak', icon: Calculator, color: 'text-red-500' },
   { label: 'Lainnya', icon: Receipt, color: 'text-slate-500' },
 ];
@@ -93,8 +101,29 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId, transa
   const [notes, setNotes] = useState(transactionToEdit?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSuggested, setAiSuggested] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+
+  // ── AI auto-categorize when description changes ──
+  const handleDescriptionChange = (val: string) => {
+    setDescription(val);
+    // Only suggest if no edit mode (new tx) and description is long enough
+    if (transactionToEdit) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (val.trim().length < 4) { setAiSuggested(null); return; }
+    debounceRef.current = setTimeout(async () => {
+      setAiLoading(true);
+      const suggested = await autoCategorizeTx(val, type);
+      setAiLoading(false);
+      if (suggested) {
+        setAiSuggested(suggested);
+        setCategory(suggested); // auto-fill
+      }
+    }, 800);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,11 +227,23 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId, transa
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Keterangan *</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">Keterangan *</label>
+              {aiLoading && (
+                <span className="flex items-center gap-1 text-[10px] text-violet-500 font-semibold">
+                  <Loader2 size={10} className="animate-spin" /> AI menganalisis...
+                </span>
+              )}
+              {!aiLoading && aiSuggested && (
+                <span className="flex items-center gap-1 text-[10px] text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full border border-violet-100">
+                  <Sparkles size={10} /> AI: {aiSuggested}
+                </span>
+              )}
+            </div>
             <input
               required
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => handleDescriptionChange(e.target.value)}
               placeholder={type === 'income' ? 'Contoh: Pembayaran klien A' : 'Contoh: Bayar gaji tim'}
               className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
             />
@@ -288,8 +329,10 @@ const PulseFinancePage: React.FC = () => {
   const [selectedYear] = useState(new Date().getFullYear());
 
   // Derive activeView dari URL path — sehingga klik sidebar langsung ganti tab
-  const activeView: 'overview' | 'tax' =
-    location.pathname === '/finance/tax' ? 'tax' : 'overview';
+  const activeView: 'overview' | 'tax' | 'analytics' =
+    location.pathname === '/finance/tax' ? 'tax'
+    : location.pathname === '/finance/analytics' ? 'analytics'
+    : 'overview';
 
   // Fetch org_id dari tabel organizations
   useEffect(() => {
@@ -409,12 +452,16 @@ const PulseFinancePage: React.FC = () => {
       </div>
 
       {/* ── Tab View ── */}
-      <div className="flex gap-1 p-1 bg-slate-100 rounded-2xl w-fit">
-        {([['overview', BarChart3, 'Ringkasan', '/finance'], ['tax', Calculator, 'Estimasi Pajak', '/finance/tax']] as const).map(([view, Icon, label, path]) => (
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-2xl w-fit flex-wrap">
+        {([
+          ['overview', BarChart3, 'Ringkasan', '/finance/transactions'],
+          ['analytics', LineChart, 'Analitik', '/finance/analytics'],
+          ['tax', Calculator, 'Estimasi Pajak', '/finance/tax'],
+        ] as const).map(([view, Icon, label, path]) => (
           <button
             key={view}
             onClick={() => navigate(path)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
               activeView === view
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -694,6 +741,22 @@ const PulseFinancePage: React.FC = () => {
               Coming Soon <ChevronRight size={14} />
             </span>
           </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          VIEW: ANALITIK DASHBOARD
+      ══════════════════════════════════════════ */}
+      {activeView === 'analytics' && orgId && (
+        <FinanceDashboard
+          orgId={orgId}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
+        />
+      )}
+      {activeView === 'analytics' && !orgId && (
+        <div className="flex items-center justify-center py-24 text-slate-400 text-sm">
+          Memuat data organisasi...
         </div>
       )}
 
