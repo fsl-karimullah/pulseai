@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink, Plus, Settings2, FolderKanban, ChevronDown, Facebook } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, Settings2, FolderKanban, ChevronDown } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
@@ -495,7 +495,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
         {/* ── Official API Banner ─────────────────────────── */}
         <div className="mt-6 flex flex-col sm:flex-row items-center gap-4 px-5 py-4 bg-white/70 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm">
           <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl flex-shrink-0">
-            <Facebook size={24} />
+            <MessageCircle size={24} />
           </div>
           <div className="flex-1 text-center sm:text-left min-w-0">
             <p className="text-xs text-slate-600 leading-relaxed">
@@ -508,7 +508,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
             disabled={loading}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all flex-shrink-0 whitespace-nowrap shadow-md disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Facebook size={14} />}
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
             Log in with Facebook
           </button>
         </div>
