@@ -825,4 +825,47 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
   fastify.get('/whatsapp/incoming', async (_request, reply) => {
     return reply.send({ success: true, message: 'WhatsApp Webhook endpoint is active (use POST to send data)' });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // META WHATSAPP CLOUD API WEBHOOK
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // GET /api/whatsapp/meta/webhook - Meta verification endpoint
+  fastify.get('/whatsapp/meta/webhook', async (request, reply) => {
+    const query = request.query as any;
+    const mode = query['hub.mode'];
+    const token = query['hub.verify_token'];
+    const challenge = query['hub.challenge'];
+
+    const verifyToken = process.env.META_VERIFY_TOKEN;
+
+    if (mode && token) {
+      if (mode === 'subscribe' && token === verifyToken) {
+        fastify.log.info('Meta WhatsApp Webhook verified successfully.');
+        // Meta expects the challenge to be returned as plain text (or raw string)
+        return reply.type('text/plain').status(200).send(challenge);
+      } else {
+        fastify.log.warn('Meta WhatsApp Webhook verification failed.');
+        return reply.status(403).send('Forbidden');
+      }
+    }
+    
+    return reply.status(400).send('Bad Request');
+  });
+
+  // POST /api/whatsapp/meta/webhook - Meta payload endpoint
+  fastify.post('/whatsapp/meta/webhook', async (request, reply) => {
+    const body = request.body as any;
+    
+    if (body.object === 'whatsapp_business_account') {
+      fastify.log.info({ payload: JSON.stringify(body) }, 'Received payload from Meta WhatsApp Cloud API');
+      
+      // We acknowledge the webhook first. Meta requires a 200 OK.
+      // Full Gemini integration will be added here later.
+      
+      return reply.status(200).send('EVENT_RECEIVED');
+    } else {
+      return reply.status(404).send('Not Found');
+    }
+  });
 }
