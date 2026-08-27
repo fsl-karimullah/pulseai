@@ -147,12 +147,27 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
 
               const adminMsg = `🚨 *NOTIFIKASI HOT LEADS - ${company.toUpperCase()}* 🚨\n\nAda calon peserta yang butuh bantuan admin manusia segera!\n\n👤 *Kontak Leads:*\n   ${displayContact}\n\n💬 *Pesan Terakhir:*\n"_${previewMessage}_"\n\n🕐 *Waktu:* ${wibTimestamp}\n\n➡️ Silakan balas langsung ke nomor di atas ya Kak!`;
 
-              await axios.post(`${gatewayUrl}/api/session/send`, {
-                userId,
-                phoneLabel,
-                to: cleanAdminWa,
-                message: adminMsg,
-              });
+              if (data.platform === 'meta') {
+                if (process.env.META_ACCESS_TOKEN) {
+                  await axios.post(
+                    `https://graph.facebook.com/v26.0/${data.metaPhoneNumberId}/messages`,
+                    {
+                      messaging_product: 'whatsapp',
+                      to: cleanAdminWa,
+                      type: 'text',
+                      text: { body: adminMsg }
+                    },
+                    { headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` } }
+                  );
+                }
+              } else {
+                await axios.post(`${gatewayUrl}/api/session/send`, {
+                  userId,
+                  phoneLabel,
+                  to: cleanAdminWa,
+                  message: adminMsg,
+                });
+              }
             }
           }
         }
@@ -165,14 +180,33 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
 
       const typingDurationMs = Math.min(botReply.length * 28, 4_000);
       
-      // Call Gateway
-      await axios.post(`${gatewayUrl}/api/session/send`, {
-        userId,
-        phoneLabel,
-        to: replyTo,
-        message: botReply,
-        typingDurationMs,
-      });
+      // Call Gateway or Meta API
+      if (data.platform === 'meta') {
+        if (process.env.META_ACCESS_TOKEN) {
+          // Delay to simulate typing (optional for meta, but keeps timing similar)
+          await new Promise(res => setTimeout(res, 500));
+          await axios.post(
+            `https://graph.facebook.com/v26.0/${data.metaPhoneNumberId}/messages`,
+            {
+              messaging_product: 'whatsapp',
+              to: replyTo,
+              type: 'text',
+              text: { body: botReply }
+            },
+            { headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` } }
+          );
+        } else {
+          console.warn('[AI Worker] META_ACCESS_TOKEN is missing');
+        }
+      } else {
+        await axios.post(`${gatewayUrl}/api/session/send`, {
+          userId,
+          phoneLabel,
+          to: replyTo,
+          message: botReply,
+          typingDurationMs,
+        });
+      }
 
       // Log outbound message
       await supabase.from('chat_logs').insert({

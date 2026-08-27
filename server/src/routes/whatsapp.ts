@@ -858,11 +858,159 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     const body = request.body as any;
     
     if (body.object === 'whatsapp_business_account') {
-      fastify.log.info({ payload: JSON.stringify(body) }, 'Received payload from Meta WhatsApp Cloud API');
-      
-      // We acknowledge the webhook first. Meta requires a 200 OK.
-      // Full Gemini integration will be added here later.
-      
+      try {
+        const changes = body.entry?.[0]?.changes?.[0]?.value;
+        if (!changes || !changes.messages || changes.messages.length === 0) {
+          return reply.status(200).send('EVENT_RECEIVED');
+        }
+        
+        const messageObj = changes.messages[0];
+        if (messageObj.type !== 'text') {
+          return reply.status(200).send('EVENT_RECEIVED');
+        }
+
+        const sender = messageObj.from;
+        const pushName = changes.contacts?.[0]?.profile?.name || 'Customer';
+        const messageText = messageObj.text.body;
+        const botNumber = changes.metadata.display_phone_number.replace(/\D/g, '');
+        const phoneNumberId = changes.metadata.phone_number_id;
+
+        fastify.log.info({ sender, botNumber, message: messageText.slice(0, 20) }, 'Processing Meta Incoming Message');
+
+        // ── Step 1: Resolve orgId from botNumber ───────────
+        const { data: sessionRecord, error: lookupError } = await supabase
+          .from('whatsapp_sessions')
+          .select('org_id, project_id, phone_label, gateway_user_id')
+          .eq('phone_number', botNumber)
+          .maybeSingle();
+
+        if (!sessionRecord) {
+          fastify.log.warn({ botNumber }, '[Meta] Unregistered bot number, ignoring message');
+          return reply.status(200).send('EVENT_RECEIVED');
+        }
+
+        const resolvedOrgId = sessionRecord.org_id;
+        const phoneLabel = sessionRecord.phone_label || 'meta';
+        const userId = sessionRecord.gateway_user_id || resolvedOrgId;
+        const resolvedProjectId = sessionRecord.project_id || await resolveDefaultProjectId(resolvedOrgId);
+
+        // ── Step 1.5: Log incoming customer message ────────
+        try {
+          await supabase.from('chat_logs').insert({
+            tenant_id: resolvedOrgId,
+            bot_number: botNumber,
+            customer_number: sender,
+            sender: 'customer',
+            message_text: messageText,
+          });
+        } catch (logErr: any) {
+          fastify.log.warn({ err: logErr.message }, 'Failed to log Meta message to chat_logs');
+        }
+
+        // ── Step 2: Fetch bot settings ─────────────────────
+        let { data: settings } = await supabase
+          .from('bot_settings')
+          .select('*')
+          .eq('project_id', resolvedProjectId)
+          .maybeSingle();
+
+        if (!settings) {
+          const { data: newSettings, error: insertError } = await supabase
+            .from('bot_settings')
+            .insert({ org_id: resolvedOrgId, project_id: resolvedProjectId })
+            .select()
+            .single();
+          if (!insertError) settings = newSettings;
+        }
+
+        const botName       = settings?.bot_name || 'Aria';
+        const company       = settings?.company_name || 'PulseAI';
+        const tone          = settings?.tone || 'Professional';
+        const instructions  = settings?.custom_instructions || '';
+        const adminWhatsApp = settings?.admin_whatsapp || '';
+
+        // ── Step 3: Paywall ─────────────────────────────────
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('plan_type, credits')
+          .eq('org_id', resolvedOrgId)
+          .maybeSingle();
+
+        const isSubscriber = sub && sub.plan_type !== 'free';
+        const currentCredits = sub?.credits ?? 0;
+
+        if (!isSubscriber && currentCredits <= 0) {
+          fastify.log.warn({ resolvedOrgId, sender }, '[Meta] Credits exhausted — blocking response');
+          // Send exhaustion notice via Meta API directly
+          if (process.env.META_ACCESS_TOKEN) {
+            await axios.post(
+              `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+              {
+                messaging_product: 'whatsapp',
+                to: sender,
+                type: 'text',
+                text: { body: 'Mohon maaf, kredit AI Anda telah habis. Silakan top-up untuk melanjutkan percakapan.' }
+              },
+              { headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` } }
+            ).catch(e => fastify.log.error(e.message, 'Failed sending Meta limit notice'));
+          }
+          return reply.status(200).send('EVENT_RECEIVED');
+        }
+
+        // ── Step 4: Conversation history ────────────────────
+        const cleanSender = sender.replace(/@(s\.whatsapp\.net|lid)$/, '');
+        const { data: lead } = await supabase
+          .from('leads')
+          .select('*')
+          .eq('org_id', resolvedOrgId)
+          .or(`whatsapp.eq.${cleanSender},metadata->>jid.eq.${cleanSender}`)
+          .maybeSingle();
+
+        const history: ChatMessage[] = (lead?.metadata as any)?.history || [];
+
+        // ── Step 5: RAG ────────────────────────────────────
+        const chunks  = await retrieveContextByProject(messageText, resolvedProjectId as string, 5);
+        const context = buildContextBlock(chunks);
+
+        const leadPhone = getLeadPhoneNumber(messageText, history, cleanSender, lead?.whatsapp);
+        const hasValidPhone = !isLidNumber(leadPhone);
+
+        // ── Step 6: Enqueue to AI Worker ───────────────────
+        await aiQueue.add('process-whatsapp', {
+          type: 'whatsapp',
+          data: {
+            message: messageText,
+            history,
+            context,
+            botName,
+            company,
+            tone,
+            instructions,
+            adminWhatsApp,
+            resolvedOrgId,
+            resolvedProjectId,
+            hasValidPhone,
+            isFirstMessage: history.length === 0,
+            lead,
+            cleanSender,
+            botNumber,
+            replyTo: sender,
+            userId,
+            phoneLabel,
+            sender,
+            pushName,
+            leadPhone,
+            isSubscriber,
+            currentCredits,
+            platform: 'meta', // NEW FIELD
+            metaPhoneNumberId: phoneNumberId // NEW FIELD
+          }
+        });
+
+      } catch (err: any) {
+        fastify.log.error({ err: err.message }, '[Meta Webhook] Error processing incoming payload');
+      }
+
       return reply.status(200).send('EVENT_RECEIVED');
     } else {
       return reply.status(404).send('Not Found');
