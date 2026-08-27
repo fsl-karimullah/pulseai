@@ -148,7 +148,8 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
               const adminMsg = `🚨 *NOTIFIKASI HOT LEADS - ${company.toUpperCase()}* 🚨\n\nAda calon peserta yang butuh bantuan admin manusia segera!\n\n👤 *Kontak Leads:*\n   ${displayContact}\n\n💬 *Pesan Terakhir:*\n"_${previewMessage}_"\n\n🕐 *Waktu:* ${wibTimestamp}\n\n➡️ Silakan balas langsung ke nomor di atas ya Kak!`;
 
               if (data.platform === 'meta') {
-                if (process.env.META_ACCESS_TOKEN) {
+                const token = data.metaAccessToken || process.env.META_ACCESS_TOKEN;
+                if (token) {
                   await axios.post(
                     `https://graph.facebook.com/v26.0/${data.metaPhoneNumberId}/messages`,
                     {
@@ -157,7 +158,7 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
                       type: 'text',
                       text: { body: adminMsg }
                     },
-                    { headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` } }
+                    { headers: { Authorization: `Bearer ${token}` } }
                   );
                 }
               } else {
@@ -182,7 +183,8 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       
       // Call Gateway or Meta API
       if (data.platform === 'meta') {
-        if (process.env.META_ACCESS_TOKEN) {
+        const token = data.metaAccessToken || process.env.META_ACCESS_TOKEN;
+        if (token) {
           // Delay to simulate typing (optional for meta, but keeps timing similar)
           await new Promise(res => setTimeout(res, 500));
           await axios.post(
@@ -193,10 +195,10 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
               type: 'text',
               text: { body: botReply }
             },
-            { headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` } }
+            { headers: { Authorization: `Bearer ${token}` } }
           );
         } else {
-          console.warn('[AI Worker] META_ACCESS_TOKEN is missing');
+          console.warn('[AI Worker] META_ACCESS_TOKEN is missing (not in DB nor ENV)');
         }
       } else {
         await axios.post(`${gatewayUrl}/api/session/send`, {

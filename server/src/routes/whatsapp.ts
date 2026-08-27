@@ -827,8 +827,92 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // META WHATSAPP CLOUD API WEBHOOK
+  // META WHATSAPP CLOUD API WEBHOOK & OAUTH
   // ──────────────────────────────────────────────────────────────────────────
+
+  // POST /api/whatsapp/meta/exchange-token - Embedded Signup OAuth Callback
+  fastify.post('/whatsapp/meta/exchange-token', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { code, phoneLabel = 'meta-official', projectId } = request.body as {
+        code: string;
+        phoneLabel?: string;
+        projectId: string;
+      };
+
+      if (!code || !projectId) {
+        return reply.status(400).send({ success: false, message: 'Missing required fields: code, projectId' });
+      }
+
+      // Verify org ownership
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+
+      const appId = process.env.FACEBOOK_APP_ID;
+      const appSecret = process.env.FACEBOOK_APP_SECRET;
+
+      if (!appId || !appSecret) {
+        return reply.status(500).send({ success: false, message: 'Konfigurasi Meta App belum diatur di server.' });
+      }
+
+      // 1. Exchange OAuth code for System User Access Token
+      const tokenRes = await axios.get(`https://graph.facebook.com/v26.0/oauth/access_token`, {
+        params: {
+          client_id: appId,
+          client_secret: appSecret,
+          code: code
+        }
+      });
+      const systemUserAccessToken = tokenRes.data.access_token;
+
+      // 2. Fetch the newly created WABA and Phone Numbers using the system token
+      // First, get the business client's WABA
+      const clientWabaRes = await axios.get(`https://graph.facebook.com/v26.0/me/client_whatsapp_business_accounts`, {
+        headers: { Authorization: `Bearer ${systemUserAccessToken}` }
+      });
+      
+      const wabaId = clientWabaRes.data.data?.[0]?.id;
+      if (!wabaId) {
+        return reply.status(400).send({ success: false, message: 'Gagal menemukan WhatsApp Business Account. Pastikan Anda menyelesaikan pendaftaran.' });
+      }
+
+      // Then get the phone numbers associated with this WABA
+      const phoneRes = await axios.get(`https://graph.facebook.com/v26.0/${wabaId}/phone_numbers`, {
+        headers: { Authorization: `Bearer ${systemUserAccessToken}` }
+      });
+      
+      const phoneData = phoneRes.data.data?.[0];
+      if (!phoneData) {
+        return reply.status(400).send({ success: false, message: 'Gagal menemukan Nomor Telepon terdaftar.' });
+      }
+
+      const metaPhoneNumberId = phoneData.id;
+      const displayPhoneNumber = phoneData.display_phone_number.replace(/\D/g, ''); // Extract just digits
+
+      // 3. Upsert into whatsapp_sessions
+      const { error } = await supabase.from('whatsapp_sessions').upsert({
+        phone_number: displayPhoneNumber,
+        org_id: org.id,
+        project_id: projectId,
+        phone_label: phoneLabel,
+        gateway_user_id: userId,
+        status: 'CONNECTED',
+        platform: 'meta',
+        meta_waba_id: wabaId,
+        meta_phone_number_id: metaPhoneNumberId,
+        meta_access_token: systemUserAccessToken,
+        connected_at: new Date().toISOString()
+      }, { onConflict: 'phone_number' });
+
+      if (error) throw error;
+
+      return reply.send({ success: true, message: 'WhatsApp Meta berhasil dihubungkan!', phone_number: displayPhoneNumber });
+
+    } catch (error: any) {
+      fastify.log.error(error.response?.data || error.message, 'Error exchanging Meta Token');
+      return reply.status(500).send({ success: false, message: 'Terjadi kesalahan saat memproses otorisasi Meta.' });
+    }
+  });
 
   // GET /api/whatsapp/meta/webhook - Meta verification endpoint
   fastify.get('/whatsapp/meta/webhook', async (request, reply) => {
@@ -880,7 +964,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         // ── Step 1: Resolve orgId from botNumber ───────────
         const { data: sessionRecord, error: lookupError } = await supabase
           .from('whatsapp_sessions')
-          .select('org_id, project_id, phone_label, gateway_user_id')
+          .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token')
           .eq('phone_number', botNumber)
           .maybeSingle();
 
@@ -942,7 +1026,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         if (!isSubscriber && currentCredits <= 0) {
           fastify.log.warn({ resolvedOrgId, sender }, '[Meta] Credits exhausted — blocking response');
           // Send exhaustion notice via Meta API directly
-          if (process.env.META_ACCESS_TOKEN) {
+          const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+          if (token) {
             await axios.post(
               `https://graph.facebook.com/v26.0/${phoneNumberId}/messages`,
               {
@@ -951,7 +1036,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
                 type: 'text',
                 text: { body: 'Mohon maaf, kredit AI Anda telah habis. Silakan top-up untuk melanjutkan percakapan.' }
               },
-              { headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` } }
+              { headers: { Authorization: `Bearer ${token}` } }
             ).catch(e => fastify.log.error(e.message, 'Failed sending Meta limit notice'));
           }
           return reply.status(200).send('EVENT_RECEIVED');
@@ -1003,7 +1088,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
             isSubscriber,
             currentCredits,
             platform: 'meta', // NEW FIELD
-            metaPhoneNumberId: phoneNumberId // NEW FIELD
+            metaPhoneNumberId: phoneNumberId, // NEW FIELD
+            metaAccessToken: sessionRecord.meta_access_token // NEW FIELD
           }
         });
 

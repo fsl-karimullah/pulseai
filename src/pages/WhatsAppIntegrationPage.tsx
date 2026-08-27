@@ -1,10 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink, Plus, Settings2, FolderKanban, ChevronDown } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Sparkles, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, ExternalLink, Plus, Settings2, FolderKanban, ChevronDown, Facebook } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL;
+const FACEBOOK_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || '';
+
+declare global {
+  interface Window {
+    fbAsyncInit: () => void;
+    FB: any;
+  }
+}
 
 type ConnectionStatus = 'checking' | 'disconnected' | 'qr' | 'open' | 'connecting';
 
@@ -65,6 +73,19 @@ const WhatsAppIntegrationPage: React.FC = () => {
     if (orgLoading) return;
     fetchSessions();
   }, [organization, session, orgLoading, activeProjectId]);
+
+  useEffect(() => {
+    window.fbAsyncInit = function () {
+      if (window.FB) {
+        window.FB.init({
+          appId: FACEBOOK_APP_ID,
+          cookie: true,
+          xfbml: true,
+          version: 'v26.0'
+        });
+      }
+    };
+  }, []);
 
   const checkActiveStatus = async () => {
     if (!organization?.id || !activeSession) return;
@@ -186,6 +207,63 @@ const WhatsAppIntegrationPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleMetaLogin = () => {
+    if (!window.FB) {
+      setError('Facebook SDK tidak dimuat.');
+      return;
+    }
+    if (!activeProjectId) {
+      setError('Pilih Project tujuan terlebih dahulu.');
+      return;
+    }
+
+    setLoading(true);
+    window.FB.login(
+      (response: any) => {
+        if (response.authResponse && response.authResponse.code) {
+          const code = response.authResponse.code;
+          fetch('/api/whatsapp/meta/exchange-token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`
+            },
+            body: JSON.stringify({ code, projectId: activeProjectId, phoneLabel: 'meta-official' })
+          })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                fetchSessions();
+                alert(`Berhasil! Nomor Meta terdaftar: +${data.phone_number}`);
+              } else {
+                setError(data.message || 'Gagal mendaftarkan Meta WhatsApp.');
+              }
+            })
+            .catch(err => {
+              console.error(err);
+              setError('Terjadi kesalahan saat bertukar token.');
+            })
+            .finally(() => setLoading(false));
+        } else {
+          setLoading(false);
+          if (response.status !== 'unknown') {
+            setError('Gagal mendapatkan otorisasi dari Facebook.');
+          }
+        }
+      },
+      {
+        config_id: '1806554713859655', // User's Config ID
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: {
+          setup: {},
+          featureType: '',
+          sessionInfoVersion: '3',
+        }
+      }
+    );
   };
 
   return (
@@ -416,27 +494,23 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
         {/* ── Official API Banner ─────────────────────────── */}
         <div className="mt-6 flex flex-col sm:flex-row items-center gap-4 px-5 py-4 bg-white/70 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm">
-          <img
-            src="/Logo-Mekari-Qontak.svg"
-            alt="Mekari Qontak"
-            className="h-6 flex-shrink-0 opacity-80 mix-blend-multiply"
-          />
+          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl flex-shrink-0">
+            <Facebook size={24} />
+          </div>
           <div className="flex-1 text-center sm:text-left min-w-0">
             <p className="text-xs text-slate-600 leading-relaxed">
-              <span className="font-semibold text-slate-800">Butuh WhatsApp API Resmi?</span>{' '}
-              Centang hijau (Verified Badge), zero risiko blokir, dan skalabilitas enterprise via Mekari Qontak.
+              <span className="font-semibold text-slate-800">WhatsApp Official (Meta Cloud API)</span>{' '}
+              Koneksi resmi via Embedded Signup. Zero risiko blokir, centang hijau, skalabilitas enterprise.
             </p>
           </div>
-          <a
-            href="https://wa.me/6287826563459?text=Halo%20tim%20PulseAI,%20saya%20tertarik%20beralih%20ke%20WhatsApp%20Official%20API%20via%20Mekari%20Qontak"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-700 transition-all flex-shrink-0 whitespace-nowrap"
+          <button
+            onClick={handleMetaLogin}
+            disabled={loading}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all flex-shrink-0 whitespace-nowrap shadow-md disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <MessageCircle size={13} />
-            Konsultasi Gratis
-            <ExternalLink size={11} className="opacity-60" />
-          </a>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Facebook size={14} />}
+            Log in with Facebook
+          </button>
         </div>
       </div>
 
