@@ -17,6 +17,7 @@ import widgetChannelsRoutes from './routes/widgetChannels';
 import emailDomainsRoutes from './routes/emailDomains';
 import telegramRoutes from './routes/telegram';
 import feedbackRoutes from './routes/feedback';
+import publicStatsRoutes from './routes/publicStats';
 
 const MAX_FILE_SIZE_MB = 50;
 
@@ -66,6 +67,7 @@ export async function createServer() {
   await server.register(emailDomainsRoutes,   { prefix: '/api' });
   await server.register(telegramRoutes,        { prefix: '/api' });
   await server.register(feedbackRoutes,        { prefix: '/api' });
+  await server.register(publicStatsRoutes,     { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({
