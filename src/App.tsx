@@ -23,6 +23,7 @@ import PulseInternalPage from './pages/PulseInternalPage';
 import PulseHRPage from './pages/PulseHRPage';
 import CVScreeningPage from './pages/CVScreeningPage';
 import PulseFinancePage from './pages/PulseFinancePage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 
 import './index.css';
 
@@ -39,6 +40,7 @@ const App: React.FC = () => {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/widget" element={<PublicChatWidget />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
 
           {/* Protected Routes inside Dashboard Layout */}
           <Route
