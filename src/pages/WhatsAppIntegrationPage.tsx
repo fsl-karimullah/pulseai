@@ -75,16 +75,22 @@ const WhatsAppIntegrationPage: React.FC = () => {
   }, [organization, session, orgLoading, activeProjectId]);
 
   useEffect(() => {
-    window.fbAsyncInit = function () {
+    const initFB = () => {
       if (window.FB) {
         window.FB.init({
           appId: FACEBOOK_APP_ID,
           cookie: true,
           xfbml: true,
-          version: 'v26.0'
+          version: 'v21.0'
         });
       }
     };
+
+    if (window.FB) {
+      initFB();
+    } else {
+      window.fbAsyncInit = initFB;
+    }
   }, []);
 
   const checkActiveStatus = async () => {
