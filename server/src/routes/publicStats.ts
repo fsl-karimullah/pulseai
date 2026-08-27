@@ -50,10 +50,9 @@ export default async function publicStatsRoutes(fastify: FastifyInstance) {
 
       if (leadsError) throw leadsError;
 
-      // Ensure minimum attractive numbers if database is empty initially
-      const finalUsers = Math.max(usersCount || 0, 1500);
-      const finalMessages = Math.max(messagesCount || 0, 2400000);
-      const finalLeads = Math.max(leadsCount || 0, 85000);
+      const finalUsers = usersCount || 0;
+      const finalMessages = messagesCount || 0;
+      const finalLeads = leadsCount || 0;
 
       // Update Cache
       statsCache = {
