@@ -944,7 +944,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           // Send exhaustion notice via Meta API directly
           if (process.env.META_ACCESS_TOKEN) {
             await axios.post(
-              `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+              `https://graph.facebook.com/v26.0/${phoneNumberId}/messages`,
               {
                 messaging_product: 'whatsapp',
                 to: sender,
