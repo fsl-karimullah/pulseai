@@ -1,11 +1,10 @@
 import React from 'react';
 import { MessageCircle, Clock } from 'lucide-react';
-import DashboardLayout from '../layouts/DashboardLayout';
 
 const WhatsAppIntegrationPage: React.FC = () => {
   return (
-    <DashboardLayout title="Meta WhatsApp Integration">
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center max-w-lg mx-auto px-4">
+    <div className="w-full h-full p-6">
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center max-w-lg mx-auto px-4 mt-12">
         <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6 relative">
           <MessageCircle size={40} className="text-emerald-500" />
           <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-md">
@@ -33,7 +32,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   );
 };
 
