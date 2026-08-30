@@ -58,7 +58,7 @@ const navGroups: { header: string; emoji: string; items: NavItem[] }[] = [
       { id: 'knowledge', path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
       { id: 'bot-settings', path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
       { id: 'widget', path: '/integration/widget', label: 'Widget Website', icon: Monitor },
-      { id: 'whatsapp', path: '/integration/whatsapp', label: 'Integrasi WhatsApp', icon: MessageCircle },
+      { id: 'whatsapp', path: '/integration/whatsapp', label: 'Meta WhatsApp', icon: MessageCircle, comingSoon: true },
       { id: 'pulse-internal', path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
     ],
   },
