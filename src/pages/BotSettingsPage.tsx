@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useOrganization } from '../hooks/useOrganization';
+import { useProjects } from '../contexts/ProjectContext';
 import {
   Settings2,
   Save,
@@ -17,12 +18,15 @@ import {
   X,
   Send,
   MessageSquareText,
+  Upload,
+  Trash2
 } from 'lucide-react';
 import type { BotSetting } from '../types';
 
 const BotSettingsPage: React.FC = () => {
   const { session } = useAuth();
   const { organization, updateName, updateReplyToEmail } = useOrganization();
+  const { activeProjectId } = useProjects();
   const [settings, setSettings] = useState<BotSetting[]>([]);
   const [widgetPlacement, setWidgetPlacement] = useState<'bottom-right' | 'bottom-left'>('bottom-right');
   const [companyName, setCompanyName] = useState('');
@@ -30,6 +34,7 @@ const BotSettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [newQuickReply, setNewQuickReply] = useState('');
@@ -53,7 +58,8 @@ const BotSettingsPage: React.FC = () => {
   const fetchSettings = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/settings/bot', {
+      const url = activeProjectId ? `/api/settings/bot?projectId=${activeProjectId}` : '/api/settings/bot';
+      const res = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${session?.access_token}`
         }
@@ -86,8 +92,8 @@ const BotSettingsPage: React.FC = () => {
           },
           {
             id: 'logo-url',
-            label: 'Logo Avatar Bot (URL)',
-            description: 'Link langsung ke gambar logo perusahaan atau bot Anda.',
+            label: 'Logo Avatar Bot',
+            description: 'Unggah file gambar logo atau avatar untuk bot Anda.',
             type: 'input',
             value: d.logo_url || ''
           },
@@ -96,8 +102,8 @@ const BotSettingsPage: React.FC = () => {
             label: 'Nada Percakapan',
             description: 'Kepribadian dan gaya bahasa dalam memberikan respons.',
             type: 'select',
-            value: d.tone,
-            options: ['Profesional', 'Ramah', 'Singkat', 'Jenaka']
+            value: d.tone || 'Profesional',
+            options: ['Profesional', 'Ramah', 'Casual / Santai', 'Singkat & Padat', 'Jenaka / Humor']
           },
           {
             id: 'collect-leads',
@@ -141,7 +147,6 @@ const BotSettingsPage: React.FC = () => {
         setTgHasToken(tgJson.data.hasBotToken);
         setTgMasked(tgJson.data.maskedToken);
         setTgChatId(tgJson.data.chatId);
-        // Don't set tgBotToken, keep it empty to show placeholder.
       }
 
     } catch (err) {
@@ -149,7 +154,7 @@ const BotSettingsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, activeProjectId]);
 
   useEffect(() => {
     fetchSettings();
@@ -167,12 +172,50 @@ const BotSettingsPage: React.FC = () => {
     setSaved(false);
   };
 
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file maksimal 5MB.');
+      return;
+    }
+
+    setUploadingLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/settings/upload-logo', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: formData
+      });
+
+      const json = await res.json();
+      if (json.success && json.url) {
+        updateSetting('logo-url', json.url);
+        setSaved(false);
+      } else {
+        alert(json.message || 'Gagal mengunggah logo.');
+      }
+    } catch (err) {
+      console.error('Upload logo error:', err);
+      alert('Terjadi kesalahan saat mengunggah logo.');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
       
       // Map back to DB structure
       const body: any = {};
+      if (activeProjectId) body.projectId = activeProjectId;
       settings.forEach(s => {
         if (s.id === 'bot-name') body.bot_name = s.value;
         if (s.id === 'is-active') body.is_active = s.value;
@@ -450,7 +493,51 @@ const BotSettingsPage: React.FC = () => {
                     style={{ backgroundColor: String(setting.value) }}
                   />
                 )}
-                {setting.id === 'custom-instructions' ? (
+                {setting.id === 'logo-url' ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-14 h-14 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden flex-shrink-0 relative group shadow-sm">
+                        {setting.value ? (
+                          <img src={String(setting.value)} alt="Logo Preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <Bot size={24} className="text-slate-400" />
+                        )}
+                      </div>
+
+                      <div className="flex-1 flex flex-wrap items-center gap-2">
+                        <label className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-sm">
+                          {uploadingLogo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                          {uploadingLogo ? 'Mengunggah...' : 'Upload Logo Baru'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={uploadingLogo}
+                            onChange={handleLogoFileUpload}
+                          />
+                        </label>
+
+                        {setting.value && (
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('logo-url', '')}
+                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors border border-rose-100"
+                            title="Hapus Logo"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="atau tempel link URL gambar di sini..."
+                      value={String(setting.value)}
+                      onChange={(e) => updateSetting(setting.id, e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition-all font-mono"
+                    />
+                  </div>
+                ) : setting.id === 'custom-instructions' ? (
                   <textarea
                     rows={3}
                     value={String(setting.value)}
