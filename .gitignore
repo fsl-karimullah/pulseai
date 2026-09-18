@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Credentials & Temp Test Files
+vps-creds
+test-meta-*.html
+.env*
+

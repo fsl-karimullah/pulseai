@@ -232,7 +232,16 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       }
 
     } catch (err: any) {
-      console.error('[AI Worker] DB/Gateway Error for WhatsApp:', err.message);
+      if (err.isAxiosError && err.response?.data) {
+        const metaErr = err.response.data.error || err.response.data;
+        console.error(
+          `[AI Worker] [${data.platform === 'meta' ? 'Meta Cloud API' : 'Baileys Gateway'} Error]`,
+          `Status: ${err.response.status}, Detail:`,
+          JSON.stringify(metaErr, null, 2)
+        );
+      } else {
+        console.error('[AI Worker] DB/Gateway Error for WhatsApp:', err.stack || err.message);
+      }
       if (err.isAxiosError) throw err; // let BullMQ retry if it's an API fail
     }
 

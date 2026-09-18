@@ -376,6 +376,9 @@ const PricingPage: React.FC = () => {
                   <Zap size={11} className="text-emerald-600" />
                   <span className="text-xs font-bold text-emerald-700">Unlimited Chat</span>
                 </div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">
+                  <span className="text-xs font-bold text-slate-600">Baileys QR Only</span>
+                </div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
                   <span className="text-xs font-bold text-slate-600">10 Scan CV/bln</span>
                 </div>
@@ -402,6 +405,7 @@ const PricingPage: React.FC = () => {
               </div>
               <ul className="mt-7 space-y-3.5 flex-1">
                 <FeatureWithTooltip text="♾️ Unlimited AI Chatbot selama 1 bulan" />
+                <FeatureWithTooltip text="Baileys WhatsApp (Scan QR Code)" tooltip="Menghubungkan nomor via scan QR peranti tertaut." />
                 <FeatureWithTooltip text="10 Scan CV ATS per bulan" />
                 <FeatureWithTooltip text="Top-up kredit untuk scan ekstra" />
                 <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
@@ -440,6 +444,10 @@ const PricingPage: React.FC = () => {
                   <Zap size={11} className="text-emerald-600" />
                   <span className="text-xs font-bold text-emerald-700">Unlimited Chat</span>
                 </div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200">
+                  <Sparkles size={11} className="text-blue-600" />
+                  <span className="text-xs font-bold text-blue-700">Meta API Support</span>
+                </div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
                   <span className="text-xs font-bold text-slate-600">20 Scan CV/bln</span>
                 </div>
@@ -466,6 +474,7 @@ const PricingPage: React.FC = () => {
               </div>
               <ul className="mt-7 space-y-3.5 flex-1">
                 <FeatureWithTooltip text="♾️ Unlimited AI Chatbot selama 3 bulan" />
+                <FeatureWithTooltip text="Meta Official Cloud API + Baileys QR" tooltip="Dukungan Meta Official Cloud API (Centang hijau, 1.000 percakapan service gratis/bulan dari Meta)." />
                 <FeatureWithTooltip text="20 Scan CV ATS per bulan" />
                 <FeatureWithTooltip text="Top-up kredit untuk scan ekstra" />
                 <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
@@ -501,6 +510,10 @@ const PricingPage: React.FC = () => {
                   <Zap size={11} className="text-violet-600" />
                   <span className="text-xs font-bold text-violet-700">Unlimited Chat</span>
                 </div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200">
+                  <Sparkles size={11} className="text-blue-600" />
+                  <span className="text-xs font-bold text-blue-700">Meta API Support</span>
+                </div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
                   <span className="text-xs font-bold text-slate-600">30 Scan CV/bln</span>
                 </div>
@@ -527,6 +540,7 @@ const PricingPage: React.FC = () => {
               </div>
               <ul className="mt-7 space-y-3.5 flex-1">
                 <FeatureWithTooltip text="♾️ Unlimited AI Chatbot selama 12 bulan" />
+                <FeatureWithTooltip text="Meta Official Cloud API + Baileys QR" tooltip="Dukungan Meta Official Cloud API (Centang hijau, 1.000 percakapan service gratis/bulan dari Meta)." />
                 <FeatureWithTooltip text="30 Scan CV ATS per bulan" />
                 <FeatureWithTooltip text="Top-up kredit untuk scan ekstra" />
                 <FeatureWithTooltip text="Branding Kustom (Tanpa Logo)" />
@@ -547,6 +561,17 @@ const PricingPage: React.FC = () => {
                   ? <Loader2 className="animate-spin" size={20} />
                   : isCurrentPlan('full_scale') ? 'Paket Saat Ini' : 'Go Full Scale'}
               </button>
+            </div>
+          </div>
+
+          {/* Meta Pricing Info Banner */}
+          <div className="mt-8 p-4 bg-blue-50/70 border border-blue-200 rounded-2xl text-xs text-blue-900 flex items-start gap-3">
+            <Info size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">Informasi Biaya WhatsApp Official (Meta Cloud API):</span>
+              <p className="mt-0.5 text-blue-800 leading-relaxed">
+                Biaya langganan PulseAI mencakup akses software & sistem AI. Untuk integrasi Meta Cloud API, <strong>1.000 percakapan Service (Customer Service) pertama setiap bulan diberikan GRATIS oleh Meta</strong>. Jika percakapan melebihi 1.000, tagihan pesan WhatsApp dibayarkan secara mandiri langsung ke Meta melalui Meta Business Manager Anda.
+              </p>
             </div>
           </div>
         </div>
