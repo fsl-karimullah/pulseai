@@ -910,8 +910,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
     } catch (error: any) {
       fastify.log.error(error.response?.data || error.message, 'Error exchanging Meta Token');
-      // TEMPORARY FIX FOR VIDEO RECORDING: Return success even if Meta API fails due to rejected permissions
-      return reply.status(200).send({ success: true, message: 'WhatsApp Meta berhasil dihubungkan!', phone_number: '628123456789' });
+      return reply.status(500).send({ success: false, message: 'Terjadi kesalahan saat memproses otorisasi Meta.' });
     }
   });
 
