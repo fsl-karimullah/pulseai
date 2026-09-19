@@ -48,6 +48,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showTipsModal, setShowTipsModal] = useState<boolean>(false);
+  const [metaPendingInfo, setMetaPendingInfo] = useState<{ message: string; wabaId: string } | null>(null);
 
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
@@ -224,6 +225,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
     }
 
     setLoading(true);
+    setError(null);
     window.FB.login(
       (response: any) => {
         if (response.authResponse && response.authResponse.code) {
@@ -240,7 +242,11 @@ const WhatsAppIntegrationPage: React.FC = () => {
             .then(data => {
               if (data.success) {
                 fetchSessions();
-                alert(`Berhasil! Nomor Meta terdaftar: +${data.phone_number}`);
+                alert(`✅ Berhasil! Nomor Meta terdaftar: +${data.phone_number}`);
+              } else if (data.pending) {
+                // WABA terhubung tapi nomor belum di-provision Meta
+                fetchSessions();
+                setMetaPendingInfo({ message: data.message, wabaId: data.waba_id || '' });
               } else {
                 setError(data.message || 'Gagal mendaftarkan Meta WhatsApp.');
               }
@@ -269,6 +275,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
       }
     );
   };
+
 
   const metaSessions = sessions.filter(s => s.platform === 'meta');
   const baileysSessions = sessions.filter(s => s.platform !== 'meta');
@@ -677,6 +684,77 @@ const WhatsAppIntegrationPage: React.FC = () => {
             >
               Saya Mengerti
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Meta Pending Number Modal ─────────────────────────────────── */}
+      {metaPendingInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl max-w-md w-full p-7 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+                <AlertTriangle className="text-amber-500" size={20} />
+                Nomor Belum Aktif di Meta
+              </h3>
+              <button
+                onClick={() => setMetaPendingInfo(null)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 text-xs text-amber-800 leading-relaxed">
+              {metaPendingInfo.message}
+            </div>
+
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Langkah selanjutnya:</p>
+            <div className="space-y-3 mb-5">
+              {[
+                { num: '1', title: 'Buka Meta Business Manager', desc: 'Kunjungi business.facebook.com → WhatsApp Manager → Phone Numbers' },
+                { num: '2', title: 'Verifikasi Nomor via SMS/Telepon', desc: 'Pilih nomor Anda → klik "Verify" → Meta akan SMS atau telepon untuk kode OTP' },
+                { num: '3', title: 'Hubungkan Kembali ke PulseAI', desc: 'Setelah nomor terverifikasi di Meta, kembali ke halaman ini dan klik "Log in with Facebook" kembali' },
+              ].map((step) => (
+                <div key={step.num} className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center flex-shrink-0 text-xs">
+                    {step.num}
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-800 text-xs">{step.title}</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{step.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {metaPendingInfo.wabaId && (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-5 flex items-center gap-2">
+                <Info size={13} className="text-blue-500 flex-shrink-0" />
+                <p className="text-[11px] text-blue-700">
+                  WABA ID Anda: <strong className="font-mono">{metaPendingInfo.wabaId}</strong> — simpan ini untuk referensi support.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setMetaPendingInfo(null);
+                  window.open('https://business.facebook.com/wa/manage/phone-numbers/', '_blank');
+                }}
+                className="flex-1 py-3 bg-[#1877F2] text-white text-sm font-bold rounded-xl hover:bg-[#166fe5] transition-colors shadow-md"
+              >
+                Buka Meta Business Manager
+              </button>
+              <button
+                onClick={() => setMetaPendingInfo(null)}
+                className="px-5 py-3 bg-slate-100 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-200 transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}

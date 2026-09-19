@@ -924,18 +924,61 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // 3. Fetch phone numbers associated with this WABA
-      const phoneRes = await axios.get(`https://graph.facebook.com/v21.0/${wabaId}/phone_numbers`, {
-        headers: { Authorization: `Bearer ${systemUserAccessToken}` }
-      });
-      
-      const phoneData = phoneRes.data.data?.[0];
+      // 3. Fetch phone numbers associated with this WABA (with retry, Meta can delay provisioning)
+      let phoneData: any = null;
+      const MAX_PHONE_RETRIES = 4;
+      for (let attempt = 1; attempt <= MAX_PHONE_RETRIES; attempt++) {
+        try {
+          const phoneRes = await axios.get(`https://graph.facebook.com/v21.0/${wabaId}/phone_numbers`, {
+            headers: { Authorization: `Bearer ${systemUserAccessToken}` }
+          });
+          phoneData = phoneRes.data.data?.[0] || null;
+          if (phoneData) {
+            fastify.log.info({ attempt, phoneId: phoneData.id }, '[Meta Token Exchange] Phone number fetched');
+            break;
+          }
+        } catch (phoneErr: any) {
+          fastify.log.warn({ attempt, err: phoneErr.message }, '[Meta Token Exchange] Phone number fetch attempt failed');
+        }
+        if (attempt < MAX_PHONE_RETRIES) {
+          // Wait 1.5 seconds before retrying — Meta may need time to provision
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+
+      // If still no phone data after retries, save WABA as PENDING and guide user
       if (!phoneData) {
-        return reply.status(400).send({ success: false, message: 'Gagal menemukan Nomor Telepon terdaftar pada akun Meta Anda.' });
+        fastify.log.warn({ wabaId }, '[Meta Token Exchange] No phone numbers found after retries — saving as PENDING');
+
+        // Save the WABA connection in PENDING state so user doesn't lose their progress
+        const pendingLabel = `meta-pending-${Date.now()}`;
+        await supabase.from('whatsapp_sessions').upsert({
+          phone_number: `pending-${wabaId}`,
+          org_id: org.id,
+          project_id: projectId,
+          phone_label: pendingLabel,
+          gateway_user_id: userId,
+          status: 'CONNECTING',
+          platform: 'meta',
+          meta_waba_id: wabaId,
+          meta_access_token: systemUserAccessToken,
+          connected_at: new Date().toISOString()
+        }, { onConflict: 'phone_number' });
+
+        return reply.status(202).send({
+          success: false,
+          pending: true,
+          waba_id: wabaId,
+          message:
+            'Akun WhatsApp Business Anda berhasil dihubungkan ke Meta, namun nomor telepon belum tersedia. ' +
+            'Meta membutuhkan beberapa menit untuk memverifikasi nomor Anda. ' +
+            'Pastikan nomor yang Anda daftarkan sudah aktif menerima SMS/Telepon, lalu coba hubungkan kembali dalam 2–5 menit.',
+        });
       }
 
       const metaPhoneNumberId = phoneData.id;
       const displayPhoneNumber = (phoneData.display_phone_number || phoneData.id).replace(/\D/g, '');
+      const qualityRating = phoneData.quality_rating || 'UNKNOWN';
 
       // 4. Upsert into whatsapp_sessions
       const { error } = await supabase.from('whatsapp_sessions').upsert({
@@ -954,12 +997,22 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
       if (error) throw error;
 
-      return reply.send({ success: true, message: 'WhatsApp Meta berhasil dihubungkan!', phone_number: displayPhoneNumber });
+      fastify.log.info({ displayPhoneNumber, wabaId, qualityRating }, '[Meta] Session saved successfully');
+      return reply.send({
+        success: true,
+        message: 'WhatsApp Meta berhasil dihubungkan!',
+        phone_number: displayPhoneNumber,
+        quality_rating: qualityRating,
+        waba_id: wabaId,
+      });
 
     } catch (error: any) {
       const metaErrDetail = error.response?.data || error.message;
-      fastify.log.error(metaErrDetail, 'Error exchanging Meta Token');
-      const clientMsg = error.response?.data?.error?.message || error.message || 'Terjadi kesalahan saat memproses otorisasi Meta.';
+      fastify.log.error({ err: metaErrDetail }, 'Error exchanging Meta Token');
+      const clientMsg =
+        error.response?.data?.error?.message ||
+        error.message ||
+        'Terjadi kesalahan saat memproses otorisasi Meta.';
       return reply.status(500).send({ success: false, message: clientMsg });
     }
   });
