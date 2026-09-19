@@ -1062,7 +1062,26 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         waba_id: sessionRecord.meta_waba_id,
       });
     } catch (err: any) {
-      const detail = err.response?.data?.error?.message || err.message;
+      const errResponse = err.response?.data?.error;
+      const status = err.response?.status;
+
+      // Meta returns Graph Method Exception (code 100 or 33) or 404/400 when phone number object is deleted
+      if (
+        status === 404 ||
+        status === 400 ||
+        errResponse?.code === 100 ||
+        errResponse?.code === 33 ||
+        errResponse?.type === 'OAuthException'
+      ) {
+        fastify.log.warn({ phoneNumberId }, '[Meta] Phone number not found or deleted in Meta');
+        return reply.send({
+          success: true,
+          status: 'DELETED',
+          message: 'Nomor ini telah dihapus di Meta Business Manager.'
+        });
+      }
+
+      const detail = errResponse?.message || err.message;
       fastify.log.error({ err: detail }, '[Meta] Failed to fetch phone status');
       return reply.status(500).send({ success: false, message: detail });
     }
