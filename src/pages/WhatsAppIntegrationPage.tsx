@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, Lock } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
-import { useSubscription } from '../hooks/useSubscription';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL;
 const FACEBOOK_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || '';
@@ -35,7 +34,6 @@ interface WhatsAppSession {
 const WhatsAppIntegrationPage: React.FC = () => {
   const { organization, loading: orgLoading } = useOrganization();
   const { session } = useAuth();
-  const { subscription } = useSubscription();
   const { projects, activeProjectId, setActiveProjectId } = useProjects();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const activeProject = projects.find((p) => p.id === activeProjectId);
@@ -53,8 +51,6 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
-
-  const isProOrFullScale = subscription?.plan_type === 'pro' || subscription?.plan_type === 'full_scale';
 
   const fetchSessions = async () => {
     if (!organization?.id || !session?.access_token || !activeProjectId) {
@@ -218,11 +214,6 @@ const WhatsAppIntegrationPage: React.FC = () => {
   };
 
   const handleMetaLogin = () => {
-    if (!isProOrFullScale) {
-      alert('Fitur Meta Official API khusus untuk paket Pro dan Full Scale. Silakan tingkatkan paket Anda di menu Pricing.');
-      return;
-    }
-
     if (!window.FB) {
       setError('Facebook SDK tidak dimuat.');
       return;
@@ -374,24 +365,14 @@ const WhatsAppIntegrationPage: React.FC = () => {
             </div>
 
             <div>
-              {isProOrFullScale ? (
-                <button
-                  onClick={handleMetaLogin}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all whitespace-nowrap shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed"
-                >
-                  {loading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
-                  Log in with Facebook
-                </button>
-              ) : (
-                <button
-                  onClick={() => alert('Fitur WhatsApp Meta Official API khusus untuk pengguna paket Pro dan Full Scale. Silakan tingkatkan paket Anda di menu Pricing.')}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 border border-slate-300 text-slate-500 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all cursor-pointer"
-                >
-                  <Lock size={14} className="text-amber-500" />
-                  Gembok (Khusus Paket Pro+)
-                </button>
-              )}
+              <button
+                onClick={handleMetaLogin}
+                disabled={loading}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all whitespace-nowrap shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+                Log in with Facebook
+              </button>
             </div>
           </div>
 
