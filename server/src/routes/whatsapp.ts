@@ -1019,9 +1019,9 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
   // GET /api/whatsapp/meta/phone-status - Check real-time Meta phone number status
   fastify.get('/whatsapp/meta/phone-status', { preHandler: [authenticate] }, async (request, reply) => {
+    const { phoneNumberId } = request.query as { phoneNumberId: string };
     try {
       const userId = (request as any).user?.id;
-      const { phoneNumberId } = request.query as { phoneNumberId: string };
 
       if (!phoneNumberId) {
         return reply.status(400).send({ success: false, message: 'phoneNumberId diperlukan' });
