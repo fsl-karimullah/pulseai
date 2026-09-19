@@ -1017,7 +1017,58 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // GET /api/whatsapp/meta/webhook - Meta verification endpoint
+  // GET /api/whatsapp/meta/phone-status - Check real-time Meta phone number status
+  fastify.get('/whatsapp/meta/phone-status', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { phoneNumberId } = request.query as { phoneNumberId: string };
+
+      if (!phoneNumberId) {
+        return reply.status(400).send({ success: false, message: 'phoneNumberId diperlukan' });
+      }
+
+      // Verify ownership — user must own the org that owns this phone number
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(403).send({ success: false, message: 'Tidak diizinkan' });
+
+      const { data: sessionRecord } = await supabase
+        .from('whatsapp_sessions')
+        .select('meta_access_token, meta_waba_id')
+        .eq('org_id', org.id)
+        .eq('meta_phone_number_id', phoneNumberId)
+        .maybeSingle();
+
+      if (!sessionRecord) return reply.status(404).send({ success: false, message: 'Sesi tidak ditemukan' });
+
+      const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+      if (!token) return reply.status(500).send({ success: false, message: 'Token Meta tidak ditemukan' });
+
+      const fields = 'id,display_phone_number,verified_name,quality_rating,status,code_verification_status,name_status';
+      const res = await axios.get(`https://graph.facebook.com/v21.0/${phoneNumberId}`, {
+        params: { fields },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const d = res.data;
+      return reply.send({
+        success: true,
+        phone_number_id: d.id,
+        display_phone_number: d.display_phone_number,
+        verified_name: d.verified_name,
+        quality_rating: d.quality_rating,   // GREEN | YELLOW | RED | UNKNOWN
+        status: d.status,                   // PENDING | CONNECTED | DISCONNECTED | FLAGGED | BANNED | DELETED
+        code_verification_status: d.code_verification_status, // EXPIRED | VERIFIED | NOT_VERIFIED
+        name_status: d.name_status,
+        waba_id: sessionRecord.meta_waba_id,
+      });
+    } catch (err: any) {
+      const detail = err.response?.data?.error?.message || err.message;
+      fastify.log.error({ err: detail }, '[Meta] Failed to fetch phone status');
+      return reply.status(500).send({ success: false, message: detail });
+    }
+  });
+
+
   fastify.get('/whatsapp/meta/webhook', async (request, reply) => {
     const query = request.query as any;
     const mode = query['hub.mode'];

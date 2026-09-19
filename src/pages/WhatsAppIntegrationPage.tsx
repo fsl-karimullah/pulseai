@@ -31,6 +31,17 @@ interface WhatsAppSession {
   updated_at: string;
 }
 
+interface MetaPhoneStatus {
+  phone_number_id: string;
+  display_phone_number: string;
+  verified_name: string;
+  quality_rating: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN';
+  status: 'PENDING' | 'CONNECTED' | 'DISCONNECTED' | 'FLAGGED' | 'BANNED' | 'DELETED' | 'MIGRATED' | 'UNKNOWN';
+  code_verification_status: 'VERIFIED' | 'NOT_VERIFIED' | 'EXPIRED';
+  name_status: string;
+  waba_id: string;
+}
+
 const WhatsAppIntegrationPage: React.FC = () => {
   const { organization, loading: orgLoading } = useOrganization();
   const { session } = useAuth();
@@ -49,6 +60,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showTipsModal, setShowTipsModal] = useState<boolean>(false);
   const [metaPendingInfo, setMetaPendingInfo] = useState<{ message: string; wabaId: string } | null>(null);
+  const [metaPhoneStatuses, setMetaPhoneStatuses] = useState<Record<string, MetaPhoneStatus>>({});
+  const [loadingMetaStatus, setLoadingMetaStatus] = useState<boolean>(false);
 
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
@@ -64,13 +77,44 @@ const WhatsAppIntegrationPage: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        setSessions(data.sessions || []);
+        const loadedSessions: WhatsAppSession[] = data.sessions || [];
+        setSessions(loadedSessions);
+        // Auto-fetch Meta statuses for sessions that have a phone number ID
+        const metaSessions = loadedSessions.filter(s => s.platform === 'meta' && s.meta_phone_number_id);
+        if (metaSessions.length > 0) {
+          fetchMetaPhoneStatuses(metaSessions, session.access_token);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch sessions', err);
     } finally {
       setLoadingSessions(false);
     }
+  };
+
+  const fetchMetaPhoneStatuses = async (metaSessions: WhatsAppSession[], accessToken: string) => {
+    setLoadingMetaStatus(true);
+    const statusMap: Record<string, MetaPhoneStatus> = {};
+    await Promise.allSettled(
+      metaSessions
+        .filter(s => s.meta_phone_number_id)
+        .map(async (s) => {
+          try {
+            const res = await fetch(
+              `/api/whatsapp/meta/phone-status?phoneNumberId=${s.meta_phone_number_id}`,
+              { headers: { 'Authorization': `Bearer ${accessToken}` } }
+            );
+            const data = await res.json();
+            if (data.success) {
+              statusMap[s.meta_phone_number_id!] = data as MetaPhoneStatus;
+            }
+          } catch {
+            // silently ignore per-number errors
+          }
+        })
+    );
+    setMetaPhoneStatuses(statusMap);
+    setLoadingMetaStatus(false);
   };
 
   useEffect(() => {
@@ -393,47 +437,191 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 <p className="text-[11px] text-slate-400 mt-0.5">Klik tombol di atas untuk menghubungkan via Facebook Embedded Signup.</p>
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50/60 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    <th className="px-6 py-3.5">Nama Sesi</th>
-                    <th className="px-6 py-3.5">Nomor WhatsApp</th>
-                    <th className="px-6 py-3.5">WABA ID</th>
-                    <th className="px-6 py-3.5">Phone Number ID</th>
-                    <th className="px-6 py-3.5">Platform</th>
-                    <th className="px-6 py-3.5">Status</th>
-                    <th className="px-6 py-3.5 text-right">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 text-xs">
-                  {metaSessions.map((s) => (
-                    <tr key={s.phone_number} className="hover:bg-blue-50/30 transition-colors">
-                      <td className="px-6 py-4 font-bold text-slate-900 capitalize">{s.phone_label}</td>
-                      <td className="px-6 py-4 font-mono text-slate-700">+{s.phone_number}</td>
-                      <td className="px-6 py-4 font-mono text-slate-500 text-[11px]">{s.meta_waba_id || '—'}</td>
-                      <td className="px-6 py-4 font-mono text-slate-500 text-[11px]">{s.meta_phone_number_id || '—'}</td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-extrabold">
-                          Meta Official
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Terhubung
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleDisconnect(s.phone_label)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
-                        >
-                          <LogOut size={13} /> Putuskan
-                        </button>
-                      </td>
+              <>
+                {/* Pending warning banner — shown if any session is PENDING */}
+                {metaSessions.some(s => {
+                  const ms = metaPhoneStatuses[s.meta_phone_number_id || ''];
+                  return !ms || ms.status === 'PENDING' || ms.code_verification_status === 'NOT_VERIFIED';
+                }) && (
+                  <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+                    <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600 flex-shrink-0">
+                      <AlertTriangle size={15} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-amber-900 mb-0.5">Nomor Belum Terverifikasi di Meta</p>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Klik <strong>Settings (⚙)</strong> pada nomor di Meta Business Manager → pilih <strong>"Add phone number"</strong> atau <strong>"Verify"</strong> untuk menyelesaikan proses aktivasi.
+                      </p>
+                    </div>
+                    <a
+                      href="https://business.facebook.com/wa/manage/phone-numbers/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#1877F2] text-white text-[11px] font-bold rounded-xl hover:bg-[#166fe5] transition-colors whitespace-nowrap flex-shrink-0 shadow-sm"
+                    >
+                      <MessageCircle size={12} />
+                      Buka Meta Business Manager
+                    </a>
+                  </div>
+                )}
+
+                <table className="w-full text-left border-collapse mt-2">
+                  <thead>
+                    <tr className="bg-slate-50/60 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="px-6 py-3.5">Nama Sesi</th>
+                      <th className="px-6 py-3.5">Nomor</th>
+                      <th className="px-6 py-3.5">Nama Bisnis</th>
+                      <th className="px-6 py-3.5">Status Meta</th>
+                      <th className="px-6 py-3.5">Kualitas</th>
+                      <th className="px-6 py-3.5 text-right">Aksi</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 text-xs">
+                    {metaSessions.map((s) => {
+                      const ms = s.meta_phone_number_id ? metaPhoneStatuses[s.meta_phone_number_id] : undefined;
+                      const metaStatus = ms?.status || (loadingMetaStatus ? 'LOADING' : 'UNKNOWN');
+                      const verifiedName = ms?.verified_name || s.phone_label;
+                      const qualityRating = ms?.quality_rating || 'UNKNOWN';
+                      const wabaUrl = `https://business.facebook.com/wa/manage/phone-numbers/${s.meta_waba_id ? `?waba_id=${s.meta_waba_id}` : ''}`;
+
+                      const statusBadge = () => {
+                        if (metaStatus === 'LOADING') {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-medium">
+                              <Loader2 size={10} className="animate-spin" /> Memeriksa...
+                            </span>
+                          );
+                        }
+                        if (metaStatus === 'PENDING') {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-300 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                              Pending Verifikasi
+                            </span>
+                          );
+                        }
+                        if (metaStatus === 'CONNECTED') {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Aktif
+                            </span>
+                          );
+                        }
+                        if (metaStatus === 'FLAGGED') {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                              Ditandai Meta
+                            </span>
+                          );
+                        }
+                        if (metaStatus === 'BANNED') {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 text-red-800 border border-red-300 text-[10px] font-bold">
+                              ⛔ Diblokir Meta
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-medium">
+                            {metaStatus}
+                          </span>
+                        );
+                      };
+
+                      const qualityBadge = () => {
+                        if (!ms) return null;
+                        const map: Record<string, string> = {
+                          GREEN: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                          YELLOW: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+                          RED: 'bg-red-50 text-red-600 border-red-200',
+                          UNKNOWN: 'bg-slate-50 text-slate-500 border-slate-200',
+                        };
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${map[qualityRating] || map.UNKNOWN}`}>
+                            {qualityRating}
+                          </span>
+                        );
+                      };
+
+                      return (
+                        <tr key={s.phone_number} className="hover:bg-blue-50/30 transition-colors">
+                          <td className="px-6 py-4 font-bold text-slate-900 capitalize">{s.phone_label}</td>
+                          <td className="px-6 py-4 font-mono text-slate-700">+{s.phone_number}</td>
+                          <td className="px-6 py-4 text-slate-600 font-medium">{verifiedName}</td>
+                          <td className="px-6 py-4">{statusBadge()}</td>
+                          <td className="px-6 py-4">{qualityBadge()}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-end gap-2">
+                              {/* Verify button — shown for pending/unverified numbers */}
+                              {(metaStatus === 'PENDING' || metaStatus === 'UNKNOWN' || !ms) && (
+                                <a
+                                  href={wabaUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                  title="Verifikasi nomor di Meta Business Manager"
+                                >
+                                  <ShieldCheck size={12} />
+                                  Verifikasi di Meta
+                                </a>
+                              )}
+                              {/* Refresh status button */}
+                              {s.meta_phone_number_id && (
+                                <button
+                                  onClick={() => {
+                                    if (session?.access_token) {
+                                      fetchMetaPhoneStatuses([s], session.access_token);
+                                    }
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Refresh status dari Meta"
+                                >
+                                  <RefreshCw size={13} className={loadingMetaStatus ? 'animate-spin' : ''} />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDisconnect(s.phone_label)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
+                              >
+                                <LogOut size={13} /> Putuskan
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* Footer hint with direct link */}
+                <div className="px-6 py-3 border-t border-slate-50 flex items-center justify-between">
+                  <p className="text-[11px] text-slate-400">
+                    Kelola nomor bisnis di{' '}
+                    <a
+                      href="https://business.facebook.com/wa/manage/phone-numbers/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:text-blue-700 font-semibold underline underline-offset-2"
+                    >
+                      Meta WhatsApp Manager →
+                    </a>
+                  </p>
+                  <button
+                    onClick={() => {
+                      const ms2 = metaSessions.filter(s => s.meta_phone_number_id);
+                      if (ms2.length > 0 && session?.access_token) {
+                        fetchMetaPhoneStatuses(ms2, session.access_token);
+                      }
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-slate-700 flex items-center gap-1 transition-colors"
+                  >
+                    <RefreshCw size={11} className={loadingMetaStatus ? 'animate-spin' : ''} />
+                    Refresh Status Meta
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>
