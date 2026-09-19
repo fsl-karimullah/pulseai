@@ -856,7 +856,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       }
 
       // 1. Exchange OAuth code for System User Access Token
-      const tokenRes = await axios.get(`https://graph.facebook.com/v26.0/oauth/access_token`, {
+      const tokenRes = await axios.get(`https://graph.facebook.com/v21.0/oauth/access_token`, {
         params: {
           client_id: appId,
           client_secret: appSecret,
@@ -865,31 +865,79 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       });
       const systemUserAccessToken = tokenRes.data.access_token;
 
-      // 2. Fetch the newly created WABA and Phone Numbers using the system token
-      // First, get the business client's WABA
-      const clientWabaRes = await axios.get(`https://graph.facebook.com/v26.0/me/client_whatsapp_business_accounts`, {
-        headers: { Authorization: `Bearer ${systemUserAccessToken}` }
-      });
-      
-      const wabaId = clientWabaRes.data.data?.[0]?.id;
-      if (!wabaId) {
-        return reply.status(400).send({ success: false, message: 'Gagal menemukan WhatsApp Business Account. Pastikan Anda menyelesaikan pendaftaran.' });
+      // 2. Resolve WABA ID using multiple fallback strategies
+      let wabaId: string | null = null;
+
+      // Strategy A: debug_token (most reliable for Meta Embedded Signup)
+      try {
+        const debugRes = await axios.get(`https://graph.facebook.com/v21.0/debug_token`, {
+          params: {
+            input_token: systemUserAccessToken,
+            access_token: `${appId}|${appSecret}`
+          }
+        });
+        const debugData = debugRes.data?.data;
+        const targetIds = debugData?.target_ids || [];
+        const granularWaba = debugData?.granular_scopes?.find((s: any) => s.scope?.includes('whatsapp'))?.target_ids?.[0];
+        wabaId = granularWaba || targetIds[0] || null;
+        if (wabaId) {
+          fastify.log.info({ wabaId }, '[Meta Token Exchange] Resolved WABA ID via debug_token');
+        }
+      } catch (debugErr: any) {
+        fastify.log.warn({ err: debugErr.message }, '[Meta Token Exchange] debug_token fallback failed');
       }
 
-      // Then get the phone numbers associated with this WABA
-      const phoneRes = await axios.get(`https://graph.facebook.com/v26.0/${wabaId}/phone_numbers`, {
+      // Strategy B: GET /me/whatsapp_business_accounts
+      if (!wabaId) {
+        try {
+          const wabaRes = await axios.get(`https://graph.facebook.com/v21.0/me/whatsapp_business_accounts`, {
+            headers: { Authorization: `Bearer ${systemUserAccessToken}` }
+          });
+          wabaId = wabaRes.data?.data?.[0]?.id || null;
+          if (wabaId) {
+            fastify.log.info({ wabaId }, '[Meta Token Exchange] Resolved WABA ID via me/whatsapp_business_accounts');
+          }
+        } catch (e: any) {
+          fastify.log.warn({ err: e.message }, '[Meta Token Exchange] me/whatsapp_business_accounts failed');
+        }
+      }
+
+      // Strategy C: GET /me/client_whatsapp_business_accounts
+      if (!wabaId) {
+        try {
+          const clientWabaRes = await axios.get(`https://graph.facebook.com/v21.0/me/client_whatsapp_business_accounts`, {
+            headers: { Authorization: `Bearer ${systemUserAccessToken}` }
+          });
+          wabaId = clientWabaRes.data?.data?.[0]?.id || null;
+          if (wabaId) {
+            fastify.log.info({ wabaId }, '[Meta Token Exchange] Resolved WABA ID via me/client_whatsapp_business_accounts');
+          }
+        } catch (e: any) {
+          fastify.log.warn({ err: e.message }, '[Meta Token Exchange] me/client_whatsapp_business_accounts failed');
+        }
+      }
+
+      if (!wabaId) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Gagal menemukan WhatsApp Business Account. Pastikan pendaftaran di Meta diselesaikan.'
+        });
+      }
+
+      // 3. Fetch phone numbers associated with this WABA
+      const phoneRes = await axios.get(`https://graph.facebook.com/v21.0/${wabaId}/phone_numbers`, {
         headers: { Authorization: `Bearer ${systemUserAccessToken}` }
       });
       
       const phoneData = phoneRes.data.data?.[0];
       if (!phoneData) {
-        return reply.status(400).send({ success: false, message: 'Gagal menemukan Nomor Telepon terdaftar.' });
+        return reply.status(400).send({ success: false, message: 'Gagal menemukan Nomor Telepon terdaftar pada akun Meta Anda.' });
       }
 
       const metaPhoneNumberId = phoneData.id;
-      const displayPhoneNumber = phoneData.display_phone_number.replace(/\D/g, ''); // Extract just digits
+      const displayPhoneNumber = (phoneData.display_phone_number || phoneData.id).replace(/\D/g, '');
 
-      // 3. Upsert into whatsapp_sessions
+      // 4. Upsert into whatsapp_sessions
       const { error } = await supabase.from('whatsapp_sessions').upsert({
         phone_number: displayPhoneNumber,
         org_id: org.id,
@@ -909,8 +957,10 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       return reply.send({ success: true, message: 'WhatsApp Meta berhasil dihubungkan!', phone_number: displayPhoneNumber });
 
     } catch (error: any) {
-      fastify.log.error(error.response?.data || error.message, 'Error exchanging Meta Token');
-      return reply.status(500).send({ success: false, message: 'Terjadi kesalahan saat memproses otorisasi Meta.' });
+      const metaErrDetail = error.response?.data || error.message;
+      fastify.log.error(metaErrDetail, 'Error exchanging Meta Token');
+      const clientMsg = error.response?.data?.error?.message || error.message || 'Terjadi kesalahan saat memproses otorisasi Meta.';
+      return reply.status(500).send({ success: false, message: clientMsg });
     }
   });
 
