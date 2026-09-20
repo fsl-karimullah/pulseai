@@ -1087,6 +1087,72 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // POST /api/whatsapp/meta/send-template - Official Meta WhatsApp Broadcast / Blast Endpoint
+  fastify.post('/whatsapp/meta/send-template', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { phoneNumberId, to, templateName = 'hello_world', languageCode = 'en_US', components } = request.body as {
+        phoneNumberId: string;
+        to: string;
+        templateName?: string;
+        languageCode?: string;
+        components?: any[];
+      };
+
+      if (!phoneNumberId || !to) {
+        return reply.status(400).send({ success: false, message: 'phoneNumberId dan nomor tujuan (to) diperlukan' });
+      }
+
+      // Verify ownership
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(403).send({ success: false, message: 'Tidak diizinkan' });
+
+      const { data: sessionRecord } = await supabase
+        .from('whatsapp_sessions')
+        .select('meta_access_token, meta_waba_id')
+        .eq('org_id', org.id)
+        .eq('meta_phone_number_id', phoneNumberId)
+        .maybeSingle();
+
+      if (!sessionRecord) return reply.status(404).send({ success: false, message: 'Sesi Meta tidak ditemukan' });
+
+      const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+      if (!token) return reply.status(500).send({ success: false, message: 'Token Meta tidak ditemukan' });
+
+      const cleanTo = to.replace(/\D/g, '');
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        to: cleanTo,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: languageCode },
+          ...(components ? { components } : {})
+        }
+      };
+
+      const res = await axios.post(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      fastify.log.info({ to: cleanTo, messageId: res.data?.messages?.[0]?.id }, '[Meta] Broadcast template message sent successfully');
+
+      return reply.send({
+        success: true,
+        messageId: res.data?.messages?.[0]?.id,
+        status: res.data?.messages?.[0]?.message_status || 'accepted'
+      });
+    } catch (err: any) {
+      const detail = err.response?.data?.error?.message || err.message;
+      fastify.log.error({ err: err.response?.data || err.message }, '[Meta] Failed to send template message');
+      return reply.status(500).send({ success: false, message: detail });
+    }
+  });
+
 
   fastify.get('/whatsapp/meta/webhook', async (request, reply) => {
     const query = request.query as any;

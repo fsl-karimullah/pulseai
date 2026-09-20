@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
@@ -65,6 +65,16 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
+
+  // Meta Tutorial & Official Broadcast States
+  const [showTutorialModal, setShowTutorialModal] = useState<boolean>(false);
+  const [showMetaBlastModal, setShowMetaBlastModal] = useState<boolean>(false);
+  const [blastStep, setBlastStep] = useState<'form' | 'success'>('form');
+  const [selectedMetaPhone, setSelectedMetaPhone] = useState<string>('');
+  const [templateName, setTemplateName] = useState<string>('hello_world');
+  const [targetNumbers, setTargetNumbers] = useState<string>('');
+  const [blastLoading, setBlastLoading] = useState<boolean>(false);
+  const [blastResult, setBlastResult] = useState<{ total: number; successCount: number; failedCount: number } | null>(null);
 
   const fetchSessions = async () => {
     if (!organization?.id || !session?.access_token || !activeProjectId) {
@@ -415,7 +425,28 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </p>
             </div>
 
-            <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setShowTutorialModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                <BookOpen size={14} className="text-blue-600" />
+                Panduan Hubung Meta
+              </button>
+              {metaSessions.length > 0 && (
+                <button
+                  onClick={() => {
+                    setSelectedMetaPhone(metaSessions[0]?.meta_phone_number_id || '');
+                    setBlastStep('form');
+                    setBlastResult(null);
+                    setShowMetaBlastModal(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                >
+                  <Send size={14} />
+                  WhatsApp Blast Official
+                </button>
+              )}
               <button
                 onClick={handleMetaLogin}
                 disabled={loading}
@@ -573,6 +604,22 @@ const WhatsAppIntegrationPage: React.FC = () => {
                                   <ShieldCheck size={12} />
                                   Verifikasi di Meta
                                 </a>
+                              )}
+                              {/* WA Blast Official Button for Connected Meta numbers */}
+                              {metaStatus === 'CONNECTED' && s.meta_phone_number_id && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedMetaPhone(s.meta_phone_number_id || '');
+                                    setBlastStep('form');
+                                    setBlastResult(null);
+                                    setShowMetaBlastModal(true);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                  title="Kirim Pesan Broadcast via Meta API"
+                                >
+                                  <Send size={12} />
+                                  Kirim Blast
+                                </button>
                               )}
                               {/* Refresh status button */}
                               {s.meta_phone_number_id && (
@@ -950,6 +997,290 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 Tutup
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tutorial Modal: Panduan Hubung Meta Cloud API ──────────────────────── */}
+      {showTutorialModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-7 shadow-2xl relative my-8">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1877F2] to-indigo-600" />
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-50 text-[#1877F2] rounded-xl font-bold">
+                  <BookOpen size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900">Panduan Lengkap Integrasi Meta Official API</h3>
+                  <p className="text-xs text-slate-500">Langkah demi langkah menghubungkan Meta WhatsApp Cloud API tanpa error</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTutorialModal(false)}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Steps Checklist */}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              {[
+                {
+                  step: 'Langkah 1',
+                  title: 'Klik "Log in with Facebook"',
+                  desc: 'Klik tombol biru "Log in with Facebook" di atas. Jendela Facebook Embedded Signup akan terbuka otomatis.',
+                  badge: 'Di Dashboard PulseAI',
+                  color: 'blue'
+                },
+                {
+                  step: 'Langkah 2',
+                  title: 'Pilih / Buat Meta Business Account',
+                  desc: 'Pilih Business Account Anda di Facebook, lalu buat/pilih WhatsApp Business Account (WABA) dan masukkan nama profil bisnis Anda.',
+                  badge: 'Popup Facebook',
+                  color: 'indigo'
+                },
+                {
+                  step: 'Langkah 3',
+                  title: 'Masukkan Nomor HP & Masukkan Kode OTP SMS',
+                  desc: 'Masukkan nomor WhatsApp bisnis baru yang belum terdaftar WA biasa. Pilih verifikasi via SMS/Telepon, lalu ketik 6 digit kode OTP.',
+                  badge: 'PENTING: Harus Nomor Baru',
+                  color: 'amber'
+                },
+                {
+                  step: 'Langkah 4',
+                  title: 'Penyebab Status "Pending" & Cara Mengatasinya',
+                  desc: 'Jika setelah verifikasi status masih "Pending", buka Meta Business Manager → Settings (⚙) pada nomor tersebut → Cek peninjauan Display Name. Biasanya disetujui Meta dalam 5–30 menit.',
+                  badge: 'Verifikasi Nama Bisnis',
+                  color: 'rose'
+                },
+                {
+                  step: 'Langkah 5',
+                  title: 'Refresh Status di Dashboard',
+                  desc: 'Setelah nama bisnis disetujui oleh Meta, kembali ke dashboard PulseAI dan klik tombol "Refresh Status Meta" (icon putar) di tabel.',
+                  badge: 'Selesai & Aktif',
+                  color: 'emerald'
+                },
+              ].map((item, idx) => (
+                <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-extrabold flex items-center justify-center text-xs flex-shrink-0">
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <h4 className="font-bold text-slate-800 text-sm">{item.title}</h4>
+                      <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-600">
+                        {item.badge}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <a
+                href="https://business.facebook.com/wa/manage/phone-numbers/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1877F2] hover:underline"
+              >
+                <ExternalLink size={14} /> Buka Meta Business Manager Direct Link
+              </a>
+              <button
+                onClick={() => setShowTutorialModal(false)}
+                className="w-full sm:w-auto px-6 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                Tutup Panduan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Official Meta WhatsApp Blast Modal ─────────────────────────────────── */}
+      {showMetaBlastModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-7 shadow-2xl relative my-8">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold">
+                  <Send size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900">WhatsApp Blast Official (Meta Cloud API)</h3>
+                  <p className="text-xs text-slate-500">Kirim broadcast massal aman tanpa risiko nomor diblokir via Meta Official</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMetaBlastModal(false)}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {blastStep === 'form' ? (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!targetNumbers.trim()) {
+                    setError('Masukkan setidaknya satu nomor tujuan.');
+                    return;
+                  }
+                  setBlastLoading(true);
+                  setError(null);
+
+                  // Extract phone numbers (separated by comma, newline, or space)
+                  const rawList = targetNumbers.split(/[\n,;]+/).map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
+                  if (rawList.length === 0) {
+                    setError('Format nomor tujuan tidak valid.');
+                    setBlastLoading(false);
+                    return;
+                  }
+
+                  let successCount = 0;
+                  let failedCount = 0;
+
+                  for (const num of rawList) {
+                    try {
+                      const res = await fetch('/api/whatsapp/meta/send-template', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${session?.access_token}`
+                        },
+                        body: JSON.stringify({
+                          phoneNumberId: selectedMetaPhone || metaSessions[0]?.meta_phone_number_id,
+                          to: num,
+                          templateName: templateName.trim() || 'hello_world',
+                          languageCode: 'en_US'
+                        })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        successCount++;
+                      } else {
+                        failedCount++;
+                      }
+                    } catch {
+                      failedCount++;
+                    }
+                  }
+
+                  setBlastLoading(false);
+                  setBlastResult({ total: rawList.length, successCount, failedCount });
+                  setBlastStep('success');
+                  fetchSessions();
+                }}
+                className="space-y-4"
+              >
+                {/* Select Meta Sender Number */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Pilih Nomor Pengirim Meta Official
+                  </label>
+                  <select
+                    value={selectedMetaPhone}
+                    onChange={(e) => setSelectedMetaPhone(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-indigo-500"
+                  >
+                    {metaSessions.map(s => (
+                      <option key={s.meta_phone_number_id} value={s.meta_phone_number_id}>
+                        {s.phone_label} (+{s.phone_number})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Template Name */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span>Nama Template Meta (HSM)</span>
+                    <span className="text-[10px] text-indigo-600 font-normal">Default: hello_world</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    placeholder="Contoh: hello_world, promo_diskon_september"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-indigo-500"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Meta mewajibkan pesan broadcast menggunakan template yang sudah diajukan & disetujui di Meta WhatsApp Manager.
+                  </p>
+                </div>
+
+                {/* Target Numbers Textarea */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Nomor Tujuan (Pisahkan dengan baris baru atau koma)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={targetNumbers}
+                    onChange={(e) => setTargetNumbers(e.target.value)}
+                    placeholder="Contoh:&#10;6281234567890&#10;6289876543210"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs text-indigo-900 flex items-start gap-2">
+                  <ShieldCheck size={16} className="text-indigo-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">
+                    Broadcast melalui Meta Official Cloud API diproses secara instan oleh server Meta. 1000 percakapan Service/bulan gratis tanpa biaya pesan dari Meta.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={blastLoading}
+                    className="flex-1 py-3 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-70 cursor-pointer"
+                  >
+                    {blastLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    {blastLoading ? 'Mengirim Broadcast...' : 'Mulai Kirim WhatsApp Blast'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMetaBlastModal(false)}
+                    className="px-5 py-3 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                  >
+                    Batal
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="text-center py-4 space-y-4">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                  <CheckCircle2 size={32} />
+                </div>
+                <h4 className="text-base font-extrabold text-slate-900">Broadcast WhatsApp Berhasil Terkirim!</h4>
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Total Target</p>
+                    <p className="text-lg font-extrabold text-slate-800">{blastResult?.total || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-emerald-600 font-bold uppercase">Berhasil</p>
+                    <p className="text-lg font-extrabold text-emerald-600">{blastResult?.successCount || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-rose-500 font-bold uppercase">Gagal</p>
+                    <p className="text-lg font-extrabold text-rose-500">{blastResult?.failedCount || 0}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowMetaBlastModal(false)}
+                  className="w-full py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
+                >
+                  Selesai
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
