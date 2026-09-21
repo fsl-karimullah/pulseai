@@ -425,12 +425,12 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center md:justify-end gap-2.5">
               <button
                 onClick={() => setShowTutorialModal(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
               >
-                <BookOpen size={14} className="text-blue-600" />
+                <BookOpen size={14} className="text-blue-600 flex-shrink-0" />
                 Panduan Hubung Meta
               </button>
               {metaSessions.length > 0 && (
@@ -441,18 +441,18 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     setBlastResult(null);
                     setShowMetaBlastModal(true);
                   }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer whitespace-nowrap"
                 >
-                  <Send size={14} />
+                  <Send size={14} className="flex-shrink-0" />
                   WhatsApp Blast Official
                 </button>
               )}
               <button
                 onClick={handleMetaLogin}
                 disabled={loading}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all whitespace-nowrap shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-5 h-10 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all whitespace-nowrap shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
               >
-                {loading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} className="flex-shrink-0" />}
                 Log in with Facebook
               </button>
             </div>
