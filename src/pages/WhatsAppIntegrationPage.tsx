@@ -1446,24 +1446,27 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
-                        <span>Jeda Pengiriman (Delay)</span>
-                        <span className="text-emerald-700 font-extrabold">{baileysDelaySeconds} Detik</span>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span>Jeda Pengiriman / Delay (Detik)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">Min: 1 detik</span>
                       </label>
-                      <input
-                        type="range"
-                        min={2}
-                        max={30}
-                        step={1}
-                        value={baileysDelaySeconds}
-                        onChange={(e) => setBaileysDelaySeconds(Number(e.target.value))}
-                        className="w-full accent-emerald-600 cursor-pointer mt-1"
-                      />
-                      <div className="flex justify-between text-[10px] text-slate-400 mt-0.5 font-medium">
-                        <span>Cepat (2d)</span>
-                        <span>Disarankan (5–10d)</span>
-                        <span>Aman (15-30d)</span>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={1}
+                          max={3600}
+                          value={baileysDelaySeconds}
+                          onChange={(e) => setBaileysDelaySeconds(Math.max(1, Number(e.target.value)))}
+                          placeholder="Masukkan jeda dalam detik (contoh: 5, 60, 120)"
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 pr-16"
+                        />
+                        <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                          Detik
+                        </span>
                       </div>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Disarankan: minimal 5 detik agar pesan tidak terdeteksi otomatis oleh bot WhatsApp.
+                      </p>
                     </div>
                   </div>
 
