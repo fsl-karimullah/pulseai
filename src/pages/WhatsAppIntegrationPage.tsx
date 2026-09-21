@@ -433,20 +433,18 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 <BookOpen size={14} className="text-blue-600 flex-shrink-0" />
                 Panduan Hubung Meta
               </button>
-              {metaSessions.length > 0 && (
-                <button
-                  onClick={() => {
-                    setSelectedMetaPhone(metaSessions[0]?.meta_phone_number_id || '');
-                    setBlastStep('form');
-                    setBlastResult(null);
-                    setShowMetaBlastModal(true);
-                  }}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer whitespace-nowrap"
-                >
-                  <Send size={14} className="flex-shrink-0" />
-                  WhatsApp Blast Official
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  setSelectedMetaPhone(metaSessions[0]?.meta_phone_number_id || '');
+                  setBlastStep('form');
+                  setBlastResult(null);
+                  setShowMetaBlastModal(true);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer whitespace-nowrap"
+              >
+                <Send size={14} className="flex-shrink-0" />
+                WhatsApp Blast Official
+              </button>
               <button
                 onClick={handleMetaLogin}
                 disabled={loading}
