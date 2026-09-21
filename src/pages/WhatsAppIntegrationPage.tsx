@@ -76,6 +76,18 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [blastLoading, setBlastLoading] = useState<boolean>(false);
   const [blastResult, setBlastResult] = useState<{ total: number; successCount: number; failedCount: number } | null>(null);
 
+  // Baileys Gateway WA Blast States
+  const [showBaileysBlastModal, setShowBaileysBlastModal] = useState<boolean>(false);
+  const [baileysBlastStep, setBaileysBlastStep] = useState<'form' | 'success'>('form');
+  const [selectedBaileysPhoneLabel, setSelectedBaileysPhoneLabel] = useState<string>('');
+  const [baileysMessageText, setBaileysMessageText] = useState<string>('Halo {nama}, terima kasih telah menghubungi kami! Ada yang bisa kami bantu?');
+  const [baileysTargetNumbers, setBaileysTargetNumbers] = useState<string>('');
+  const [baileysDelaySeconds, setBaileysDelaySeconds] = useState<number>(5);
+  const [agreedTerms, setAgreedTerms] = useState<boolean>(false);
+  const [baileysBlastLoading, setBaileysBlastLoading] = useState<boolean>(false);
+  const [baileysBlastProgress, setBaileysBlastProgress] = useState<{ current: number; total: number } | null>(null);
+  const [baileysBlastResult, setBaileysBlastResult] = useState<{ total: number; successCount: number; failedCount: number } | null>(null);
+
   const fetchSessions = async () => {
     if (!organization?.id || !session?.access_token || !activeProjectId) {
       setLoadingSessions(false);
@@ -695,20 +707,35 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </p>
             </div>
 
-            <button
-              onClick={() => {
-                setNewLabel('');
-                setQrBase64(null);
-                setActiveSession(null);
-                setStatus('disconnected');
-                setError(null);
-                setShowAddModal(true);
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all text-xs shadow-md whitespace-nowrap"
-            >
-              <Plus size={15} />
-              Tambah Nomor Baru (QR Code)
-            </button>
+            <div className="flex flex-wrap items-center md:justify-end gap-2.5">
+              <button
+                onClick={() => {
+                  setSelectedBaileysPhoneLabel(baileysSessions[0]?.phone_label || '');
+                  setBaileysBlastStep('form');
+                  setBaileysBlastResult(null);
+                  setAgreedTerms(false);
+                  setShowBaileysBlastModal(true);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-500/20 cursor-pointer whitespace-nowrap"
+              >
+                <Send size={14} className="flex-shrink-0" />
+                WhatsApp Blast (Baileys)
+              </button>
+              <button
+                onClick={() => {
+                  setNewLabel('');
+                  setQrBase64(null);
+                  setActiveSession(null);
+                  setStatus('disconnected');
+                  setError(null);
+                  setShowAddModal(true);
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 h-10 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all text-xs shadow-md whitespace-nowrap"
+              >
+                <Plus size={15} />
+                Tambah Nomor Baru (QR Code)
+              </button>
+            </div>
           </div>
 
           {/* Baileys Sessions Table */}
@@ -753,12 +780,29 @@ const WhatsAppIntegrationPage: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleDisconnect(s.phone_label)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
-                        >
-                          <LogOut size={13} /> Putuskan
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {s.status === 'CONNECTED' && (
+                            <button
+                              onClick={() => {
+                                setSelectedBaileysPhoneLabel(s.phone_label);
+                                setBaileysBlastStep('form');
+                                setBaileysBlastResult(null);
+                                setAgreedTerms(false);
+                                setShowBaileysBlastModal(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                              title="Kirim Broadcast WA via Gateway Baileys"
+                            >
+                              <Send size={12} /> Kirim Blast
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDisconnect(s.phone_label)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
+                          >
+                            <LogOut size={13} /> Putuskan
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1273,6 +1317,280 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setShowMetaBlastModal(false)}
+                  className="w-full py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
+                >
+                  Selesai
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Baileys Gateway WhatsApp Blast Modal ───────────────────────────────── */}
+      {showBaileysBlastModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-7 shadow-2xl relative my-8">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-700" />
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl font-bold">
+                  <Send size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900">WhatsApp Blast Gateway (Baileys QR)</h3>
+                  <p className="text-xs text-slate-500">Kirim broadcast massal menggunakan nomor WA pribadi / bisnis Anda</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBaileysBlastModal(false)}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {baileysBlastStep === 'form' ? (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!agreedTerms) {
+                    setError('Anda harus menyetujui Syarat & Ketentuan risiko pemblokiran WhatsApp.');
+                    return;
+                  }
+                  if (!baileysTargetNumbers.trim()) {
+                    setError('Masukkan setidaknya satu nomor tujuan.');
+                    return;
+                  }
+                  if (!baileysMessageText.trim()) {
+                    setError('Isi pesan broadcast tidak boleh kosong.');
+                    return;
+                  }
+
+                  setBaileysBlastLoading(true);
+                  setError(null);
+
+                  // Extract numbers
+                  const rawList = baileysTargetNumbers.split(/[\n,;]+/).map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
+                  if (rawList.length === 0) {
+                    setError('Format nomor tujuan tidak valid.');
+                    setBaileysBlastLoading(false);
+                    return;
+                  }
+
+                  let successCount = 0;
+                  let failedCount = 0;
+                  setBaileysBlastProgress({ current: 0, total: rawList.length });
+
+                  const label = selectedBaileysPhoneLabel || baileysSessions[0]?.phone_label || 'default';
+
+                  for (let i = 0; i < rawList.length; i++) {
+                    const num = rawList[i];
+                    setBaileysBlastProgress({ current: i + 1, total: rawList.length });
+
+                    try {
+                      const res = await fetch(`${GATEWAY_URL}/api/session/send-message`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'x-gateway-secret': import.meta.env.VITE_GATEWAY_SECRET || ''
+                        },
+                        body: JSON.stringify({
+                          userId: organization?.id,
+                          phoneLabel: label,
+                          to: num,
+                          message: baileysMessageText
+                        })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        successCount++;
+                      } else {
+                        failedCount++;
+                      }
+                    } catch {
+                      failedCount++;
+                    }
+
+                    // Delay between messages to prevent spam detection & blocking
+                    if (i < rawList.length - 1 && baileysDelaySeconds > 0) {
+                      await new Promise(resolve => setTimeout(resolve, baileysDelaySeconds * 1000));
+                    }
+                  }
+
+                  setBaileysBlastLoading(false);
+                  setBaileysBlastProgress(null);
+                  setBaileysBlastResult({ total: rawList.length, successCount, failedCount });
+                  setBaileysBlastStep('success');
+                }}
+                className="space-y-4"
+              >
+                {/* Select Baileys Phone Label */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Pilih Sesi WhatsApp Pengirim
+                  </label>
+                  <select
+                    value={selectedBaileysPhoneLabel}
+                    onChange={(e) => setSelectedBaileysPhoneLabel(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500"
+                  >
+                    {baileysSessions.map(s => (
+                      <option key={s.phone_number} value={s.phone_label}>
+                        {s.phone_label} (+{s.phone_number})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Delay Per Message Setting */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span>Jeda Pengiriman Per Pesan (Delay)</span>
+                    <span className="text-emerald-700 font-extrabold">{baileysDelaySeconds} Detik</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={2}
+                    max={30}
+                    step={1}
+                    value={baileysDelaySeconds}
+                    onChange={(e) => setBaileysDelaySeconds(Number(e.target.value))}
+                    className="w-full accent-emerald-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-medium">
+                    <span>Cepat (2 dtk - Risiko tinggi)</span>
+                    <span>Disarankan (5–10 dtk)</span>
+                    <span>Aman (15-30 dtk)</span>
+                  </div>
+                </div>
+
+                {/* Message Content & Formatting Tips */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Isi Pesan Broadcast
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={baileysMessageText}
+                    onChange={(e) => setBaileysMessageText(e.target.value)}
+                    placeholder="Tulis pesan Anda di sini..."
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-emerald-500 leading-relaxed"
+                  />
+                  
+                  {/* Formatting guide card */}
+                  <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
+                    <p className="font-bold text-slate-800 flex items-center gap-1">
+                      <Info size={12} className="text-emerald-600" /> Panduan Format Pesan yang Bagus:
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-slate-500 pl-1">
+                      <li>Gunakan format WhatsApp: <code className="bg-white px-1 rounded border">*tebal*</code>, <code className="bg-white px-1 rounded border">_miring_</code>, <code className="bg-white px-1 rounded border">~coret~</code>.</li>
+                      <li>Personalisasi: Awali dengan salam sopan dan gunakan kata panggil unik.</li>
+                      <li>Berikan tombol / CTA jelas (contoh: *"Balas 1 untuk info promo"*).</li>
+                      <li>Sediakan opsi Opt-Out (contoh: *"Balas STOP untuk berhenti menerima chat"*).</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Target Numbers */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Nomor Tujuan (Pisahkan dengan baris baru atau koma)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={baileysTargetNumbers}
+                    onChange={(e) => setBaileysTargetNumbers(e.target.value)}
+                    placeholder="Contoh:&#10;6281234567890&#10;6289876543210"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Tips Mencegah Pemblokiran */}
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl space-y-1.5">
+                  <p className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
+                    <ShieldCheck size={14} className="text-amber-600" /> Tips Agar Nomor Tidak Terblokir oleh WhatsApp:
+                  </p>
+                  <ul className="text-[11px] text-amber-800/90 space-y-1 list-disc list-inside leading-relaxed">
+                    <li><strong>Jangan Spam Kontak Baru:</strong> Kirim terutama ke pelanggan/kontak yang sudah menyimpan nomor Anda.</li>
+                    <li><strong>Warm-Up Nomor:</strong> Jangan langsung blast ratusan pesan pada nomor WhatsApp yang baru terdaftar.</li>
+                    <li><strong>Gunakan Delay Cukup (≥ 5 detik):</strong> Hindari pengiriman instan tanpa jeda agar tidak terdeteksi bot otomatis.</li>
+                    <li><strong>Variasikan Isi Pesan:</strong> Hindari menyalin pesan persis sama secara masif tanpa perubahan.</li>
+                  </ul>
+                </div>
+
+                {/* Terms and Conditions Checkbox */}
+                <div className="p-3.5 bg-rose-50/70 border border-rose-200 rounded-2xl">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agreedTerms}
+                      onChange={(e) => setAgreedTerms(e.target.checked)}
+                      className="mt-0.5 rounded border-rose-300 text-rose-600 focus:ring-rose-500 w-4 h-4 shrink-0"
+                    />
+                    <span className="text-xs text-rose-900 leading-relaxed">
+                      Saya memahami dan menyetujui bahwa pengiriman pesan massal via Gateway QR (Unofficial API) memiliki risiko nomor diblokir oleh pihak WhatsApp. Pihak PulseAI tidak bertanggung jawab atas pemblokiran nomor akibat pelanggaran kebijakan spam WhatsApp.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Progress bar during sending */}
+                {baileysBlastLoading && baileysBlastProgress && (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
+                    <div className="flex justify-between text-xs font-bold text-emerald-800">
+                      <span>Mengirim broadcast... ({baileysBlastProgress.current} dari {baileysBlastProgress.total})</span>
+                      <span>{Math.round((baileysBlastProgress.current / baileysBlastProgress.total) * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-emerald-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                        style={{ width: `${(baileysBlastProgress.current / baileysBlastProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-emerald-600 text-center">Mohon tunggu, memberikan jeda delay {baileysDelaySeconds} detik per pesan agar aman...</p>
+                  </div>
+                )}
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={baileysBlastLoading || !agreedTerms}
+                    className="flex-1 py-3 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {baileysBlastLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    {baileysBlastLoading ? 'Proses Broadcast...' : 'Mulai Kirim Blast Gateway'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBaileysBlastModal(false)}
+                    className="px-5 py-3 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                  >
+                    Batal
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="text-center py-4 space-y-4">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                  <CheckCircle2 size={32} />
+                </div>
+                <h4 className="text-base font-extrabold text-slate-900">Broadcast WhatsApp Baileys Selesai!</h4>
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Total Target</p>
+                    <p className="text-lg font-extrabold text-slate-800">{baileysBlastResult?.total || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-emerald-600 font-bold uppercase">Berhasil</p>
+                    <p className="text-lg font-extrabold text-emerald-600">{baileysBlastResult?.successCount || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-rose-500 font-bold uppercase">Gagal</p>
+                    <p className="text-lg font-extrabold text-rose-500">{baileysBlastResult?.failedCount || 0}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowBaileysBlastModal(false)}
                   className="w-full py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
                 >
                   Selesai
