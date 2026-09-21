@@ -1329,10 +1329,10 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
       {/* ── Baileys Gateway WhatsApp Blast Modal ───────────────────────────────── */}
       {showBaileysBlastModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-7 shadow-2xl relative my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 sm:p-7 shadow-2xl relative my-auto max-h-[90vh] flex flex-col overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-700" />
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl font-bold">
                   <Send size={20} />
@@ -1423,139 +1423,142 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   setBaileysBlastResult({ total: rawList.length, successCount, failedCount });
                   setBaileysBlastStep('success');
                 }}
-                className="space-y-4"
+                className="flex flex-col flex-1 overflow-hidden"
               >
-                {/* Select Baileys Phone Label */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Pilih Sesi WhatsApp Pengirim
-                  </label>
-                  <select
-                    value={selectedBaileysPhoneLabel}
-                    onChange={(e) => setSelectedBaileysPhoneLabel(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500"
-                  >
-                    {baileysSessions.map(s => (
-                      <option key={s.phone_number} value={s.phone_label}>
-                        {s.phone_label} (+{s.phone_number})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Delay Per Message Setting */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                    <span>Jeda Pengiriman Per Pesan (Delay)</span>
-                    <span className="text-emerald-700 font-extrabold">{baileysDelaySeconds} Detik</span>
-                  </label>
-                  <input
-                    type="range"
-                    min={2}
-                    max={30}
-                    step={1}
-                    value={baileysDelaySeconds}
-                    onChange={(e) => setBaileysDelaySeconds(Number(e.target.value))}
-                    className="w-full accent-emerald-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-medium">
-                    <span>Cepat (2 dtk - Risiko tinggi)</span>
-                    <span>Disarankan (5–10 dtk)</span>
-                    <span>Aman (15-30 dtk)</span>
-                  </div>
-                </div>
-
-                {/* Message Content & Formatting Tips */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Isi Pesan Broadcast
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={baileysMessageText}
-                    onChange={(e) => setBaileysMessageText(e.target.value)}
-                    placeholder="Tulis pesan Anda di sini..."
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-emerald-500 leading-relaxed"
-                  />
-                  
-                  {/* Formatting guide card */}
-                  <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
-                    <p className="font-bold text-slate-800 flex items-center gap-1">
-                      <Info size={12} className="text-emerald-600" /> Panduan Format Pesan yang Bagus:
-                    </p>
-                    <ul className="list-disc list-inside space-y-0.5 text-slate-500 pl-1">
-                      <li>Gunakan format WhatsApp: <code className="bg-white px-1 rounded border">*tebal*</code>, <code className="bg-white px-1 rounded border">_miring_</code>, <code className="bg-white px-1 rounded border">~coret~</code>.</li>
-                      <li>Personalisasi: Awali dengan salam sopan dan gunakan kata panggil unik.</li>
-                      <li>Berikan tombol / CTA jelas (contoh: *"Balas 1 untuk info promo"*).</li>
-                      <li>Sediakan opsi Opt-Out (contoh: *"Balas STOP untuk berhenti menerima chat"*).</li>
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Target Numbers */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Nomor Tujuan (Pisahkan dengan baris baru atau koma)
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={baileysTargetNumbers}
-                    onChange={(e) => setBaileysTargetNumbers(e.target.value)}
-                    placeholder="Contoh:&#10;6281234567890&#10;6289876543210"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                {/* Tips Mencegah Pemblokiran */}
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl space-y-1.5">
-                  <p className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
-                    <ShieldCheck size={14} className="text-amber-600" /> Tips Agar Nomor Tidak Terblokir oleh WhatsApp:
-                  </p>
-                  <ul className="text-[11px] text-amber-800/90 space-y-1 list-disc list-inside leading-relaxed">
-                    <li><strong>Jangan Spam Kontak Baru:</strong> Kirim terutama ke pelanggan/kontak yang sudah menyimpan nomor Anda.</li>
-                    <li><strong>Warm-Up Nomor:</strong> Jangan langsung blast ratusan pesan pada nomor WhatsApp yang baru terdaftar.</li>
-                    <li><strong>Gunakan Delay Cukup (≥ 5 detik):</strong> Hindari pengiriman instan tanpa jeda agar tidak terdeteksi bot otomatis.</li>
-                    <li><strong>Variasikan Isi Pesan:</strong> Hindari menyalin pesan persis sama secara masif tanpa perubahan.</li>
-                  </ul>
-                </div>
-
-                {/* Terms and Conditions Checkbox */}
-                <div className="p-3.5 bg-rose-50/70 border border-rose-200 rounded-2xl">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={agreedTerms}
-                      onChange={(e) => setAgreedTerms(e.target.checked)}
-                      className="mt-0.5 rounded border-rose-300 text-rose-600 focus:ring-rose-500 w-4 h-4 shrink-0"
-                    />
-                    <span className="text-xs text-rose-900 leading-relaxed">
-                      Saya memahami dan menyetujui bahwa pengiriman pesan massal via Gateway QR (Unofficial API) memiliki risiko nomor diblokir oleh pihak WhatsApp. Pihak PulseAI tidak bertanggung jawab atas pemblokiran nomor akibat pelanggaran kebijakan spam WhatsApp.
-                    </span>
-                  </label>
-                </div>
-
-                {/* Progress bar during sending */}
-                {baileysBlastLoading && baileysBlastProgress && (
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
-                    <div className="flex justify-between text-xs font-bold text-emerald-800">
-                      <span>Mengirim broadcast... ({baileysBlastProgress.current} dari {baileysBlastProgress.total})</span>
-                      <span>{Math.round((baileysBlastProgress.current / baileysBlastProgress.total) * 100)}%</span>
+                <div className="overflow-y-auto pr-1 space-y-4 flex-1">
+                  {/* Row 1: Session & Delay (2 Columns) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Pilih Sesi WhatsApp Pengirim
+                      </label>
+                      <select
+                        value={selectedBaileysPhoneLabel}
+                        onChange={(e) => setSelectedBaileysPhoneLabel(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500"
+                      >
+                        {baileysSessions.map(s => (
+                          <option key={s.phone_number} value={s.phone_label}>
+                            {s.phone_label} (+{s.phone_number})
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="w-full h-2 bg-emerald-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
-                        style={{ width: `${(baileysBlastProgress.current / baileysBlastProgress.total) * 100}%` }}
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                        <span>Jeda Pengiriman (Delay)</span>
+                        <span className="text-emerald-700 font-extrabold">{baileysDelaySeconds} Detik</span>
+                      </label>
+                      <input
+                        type="range"
+                        min={2}
+                        max={30}
+                        step={1}
+                        value={baileysDelaySeconds}
+                        onChange={(e) => setBaileysDelaySeconds(Number(e.target.value))}
+                        className="w-full accent-emerald-600 cursor-pointer mt-1"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-400 mt-0.5 font-medium">
+                        <span>Cepat (2d)</span>
+                        <span>Disarankan (5–10d)</span>
+                        <span>Aman (15-30d)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Message Text & Target Numbers (2 Columns) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Message Content */}
+                    <div className="flex flex-col">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Isi Pesan Broadcast
+                      </label>
+                      <textarea
+                        rows={5}
+                        value={baileysMessageText}
+                        onChange={(e) => setBaileysMessageText(e.target.value)}
+                        placeholder="Tulis pesan Anda di sini..."
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-emerald-500 leading-relaxed flex-1"
+                      />
+                      
+                      {/* Formatting guide card */}
+                      <div className="mt-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-0.5">
+                        <p className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
+                          <Info size={12} className="text-emerald-600 shrink-0" /> Panduan Format Pesan:
+                        </p>
+                        <p className="text-[10px] text-slate-500 leading-snug">
+                          Format WA: <code className="bg-white px-1 rounded border">*tebal*</code>, <code className="bg-white px-1 rounded border">_miring_</code>, <code className="bg-white px-1 rounded border">~coret~</code>. Berikan salam sopan &amp; opsi STOP untuk opt-out.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Target Numbers */}
+                    <div className="flex flex-col">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Nomor Tujuan (Pisahkan baris / koma)
+                      </label>
+                      <textarea
+                        rows={8}
+                        value={baileysTargetNumbers}
+                        onChange={(e) => setBaileysTargetNumbers(e.target.value)}
+                        placeholder="Contoh:&#10;6281234567890&#10;6289876543210&#10;6285554443330"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500 flex-1"
                       />
                     </div>
-                    <p className="text-[10px] text-emerald-600 text-center">Mohon tunggu, memberikan jeda delay {baileysDelaySeconds} detik per pesan agar aman...</p>
                   </div>
-                )}
 
-                <div className="pt-2 flex gap-3">
+                  {/* Row 3: Tips Anti-Blokir (Full Width compact) */}
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl">
+                    <p className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5 mb-1">
+                      <ShieldCheck size={14} className="text-amber-600 shrink-0" /> Tips Utama Agar Nomor Tidak Terblokir:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-amber-800/90 leading-relaxed">
+                      <p>• <strong>Gunakan Delay ≥ 5 dtk:</strong> Hindari kirim instan agar tidak terdeteksi bot.</p>
+                      <p>• <strong>Jangan Spam Kontak Baru:</strong> Prioritaskan kontak yang menyimpan nomor Anda.</p>
+                      <p>• <strong>Warm-Up Nomor Baru:</strong> Jangan langsung blast masif di nomor baru.</p>
+                      <p>• <strong>Variasikan Isi Pesan:</strong> Hindari pesan yang persis sama secara masif.</p>
+                    </div>
+                  </div>
+
+                  {/* Terms and Conditions Checkbox */}
+                  <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-2xl">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={agreedTerms}
+                        onChange={(e) => setAgreedTerms(e.target.checked)}
+                        className="mt-0.5 rounded border-rose-300 text-rose-600 focus:ring-rose-500 w-4 h-4 shrink-0"
+                      />
+                      <span className="text-xs text-rose-900 leading-relaxed">
+                        Saya memahami dan menyetujui bahwa pengiriman pesan massal via Gateway QR (Unofficial API) memiliki risiko nomor diblokir oleh WhatsApp. PulseAI tidak bertanggung jawab atas pemblokiran nomor akibat pelanggaran spam.
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Progress bar during sending */}
+                  {baileysBlastLoading && baileysBlastProgress && (
+                    <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-1.5">
+                      <div className="flex justify-between text-xs font-bold text-emerald-800">
+                        <span>Mengirim broadcast... ({baileysBlastProgress.current} dari {baileysBlastProgress.total})</span>
+                        <span>{Math.round((baileysBlastProgress.current / baileysBlastProgress.total) * 100)}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-emerald-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                          style={{ width: `${(baileysBlastProgress.current / baileysBlastProgress.total) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-emerald-600 text-center">Mohon tunggu, memberikan jeda delay {baileysDelaySeconds} detik per pesan...</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex gap-3 shrink-0 mt-2">
                   <button
                     type="submit"
                     disabled={baileysBlastLoading || !agreedTerms}
-                    className="flex-1 py-3 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex-1 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {baileysBlastLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                     {baileysBlastLoading ? 'Proses Broadcast...' : 'Mulai Kirim Blast Gateway'}
@@ -1563,7 +1566,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowBaileysBlastModal(false)}
-                    className="px-5 py-3 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                    className="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
                   >
                     Batal
                   </button>
