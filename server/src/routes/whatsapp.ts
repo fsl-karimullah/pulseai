@@ -1341,4 +1341,245 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       return reply.status(404).send('Not Found');
     }
   });
+
+  // ── GET /api/whatsapp/meta/templates ────────────────────────────────────────
+  // Fetch list of HSM message templates from Meta WABA
+  fastify.get('/whatsapp/meta/templates', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { phoneNumberId } = request.query as { phoneNumberId?: string };
+
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(403).send({ success: false, message: 'Tidak diizinkan' });
+
+      // Find the session by phoneNumberId or any connected meta session for this org
+      let query = supabase
+        .from('whatsapp_sessions')
+        .select('meta_access_token, meta_waba_id')
+        .eq('org_id', org.id)
+        .eq('platform', 'meta');
+
+      if (phoneNumberId) {
+        query = query.eq('meta_phone_number_id', phoneNumberId) as any;
+      }
+
+      const { data: sessionRecord } = await (query as any).maybeSingle();
+      if (!sessionRecord) return reply.status(404).send({ success: false, message: 'Sesi Meta tidak ditemukan' });
+
+      const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+      const wabaId = sessionRecord.meta_waba_id;
+
+      if (!token || !wabaId) return reply.status(500).send({ success: false, message: 'Token atau WABA ID tidak ditemukan' });
+
+      const fields = 'id,name,status,category,language,components,quality_score';
+      const res = await axios.get(`https://graph.facebook.com/v21.0/${wabaId}/message_templates`, {
+        params: { fields, limit: 50 },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      return reply.send({
+        success: true,
+        templates: res.data?.data || [],
+        paging: res.data?.paging || null
+      });
+    } catch (err: any) {
+      const detail = err.response?.data?.error?.message || err.message;
+      fastify.log.error({ err: err.response?.data || err.message }, '[Meta] Failed to fetch templates');
+      return reply.status(500).send({ success: false, message: detail });
+    }
+  });
+
+  // ── GET /api/whatsapp/meta/analytics ────────────────────────────────────────
+  // Fetch conversation analytics from Meta WABA (last 7 days)
+  fastify.get('/whatsapp/meta/analytics', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { phoneNumberId } = request.query as { phoneNumberId?: string };
+
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(403).send({ success: false, message: 'Tidak diizinkan' });
+
+      let query = supabase
+        .from('whatsapp_sessions')
+        .select('meta_access_token, meta_waba_id, meta_phone_number_id')
+        .eq('org_id', org.id)
+        .eq('platform', 'meta');
+
+      if (phoneNumberId) {
+        query = query.eq('meta_phone_number_id', phoneNumberId) as any;
+      }
+
+      const { data: sessionRecord } = await (query as any).maybeSingle();
+      if (!sessionRecord) return reply.status(404).send({ success: false, message: 'Sesi Meta tidak ditemukan' });
+
+      const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+      const wabaId = sessionRecord.meta_waba_id;
+      const pid = phoneNumberId || sessionRecord.meta_phone_number_id;
+
+      if (!token || !wabaId) return reply.status(500).send({ success: false, message: 'Token atau WABA ID tidak ditemukan' });
+
+      // Build 7-day date range (Unix timestamps)
+      const now = Math.floor(Date.now() / 1000);
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60;
+
+      // Fetch conversation analytics from WABA level
+      let analyticsData: any = null;
+      try {
+        const analyticsRes = await axios.get(`https://graph.facebook.com/v21.0/${wabaId}`, {
+          params: {
+            fields: `conversation_analytics.with_start(${sevenDaysAgo}).with_end(${now}).with_granularity(DAY).with_dimensions(CONVERSATION_TYPE)`
+          },
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        analyticsData = analyticsRes.data?.conversation_analytics?.data || [];
+      } catch {
+        analyticsData = [];
+      }
+
+      // Also fetch phone number insights for message volume
+      let insightsData: any = null;
+      try {
+        const insightsRes = await axios.get(`https://graph.facebook.com/v21.0/${pid}`, {
+          params: {
+            fields: `account_alerts`
+          },
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        insightsData = insightsRes.data || {};
+      } catch {
+        insightsData = {};
+      }
+
+      return reply.send({
+        success: true,
+        analytics: analyticsData,
+        insights: insightsData,
+        wabaId,
+        phoneNumberId: pid
+      });
+    } catch (err: any) {
+      const detail = err.response?.data?.error?.message || err.message;
+      fastify.log.error({ err: err.response?.data || err.message }, '[Meta] Failed to fetch analytics');
+      return reply.status(500).send({ success: false, message: detail });
+    }
+  });
+
+  // ── POST /api/whatsapp/meta/send-interactive ─────────────────────────────────
+  // Send interactive button or list message via Meta Cloud API
+  fastify.post('/whatsapp/meta/send-interactive', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const {
+        phoneNumberId,
+        to,
+        type,       // 'button' | 'list'
+        header,     // optional header text
+        body,       // body text (required)
+        footer,     // optional footer text
+        buttons,    // for type='button': [{ id, title }]
+        sections,   // for type='list': [{ title, rows: [{ id, title, description }] }]
+        listButtonText  // for type='list': button label (e.g. "Pilih Opsi")
+      } = request.body as {
+        phoneNumberId: string;
+        to: string;
+        type: 'button' | 'list';
+        header?: string;
+        body: string;
+        footer?: string;
+        buttons?: { id: string; title: string }[];
+        sections?: { title: string; rows: { id: string; title: string; description?: string }[] }[];
+        listButtonText?: string;
+      };
+
+      if (!phoneNumberId || !to || !body || !type) {
+        return reply.status(400).send({ success: false, message: 'phoneNumberId, to, body, dan type diperlukan' });
+      }
+
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(403).send({ success: false, message: 'Tidak diizinkan' });
+
+      const { data: sessionRecord } = await supabase
+        .from('whatsapp_sessions')
+        .select('meta_access_token')
+        .eq('org_id', org.id)
+        .eq('meta_phone_number_id', phoneNumberId)
+        .maybeSingle();
+
+      if (!sessionRecord) return reply.status(404).send({ success: false, message: 'Sesi Meta tidak ditemukan' });
+
+      const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+      if (!token) return reply.status(500).send({ success: false, message: 'Token Meta tidak ditemukan' });
+
+      const cleanTo = to.replace(/\D/g, '');
+
+      let interactivePayload: any;
+
+      if (type === 'button') {
+        if (!buttons || buttons.length === 0 || buttons.length > 3) {
+          return reply.status(400).send({ success: false, message: 'Tombol button harus antara 1-3 buah' });
+        }
+        interactivePayload = {
+          type: 'button',
+          ...(header ? { header: { type: 'text', text: header } } : {}),
+          body: { text: body },
+          ...(footer ? { footer: { text: footer } } : {}),
+          action: {
+            buttons: buttons.map(b => ({
+              type: 'reply',
+              reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) }
+            }))
+          }
+        };
+      } else if (type === 'list') {
+        if (!sections || sections.length === 0) {
+          return reply.status(400).send({ success: false, message: 'Sections diperlukan untuk tipe list' });
+        }
+        interactivePayload = {
+          type: 'list',
+          ...(header ? { header: { type: 'text', text: header } } : {}),
+          body: { text: body },
+          ...(footer ? { footer: { text: footer } } : {}),
+          action: {
+            button: (listButtonText || 'Pilih Opsi').slice(0, 20),
+            sections: sections.map(s => ({
+              title: s.title.slice(0, 24),
+              rows: s.rows.slice(0, 10).map(r => ({
+                id: r.id.slice(0, 200),
+                title: r.title.slice(0, 24),
+                ...(r.description ? { description: r.description.slice(0, 72) } : {})
+              }))
+            }))
+          }
+        };
+      } else {
+        return reply.status(400).send({ success: false, message: 'Tipe pesan tidak valid (gunakan button atau list)' });
+      }
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        to: cleanTo,
+        type: 'interactive',
+        interactive: interactivePayload
+      };
+
+      const res = await axios.post(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      fastify.log.info({ to: cleanTo, type, messageId: res.data?.messages?.[0]?.id }, '[Meta] Interactive message sent');
+
+      return reply.send({
+        success: true,
+        messageId: res.data?.messages?.[0]?.id
+      });
+    } catch (err: any) {
+      const detail = err.response?.data?.error?.message || err.message;
+      fastify.log.error({ err: err.response?.data || err.message }, '[Meta] Failed to send interactive message');
+      return reply.status(500).send({ success: false, message: detail });
+    }
+  });
+
 }

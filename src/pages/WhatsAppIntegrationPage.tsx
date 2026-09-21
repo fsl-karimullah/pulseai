@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2 } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
@@ -75,6 +75,42 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [targetNumbers, setTargetNumbers] = useState<string>('');
   const [blastLoading, setBlastLoading] = useState<boolean>(false);
   const [blastResult, setBlastResult] = useState<{ total: number; successCount: number; failedCount: number } | null>(null);
+
+  // Meta Template Manager States
+  const [showTemplatesModal, setShowTemplatesModal] = useState<boolean>(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState<boolean>(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
+
+  // Meta Analytics States
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState<boolean>(false);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  // Interactive Message Sender States
+  const [showInteractiveModal, setShowInteractiveModal] = useState<boolean>(false);
+  const [interactivePhoneId, setInteractivePhoneId] = useState<string>('');
+  const [interactiveTo, setInteractiveTo] = useState<string>('');
+  const [interactiveType, setInteractiveType] = useState<'button' | 'list'>('button');
+  const [interactiveHeader, setInteractiveHeader] = useState<string>('');
+  const [interactiveBody, setInteractiveBody] = useState<string>('');
+  const [interactiveFooter, setInteractiveFooter] = useState<string>('');
+  const [interactiveButtons, setInteractiveButtons] = useState<{ id: string; title: string }[]>([
+    { id: 'btn_1', title: 'Ya, saya tertarik' },
+    { id: 'btn_2', title: 'Tidak, terima kasih' },
+  ]);
+  const [interactiveSections, setInteractiveSections] = useState<{ title: string; rows: { id: string; title: string; description: string }[] }[]>([
+    { title: 'Pilihan Layanan', rows: [
+      { id: 'row_1', title: 'Konsultasi Gratis', description: 'Bicara dengan tim kami' },
+      { id: 'row_2', title: 'Lihat Demo', description: 'Demo produk 15 menit' },
+    ]}
+  ]);
+  const [interactiveListBtn, setInteractiveListBtn] = useState<string>('Pilih Opsi');
+  const [interactiveSending, setInteractiveSending] = useState<boolean>(false);
+  const [interactiveSent, setInteractiveSent] = useState<boolean>(false);
+  const [interactiveError, setInteractiveError] = useState<string | null>(null);
 
   // Baileys Gateway WA Blast States
   const [showBaileysBlastModal, setShowBaileysBlastModal] = useState<boolean>(false);
@@ -440,10 +476,55 @@ const WhatsAppIntegrationPage: React.FC = () => {
             <div className="flex flex-wrap items-center md:justify-end gap-2.5">
               <button
                 onClick={() => setShowTutorialModal(true)}
-                className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 h-9 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
               >
-                <BookOpen size={14} className="text-blue-600 flex-shrink-0" />
-                Panduan Hubung Meta
+                <BookOpen size={13} className="text-blue-600 flex-shrink-0" />
+                Panduan
+              </button>
+              <button
+                onClick={async () => {
+                  setShowTemplatesModal(true);
+                  setTemplatesError(null);
+                  setSelectedTemplate(null);
+                  const firstMeta = metaSessions[0];
+                  if (!firstMeta?.meta_phone_number_id || !session?.access_token) return;
+                  setTemplatesLoading(true);
+                  try {
+                    const res = await fetch(`/api/whatsapp/meta/templates?phoneNumberId=${firstMeta.meta_phone_number_id}`, {
+                      headers: { 'Authorization': `Bearer ${session.access_token}` }
+                    });
+                    const data = await res.json();
+                    if (data.success) setTemplates(data.templates || []);
+                    else setTemplatesError(data.message || 'Gagal memuat template');
+                  } catch { setTemplatesError('Gagal terhubung ke server'); }
+                  finally { setTemplatesLoading(false); }
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 h-9 bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
+              >
+                <List size={13} className="flex-shrink-0" />
+                Template Manager
+              </button>
+              <button
+                onClick={async () => {
+                  setShowAnalyticsModal(true);
+                  setAnalyticsError(null);
+                  const firstMeta = metaSessions[0];
+                  if (!firstMeta?.meta_phone_number_id || !session?.access_token) return;
+                  setAnalyticsLoading(true);
+                  try {
+                    const res = await fetch(`/api/whatsapp/meta/analytics?phoneNumberId=${firstMeta.meta_phone_number_id}`, {
+                      headers: { 'Authorization': `Bearer ${session.access_token}` }
+                    });
+                    const data = await res.json();
+                    if (data.success) setAnalyticsData(data);
+                    else setAnalyticsError(data.message || 'Gagal memuat analitik');
+                  } catch { setAnalyticsError('Gagal terhubung ke server'); }
+                  finally { setAnalyticsLoading(false); }
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 h-9 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
+              >
+                <BarChart2 size={13} className="flex-shrink-0" />
+                Analitik
               </button>
               <button
                 onClick={() => {
@@ -452,17 +533,17 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   setBlastResult(null);
                   setShowMetaBlastModal(true);
                 }}
-                className="inline-flex items-center justify-center gap-1.5 px-4 h-10 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 h-9 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-500/20 cursor-pointer whitespace-nowrap"
               >
-                <Send size={14} className="flex-shrink-0" />
-                WhatsApp Blast Official
+                <Send size={13} className="flex-shrink-0" />
+                Blast Official
               </button>
               <button
                 onClick={handleMetaLogin}
                 disabled={loading}
-                className="inline-flex items-center justify-center gap-2 px-5 h-10 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all whitespace-nowrap shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-4 h-9 bg-[#1877F2] text-white text-xs font-bold rounded-xl hover:bg-[#166fe5] transition-all whitespace-nowrap shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
               >
-                {loading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} className="flex-shrink-0" />}
+                {loading ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} className="flex-shrink-0" />}
                 Log in with Facebook
               </button>
             </div>
@@ -617,19 +698,38 @@ const WhatsAppIntegrationPage: React.FC = () => {
                               )}
                               {/* WA Blast Official Button for Connected Meta numbers */}
                               {metaStatus === 'CONNECTED' && s.meta_phone_number_id && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedMetaPhone(s.meta_phone_number_id || '');
-                                    setBlastStep('form');
-                                    setBlastResult(null);
-                                    setShowMetaBlastModal(true);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
-                                  title="Kirim Pesan Broadcast via Meta API"
-                                >
-                                  <Send size={12} />
-                                  Kirim Blast
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedMetaPhone(s.meta_phone_number_id || '');
+                                      setBlastStep('form');
+                                      setBlastResult(null);
+                                      setShowMetaBlastModal(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                    title="Kirim Pesan Broadcast via Meta API"
+                                  >
+                                    <Send size={12} />
+                                    Blast
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setInteractivePhoneId(s.meta_phone_number_id || '');
+                                      setInteractiveTo('');
+                                      setInteractiveBody('');
+                                      setInteractiveHeader('');
+                                      setInteractiveFooter('');
+                                      setInteractiveSent(false);
+                                      setInteractiveError(null);
+                                      setShowInteractiveModal(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                    title="Kirim Pesan Interaktif (Tombol/List)"
+                                  >
+                                    <MousePointerClick size={12} />
+                                    Interaktif
+                                  </button>
+                                </>
                               )}
                               {/* Refresh status button */}
                               {s.meta_phone_number_id && (
@@ -1603,6 +1703,393 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Meta Template Manager Modal ──────────────────────────────────── */}
+      {showTemplatesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2"><List size={18} className="text-purple-600" /> Template Manager Meta</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Daftar template HSM yang terdaftar di WhatsApp Business Account Anda</p>
+              </div>
+              <button onClick={() => setShowTemplatesModal(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {templatesLoading ? (
+                <div className="text-center py-10"><Loader2 size={24} className="animate-spin text-purple-500 mx-auto" /></div>
+              ) : templatesError ? (
+                <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-xs flex items-start gap-2"><AlertTriangle size={14} className="shrink-0 mt-0.5" />{templatesError}</div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 text-sm">Belum ada template terdaftar di WABA Anda.<br /><span className="text-xs">Buat template di <a href="https://business.facebook.com/wa/manage/message-templates/" target="_blank" rel="noopener noreferrer" className="text-purple-600 underline">Meta Business Manager</a></span></div>
+              ) : selectedTemplate ? (
+                <div className="space-y-4">
+                  <button onClick={() => setSelectedTemplate(null)} className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1">← Kembali ke daftar</button>
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-extrabold text-slate-900 text-sm">{selectedTemplate.name}</h4>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        selectedTemplate.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
+                        selectedTemplate.status === 'PENDING' ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>{selectedTemplate.status}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+                      <div><span className="text-slate-400">Kategori:</span> <span className="font-semibold text-slate-700">{selectedTemplate.category}</span></div>
+                      <div><span className="text-slate-400">Bahasa:</span> <span className="font-semibold text-slate-700">{selectedTemplate.language}</span></div>
+                    </div>
+                    <div className="space-y-2">
+                      {(selectedTemplate.components || []).map((comp: any, i: number) => (
+                        <div key={i} className="bg-white rounded-lg p-3 border border-slate-100">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{comp.type}</p>
+                          <p className="text-xs text-slate-700 whitespace-pre-wrap">{comp.text || JSON.stringify(comp.buttons || comp, null, 2)}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedTemplate.quality_score?.score && (
+                      <div className="mt-3 flex items-center gap-2 text-xs">
+                        <span className="text-slate-400">Kualitas:</span>
+                        <span className={`font-bold ${
+                          selectedTemplate.quality_score.score === 'GREEN' ? 'text-emerald-600' :
+                          selectedTemplate.quality_score.score === 'YELLOW' ? 'text-amber-600' : 'text-red-600'
+                        }`}>{selectedTemplate.quality_score.score}</span>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setTemplateName(selectedTemplate.name);
+                      setShowTemplatesModal(false);
+                      setSelectedMetaPhone(metaSessions[0]?.meta_phone_number_id || '');
+                      setBlastStep('form');
+                      setBlastResult(null);
+                      setShowMetaBlastModal(true);
+                    }}
+                    className="w-full py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Send size={13} /> Gunakan Template Ini untuk Blast
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map((t: any) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setSelectedTemplate(t)}
+                      className="w-full text-left p-3.5 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-300 rounded-xl transition-all flex items-center justify-between gap-3 group"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm text-slate-900 truncate">{t.name}</p>
+                        <p className="text-[11px] text-slate-400">{t.category} · {t.language}</p>
+                      </div>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        t.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
+                        t.status === 'PENDING' ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>{t.status}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 flex justify-between items-center">
+              <a href="https://business.facebook.com/wa/manage/message-templates/" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><ExternalLink size={11} /> Kelola di Meta BM</a>
+              <button onClick={() => setShowTemplatesModal(false)} className="px-5 py-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors">Tutup</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Meta Analytics Modal ─────────────────────────────────────────── */}
+      {showAnalyticsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2"><BarChart2 size={18} className="text-emerald-600" /> Analitik Meta WhatsApp</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Statistik percakapan dari Meta Business API</p>
+              </div>
+              <button onClick={() => setShowAnalyticsModal(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {analyticsLoading ? (
+                <div className="text-center py-10"><Loader2 size={24} className="animate-spin text-emerald-500 mx-auto" /><p className="text-xs text-slate-400 mt-3">Memuat data dari Meta...</p></div>
+              ) : analyticsError ? (
+                <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-xs flex items-start gap-2"><AlertTriangle size={14} className="shrink-0 mt-0.5" />{analyticsError}</div>
+              ) : analyticsData ? (
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-4 border border-emerald-100">
+                    <p className="text-[11px] text-emerald-700 font-bold uppercase mb-1">WABA ID</p>
+                    <p className="text-sm font-mono text-slate-700">{analyticsData.wabaId}</p>
+                    <p className="text-[11px] text-emerald-700 font-bold uppercase mt-3 mb-1">Phone Number ID</p>
+                    <p className="text-sm font-mono text-slate-700">{analyticsData.phoneNumberId}</p>
+                  </div>
+                  {analyticsData.analytics && analyticsData.analytics.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase">Data Percakapan (7 Hari Terakhir)</p>
+                      {analyticsData.analytics.map((item: any, i: number) => (
+                        <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            {item.data_points?.map((dp: any, j: number) => (
+                              <div key={j}>
+                                <p className="text-[10px] text-slate-400 font-bold">{dp.type || 'Percakapan'}</p>
+                                <p className="text-xl font-extrabold text-slate-800">{dp.count ?? '-'}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                      <p className="text-xs text-amber-700 font-semibold flex items-center gap-2"><Info size={13} /> Data analitik belum tersedia.</p>
+                      <p className="text-[11px] text-amber-600 mt-1">Meta membutuhkan minimal beberapa hari aktivitas sebelum data percakapan tersedia di API analytics. Coba lagi setelah 24-48 jam dari pertama kali nomor aktif.</p>
+                    </div>
+                  )}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Info Akun</p>
+                    {analyticsData.insights?.account_alerts?.data?.length > 0 ? (
+                      analyticsData.insights.account_alerts.data.map((alert: any, i: number) => (
+                        <p key={i} className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded-lg">{alert.type}: {alert.message}</p>
+                      ))
+                    ) : (
+                      <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 size={12} /> Tidak ada peringatan aktif pada akun Anda.</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-10 text-slate-400 text-sm">Tidak ada data analitik tersedia.<br /><span className="text-xs">Pastikan Anda memiliki nomor Meta yang terhubung.</span></div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 flex justify-between items-center">
+              <a href="https://business.facebook.com/wa/manage/" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><ExternalLink size={11} /> Buka Meta BM</a>
+              <button onClick={() => setShowAnalyticsModal(false)} className="px-5 py-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors">Tutup</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Interactive Message Sender Modal ─────────────────────────────── */}
+      {showInteractiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2"><MousePointerClick size={18} className="text-teal-600" /> Kirim Pesan Interaktif</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Kirim pesan dengan tombol pilihan atau daftar menu ke satu nomor pelanggan</p>
+              </div>
+              <button onClick={() => setShowInteractiveModal(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              {interactiveSent ? (
+                <div className="text-center py-8 space-y-3">
+                  <div className="w-14 h-14 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center mx-auto"><CheckCircle2 size={32} /></div>
+                  <h4 className="text-base font-extrabold text-slate-900">Pesan Interaktif Terkirim!</h4>
+                  <p className="text-sm text-slate-500">Pesan dengan tombol berhasil dikirim ke <strong>{interactiveTo}</strong></p>
+                  <button
+                    onClick={() => { setInteractiveSent(false); setInteractiveTo(''); setInteractiveBody(''); }}
+                    className="mt-2 px-6 py-2.5 bg-teal-600 text-white text-xs font-bold rounded-xl hover:bg-teal-700 transition-colors"
+                  >Kirim Lagi</button>
+                </div>
+              ) : (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!interactiveTo.trim() || !interactiveBody.trim()) return;
+                    setInteractiveSending(true);
+                    setInteractiveError(null);
+                    try {
+                      const payload: any = {
+                        phoneNumberId: interactivePhoneId,
+                        to: interactiveTo.trim(),
+                        type: interactiveType,
+                        body: interactiveBody.trim(),
+                      };
+                      if (interactiveHeader.trim()) payload.header = interactiveHeader.trim();
+                      if (interactiveFooter.trim()) payload.footer = interactiveFooter.trim();
+                      if (interactiveType === 'button') payload.buttons = interactiveButtons;
+                      else {
+                        payload.sections = interactiveSections;
+                        payload.listButtonText = interactiveListBtn;
+                      }
+                      const res = await fetch('/api/whatsapp/meta/send-interactive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+                        body: JSON.stringify(payload)
+                      });
+                      const data = await res.json();
+                      if (data.success) setInteractiveSent(true);
+                      else setInteractiveError(data.message || 'Gagal mengirim pesan');
+                    } catch { setInteractiveError('Tidak dapat terhubung ke server'); }
+                    finally { setInteractiveSending(false); }
+                  }}
+                  className="space-y-4"
+                >
+                  {interactiveError && (
+                    <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-700 text-xs flex items-start gap-2"><AlertTriangle size={13} className="shrink-0 mt-0.5" />{interactiveError}</div>
+                  )}
+                  {/* Nomor Tujuan */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Nomor Tujuan <span className="text-red-500">*</span></label>
+                    <input type="text" value={interactiveTo} onChange={e => setInteractiveTo(e.target.value)}
+                      placeholder="628123456789 (tanpa + atau 0)"
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                      required
+                    />
+                  </div>
+                  {/* Tipe Pesan */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Tipe Interaktif</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['button', 'list'] as const).map(t => (
+                        <button type="button" key={t}
+                          onClick={() => setInteractiveType(t)}
+                          className={`py-2.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                            interactiveType === t ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400'
+                          }`}
+                        >
+                          {t === 'button' ? <MousePointerClick size={12} /> : <List size={12} />}
+                          {t === 'button' ? 'Tombol (Button)' : 'Daftar (List)'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1.5">
+                      {interactiveType === 'button' ? '⚡ Max 3 tombol, teks max 20 karakter per tombol' : '📋 Max 10 baris pilihan, cocok untuk menu produk/layanan'}
+                    </p>
+                  </div>
+                  {/* Header (opsional) */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Header <span className="text-slate-400 font-normal">(opsional)</span></label>
+                    <input type="text" value={interactiveHeader} onChange={e => setInteractiveHeader(e.target.value)}
+                      placeholder="Judul pesan (maks 60 karakter)"
+                      maxLength={60}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                    />
+                  </div>
+                  {/* Body */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Isi Pesan (Body) <span className="text-red-500">*</span></label>
+                    <textarea value={interactiveBody} onChange={e => setInteractiveBody(e.target.value)}
+                      rows={3} placeholder="Tulis isi pesan utama di sini..."
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none resize-none"
+                      required
+                    />
+                  </div>
+                  {/* Footer (opsional) */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Footer <span className="text-slate-400 font-normal">(opsional)</span></label>
+                    <input type="text" value={interactiveFooter} onChange={e => setInteractiveFooter(e.target.value)}
+                      placeholder="Teks kecil di bawah pesan (maks 60 karakter)"
+                      maxLength={60}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                    />
+                  </div>
+                  {/* Buttons Config */}
+                  {interactiveType === 'button' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Tombol Pilihan <span className="text-slate-400 font-normal">(max 3)</span></label>
+                      <div className="space-y-2">
+                        {interactiveButtons.map((btn, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                            <input
+                              type="text" value={btn.title}
+                              onChange={e => setInteractiveButtons(prev => prev.map((b, j) => j === i ? { ...b, title: e.target.value } : b))}
+                              placeholder={`Tombol ${i + 1} (max 20 karakter)`}
+                              maxLength={20}
+                              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                            />
+                            {interactiveButtons.length > 1 && (
+                              <button type="button" onClick={() => setInteractiveButtons(prev => prev.filter((_, j) => j !== i))}
+                                className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"
+                              ><Trash2 size={13} /></button>
+                            )}
+                          </div>
+                        ))}
+                        {interactiveButtons.length < 3 && (
+                          <button type="button"
+                            onClick={() => setInteractiveButtons(prev => [...prev, { id: `btn_${prev.length + 1}`, title: '' }])}
+                            className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1 font-semibold"
+                          ><Plus size={12} /> Tambah Tombol</button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {/* List Config */}
+                  {interactiveType === 'list' && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Label Tombol Daftar</label>
+                        <input type="text" value={interactiveListBtn} onChange={e => setInteractiveListBtn(e.target.value)}
+                          placeholder="Pilih Opsi (max 20 karakter)"
+                          maxLength={20}
+                          className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                        />
+                      </div>
+                      <label className="block text-xs font-bold text-slate-700">Item Daftar</label>
+                      {interactiveSections.map((sec, si) => (
+                        <div key={si} className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-2">
+                          <input type="text" value={sec.title}
+                            onChange={e => setInteractiveSections(prev => prev.map((s, idx) => idx === si ? { ...s, title: e.target.value } : s))}
+                            placeholder="Judul seksi (maks 24 karakter)"
+                            maxLength={24}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          />
+                          {sec.rows.map((row, ri) => (
+                            <div key={ri} className="flex items-start gap-2">
+                              <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[10px] font-bold flex items-center justify-center shrink-0 mt-1.5">{ri + 1}</span>
+                              <div className="flex-1 space-y-1">
+                                <input type="text" value={row.title}
+                                  onChange={e => setInteractiveSections(prev => prev.map((s, idx) => idx === si ? { ...s, rows: s.rows.map((r, rj) => rj === ri ? { ...r, title: e.target.value } : r) } : s))}
+                                  placeholder="Judul item (max 24 karakter)"
+                                  maxLength={24}
+                                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                                />
+                                <input type="text" value={row.description}
+                                  onChange={e => setInteractiveSections(prev => prev.map((s, idx) => idx === si ? { ...s, rows: s.rows.map((r, rj) => rj === ri ? { ...r, description: e.target.value } : r) } : s))}
+                                  placeholder="Deskripsi singkat (opsional, max 72 karakter)"
+                                  maxLength={72}
+                                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-[11px] text-slate-500 focus:ring-2 focus:ring-teal-500 outline-none"
+                                />
+                              </div>
+                              {sec.rows.length > 1 && (
+                                <button type="button" onClick={() => setInteractiveSections(prev => prev.map((s, idx) => idx === si ? { ...s, rows: s.rows.filter((_, rj) => rj !== ri) } : s))}
+                                  className="p-1 text-slate-400 hover:text-red-500 transition-colors mt-1"
+                                ><Trash2 size={12} /></button>
+                              )}
+                            </div>
+                          ))}
+                          {sec.rows.length < 10 && (
+                            <button type="button"
+                              onClick={() => setInteractiveSections(prev => prev.map((s, idx) => idx === si ? { ...s, rows: [...s.rows, { id: `row_${s.rows.length + 1}`, title: '', description: '' }] } : s))}
+                              className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1 font-semibold"
+                            ><Plus size={12} /> Tambah Item</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="pt-2 border-t border-slate-100 flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={interactiveSending}
+                      className="flex-1 py-2.5 bg-teal-600 text-white text-xs font-bold rounded-xl hover:bg-teal-700 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {interactiveSending ? <Loader2 size={14} className="animate-spin" /> : <MousePointerClick size={14} />}
+                      {interactiveSending ? 'Mengirim...' : 'Kirim Pesan Interaktif'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowInteractiveModal(false)}
+                      className="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                    >Batal</button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       )}
