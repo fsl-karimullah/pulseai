@@ -462,29 +462,44 @@ const WhatsAppIntegrationPage: React.FC = () => {
         {/* ════════════════════════════════════════════════════════════════════
             SECTION 1: META OFFICIAL CLOUD API
         ════════════════════════════════════════════════════════════════════ */}
-        <div className="bg-white/90 backdrop-blur-xl rounded-3xl border border-blue-100 shadow-[0_4px_24px_-8px_rgba(24,119,242,0.12)] overflow-hidden relative">
-          
-          {isStarterPlan && (
-            <div className="absolute inset-0 z-20 bg-slate-50/60 backdrop-blur-[2px] flex items-center justify-center p-4">
-              <div className="bg-white p-7 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-200 flex flex-col items-center text-center max-w-sm mt-8">
-                <div className="w-14 h-14 bg-blue-50 border border-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4">
-                  <Lock size={24} />
-                </div>
-                <h3 className="text-lg font-extrabold text-slate-900 mb-2">Fitur Meta API Terkunci</h3>
-                <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                  Paket Anda saat ini hanya mendukung integrasi WhatsApp Baileys (Scan QR). Upgrade ke paket <strong className="text-slate-700">Pro</strong> atau <strong className="text-slate-700">Enterprise</strong> untuk membuka akses ke Meta Official Cloud API.
-                </p>
+        {isStarterPlan ? (
+          <div className="bg-white/90 backdrop-blur-xl rounded-3xl border border-blue-100 shadow-[0_4px_24px_-8px_rgba(24,119,242,0.12)]">
+            <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-white">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full bg-[#1877F2] text-white text-[10px] font-extrabold uppercase tracking-wider">
+                  Official API
+                </span>
+                <h2 className="font-extrabold text-slate-900 text-base">WhatsApp Official (Meta Cloud API)</h2>
+              </div>
+              <p className="text-slate-500 text-xs leading-relaxed max-w-2xl">
+                Koneksi resmi Meta via Embedded Signup. Bebas risiko pemblokiran, centang hijau, gratis 1.000 percakapan Service/bulan.
+              </p>
+            </div>
+            <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-100 text-blue-500 rounded-2xl flex items-center justify-center mb-5">
+                <Lock size={28} />
+              </div>
+              <h3 className="text-xl font-extrabold text-slate-900 mb-2">Fitur Eksklusif Paket Pro & Enterprise</h3>
+              <p className="text-sm text-slate-500 mb-2 leading-relaxed max-w-md">
+                Paket <strong className="text-slate-700">Starter</strong> Anda saat ini mendukung integrasi WhatsApp via <strong className="text-emerald-600">Baileys (Scan QR)</strong> yang sudah tersedia di bawah.
+              </p>
+              <p className="text-xs text-slate-400 mb-7 max-w-md">
+                Upgrade untuk membuka Meta Official Cloud API — centang hijau, template blast, analitik, pesan interaktif, dan 1.000 percakapan gratis/bulan dari Meta.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center gap-3">
                 <button
                   onClick={() => window.location.href = '/dashboard/pricing'}
-                  className="px-6 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 w-full"
+                  className="px-7 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-600/25"
                 >
-                  Lihat Pilihan Upgrade
+                  🚀 Upgrade Sekarang
                 </button>
+                <span className="text-xs text-slate-400">Mulai dari Rp 199.000/3 bulan</span>
               </div>
             </div>
-          )}
-
-          <div className={`p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-white flex flex-col md:flex-row md:items-center justify-between gap-4 ${isStarterPlan ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+          </div>
+        ) : (
+        <div className="bg-white/90 backdrop-blur-xl rounded-3xl border border-blue-100 shadow-[0_4px_24px_-8px_rgba(24,119,242,0.12)] overflow-hidden">
+          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-white flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="px-2.5 py-0.5 rounded-full bg-[#1877F2] text-white text-[10px] font-extrabold uppercase tracking-wider">
@@ -574,7 +589,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
           </div>
 
           {/* Meta Sessions Table */}
-          <div className={`overflow-x-auto ${isStarterPlan ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+          <div className="overflow-x-auto">
             {loadingSessions ? (
               <div className="p-8 text-center text-slate-400 text-xs">Memuat sesi Meta...</div>
             ) : metaSessions.length === 0 ? (
@@ -813,6 +828,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
             )}
           </div>
         </div>
+        )}
 
         {/* ════════════════════════════════════════════════════════════════════
             SECTION 2: BAILEYS GATEWAY (SCAN QR)
