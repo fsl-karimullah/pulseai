@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2 } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
+import { useSubscription } from '../hooks/useSubscription';
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL;
 const FACEBOOK_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || '';
@@ -44,6 +45,7 @@ interface MetaPhoneStatus {
 
 const WhatsAppIntegrationPage: React.FC = () => {
   const { organization, loading: orgLoading } = useOrganization();
+  const { subscription } = useSubscription();
   const { session } = useAuth();
   const { projects, activeProjectId, setActiveProjectId } = useProjects();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
@@ -381,6 +383,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
   const metaSessions = sessions.filter(s => s.platform === 'meta');
   const baileysSessions = sessions.filter(s => s.platform !== 'meta');
+  const isStarterPlan = subscription?.plan_type === 'starter' || subscription?.plan_type === 'free';
 
   return (
     <div className="relative min-h-screen bg-slate-50 flex flex-col overflow-hidden">
@@ -459,8 +462,29 @@ const WhatsAppIntegrationPage: React.FC = () => {
         {/* ════════════════════════════════════════════════════════════════════
             SECTION 1: META OFFICIAL CLOUD API
         ════════════════════════════════════════════════════════════════════ */}
-        <div className="bg-white/90 backdrop-blur-xl rounded-3xl border border-blue-100 shadow-[0_4px_24px_-8px_rgba(24,119,242,0.12)] overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-white/90 backdrop-blur-xl rounded-3xl border border-blue-100 shadow-[0_4px_24px_-8px_rgba(24,119,242,0.12)] overflow-hidden relative">
+          
+          {isStarterPlan && (
+            <div className="absolute inset-0 z-20 bg-slate-50/60 backdrop-blur-[2px] flex items-center justify-center p-4">
+              <div className="bg-white p-7 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-200 flex flex-col items-center text-center max-w-sm mt-8">
+                <div className="w-14 h-14 bg-blue-50 border border-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4">
+                  <Lock size={24} />
+                </div>
+                <h3 className="text-lg font-extrabold text-slate-900 mb-2">Fitur Meta API Terkunci</h3>
+                <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+                  Paket Anda saat ini hanya mendukung integrasi WhatsApp Baileys (Scan QR). Upgrade ke paket <strong className="text-slate-700">Pro</strong> atau <strong className="text-slate-700">Enterprise</strong> untuk membuka akses ke Meta Official Cloud API.
+                </p>
+                <button
+                  onClick={() => window.location.href = '/dashboard/pricing'}
+                  className="px-6 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 w-full"
+                >
+                  Lihat Pilihan Upgrade
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className={`p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-white flex flex-col md:flex-row md:items-center justify-between gap-4 ${isStarterPlan ? 'opacity-40 pointer-events-none select-none' : ''}`}>
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="px-2.5 py-0.5 rounded-full bg-[#1877F2] text-white text-[10px] font-extrabold uppercase tracking-wider">
@@ -550,7 +574,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
           </div>
 
           {/* Meta Sessions Table */}
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto ${isStarterPlan ? 'opacity-40 pointer-events-none select-none' : ''}`}>
             {loadingSessions ? (
               <div className="p-8 text-center text-slate-400 text-xs">Memuat sesi Meta...</div>
             ) : metaSessions.length === 0 ? (
