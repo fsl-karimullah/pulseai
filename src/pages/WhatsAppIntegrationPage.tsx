@@ -488,7 +488,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <button
-                  onClick={() => window.location.href = '/dashboard/pricing'}
+                  onClick={() => window.location.href = '/dashboard/billing'}
                   className="px-7 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-600/25"
                 >
                   🚀 Upgrade Sekarang
