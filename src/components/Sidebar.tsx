@@ -56,6 +56,7 @@ const navGroups: { header: string; emoji: string; items: NavItem[] }[] = [
     items: [
       { id: 'leads', path: '/leads', label: 'Prospek (Leads)', icon: Users, badge: true },
       { id: 'knowledge', path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
+      { id: 'bot-profiles', path: '/bot-profiles', label: 'Bot Profiles', icon: Bot },
       { id: 'bot-settings', path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
       { id: 'widget', path: '/integration/widget', label: 'Widget Website', icon: Monitor },
       { id: 'whatsapp', path: '/integration/whatsapp', label: 'Integrasi WhatsApp', icon: MessageCircle },

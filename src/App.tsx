@@ -13,6 +13,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import KnowledgePage from './pages/KnowledgePage';
 import BotSettingsPage from './pages/BotSettingsPage';
+import BotProfilesPage from './pages/BotProfilesPage';
 import LeadsPage from './pages/LeadsPage';
 import PricingPage from './pages/PricingPage';
 import ProjectsPage from './pages/ProjectsPage';
@@ -56,6 +57,7 @@ const App: React.FC = () => {
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="bot-settings" element={<BotSettingsPage />} />
+            <Route path="bot-profiles" element={<BotProfilesPage />} />
             <Route path="leads" element={<LeadsPage />} />
             <Route path="billing" element={<PricingPage />} />
             <Route path="integration/widget" element={<WidgetIntegrationPage />} />

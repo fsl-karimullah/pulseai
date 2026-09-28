@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { supabase } from '../config/supabase';
-import { retrieveContextByProject, buildContextBlock } from '../services/rag';
+import { retrieveContextByProject, retrieveContextByProjects, buildContextBlock } from '../services/rag';
 import { generateChatResponse, type ChatMessage } from '../services/gemini';
 import { resolveDefaultProjectId } from '../services/projects';
 import axios from 'axios';
@@ -275,15 +275,28 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // ── Step 3: Fetch bot settings for this project ─────────────────────
-      // bot_settings is now scoped per-project (1 row per project) instead
-      // of per-org, so channels in different projects can carry different
-      // bot personalities/appearance even within the same organization.
-      let { data: settings } = await supabase
-        .from('bot_settings')
-        .select('*')
-        .eq('project_id', resolvedProjectId)
-        .maybeSingle();
+      // ── Step 3: Fetch bot settings for this channel ─────────────────────
+      // Priority:
+      //   1. whatsapp_sessions.bot_settings_id (Bot Profile explicitly assigned)
+      //   2. bot_settings.project_id match (legacy single-project lookup)
+      //   3. Auto-create with defaults
+      //
+      // When a Bot Profile is found, use its kb_project_ids for multi-KB RAG.
+
+      // First, load full session to get bot_settings_id
+      let botSettingsId: string | null = null;
+      if (botNumber) {
+        const { data: fullSession } = await supabase
+          .from('whatsapp_sessions')
+          .select('bot_settings_id')
+          .eq('phone_number', botNumber)
+          .maybeSingle();
+        botSettingsId = fullSession?.bot_settings_id ?? null;
+      }
+
+      let { data: settings } = botSettingsId
+        ? await supabase.from('bot_settings').select('*').eq('id', botSettingsId).maybeSingle()
+        : await supabase.from('bot_settings').select('*').eq('project_id', resolvedProjectId).maybeSingle();
 
       if (!settings) {
         // Auto-create settings if they don't exist for this project
@@ -352,11 +365,13 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
       const history: ChatMessage[] = (lead?.metadata as any)?.history || [];
 
-      // ── Step 6: RAG — project-scoped knowledge retrieval ─────────────────
-      // retrieveContextByProject enforces `WHERE project_id = resolvedProjectId`
-      // inside the match_knowledge_nodes_by_project RPC, so this channel only
-      // ever reads the Knowledge Base documents that belong to its own Project.
-      const chunks  = await retrieveContextByProject(message, resolvedProjectId as string, 5);
+      // ── Step 6: RAG — multi-KB or project-scoped knowledge retrieval ─────
+      // If the Bot Profile has kb_project_ids set, query across all those KBs
+      // simultaneously (single DB round-trip). Falls back to single project.
+      const kbProjectIds: string[] = settings?.kb_project_ids ?? [];
+      const chunks = kbProjectIds.length > 0
+        ? await retrieveContextByProjects(message, kbProjectIds, resolvedOrgId, 5)
+        : await retrieveContextByProject(message, resolvedProjectId as string, 5);
       const context = buildContextBlock(chunks);
 
       // ── Step 7: Determine the authoritative phone number for this lead ──

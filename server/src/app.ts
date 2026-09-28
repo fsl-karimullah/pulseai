@@ -18,6 +18,7 @@ import emailDomainsRoutes from './routes/emailDomains';
 import telegramRoutes from './routes/telegram';
 import feedbackRoutes from './routes/feedback';
 import publicStatsRoutes from './routes/publicStats';
+import botProfilesRoutes from './routes/botProfiles';
 
 const MAX_FILE_SIZE_MB = 50;
 
@@ -37,7 +38,7 @@ export async function createServer() {
   // ── Plugins ──────────────────────────────────────────────────────────────
   await server.register(cors, {
     origin: (origin, cb) => cb(null, true), 
-    methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT'],
+    methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: false,
   });
@@ -68,6 +69,7 @@ export async function createServer() {
   await server.register(telegramRoutes,        { prefix: '/api' });
   await server.register(feedbackRoutes,        { prefix: '/api' });
   await server.register(publicStatsRoutes,     { prefix: '/api' });
+  await server.register(botProfilesRoutes,     { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({

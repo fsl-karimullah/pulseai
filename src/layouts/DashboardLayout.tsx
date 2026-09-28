@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import { useSubscription } from '../hooks/useSubscription';
-import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, CreditCard, Coins } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Menu, LayoutDashboard, BookOpen, Settings2, Users, CreditCard, Coins, Bot } from 'lucide-react';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/dashboard': {
@@ -17,6 +17,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/bot-settings': {
     title: 'Bot Settings',
     subtitle: "Customize your AI assistant's behavior and personality.",
+  },
+  '/bot-profiles': {
+    title: 'Bot Profiles',
+    subtitle: 'Kelola Bot Profiles — kepribadian AI dan sumber Knowledge Base untuk setiap channel.',
   },
   '/leads': {
     title: 'Leads',
@@ -47,7 +51,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
 const mobileNavItems = [
   { path: '/dashboard', label: 'Home', icon: LayoutDashboard },
   { path: '/knowledge', label: 'Knowledge', icon: BookOpen },
-  { path: '/bot-settings', label: 'Bot', icon: Settings2 },
+  { path: '/bot-profiles', label: 'Bot Profiles', icon: Bot },
   { path: '/leads', label: 'Leads', icon: Users },
   { path: '/billing', label: 'Billing', icon: CreditCard },
 ];
