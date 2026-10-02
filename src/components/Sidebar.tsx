@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard,
   BookOpen,
-  Settings2,
   Users,
   Bot,
   ChevronLeft,

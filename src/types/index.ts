@@ -45,5 +45,5 @@ export type BotSetting = {
   options?: string[];
 };
 
-export type Page = 'dashboard' | 'projects' | 'knowledge' | 'bot-settings' | 'bot-profiles' | 'leads' | 'widget' | 'whatsapp' | 'billing' | 'pulse-internal' | 'pulse-hr' | 'cv-screening' | 'finance' | 'finance-transactions' | 'finance-tax';
+export type Page = 'dashboard' | 'projects' | 'knowledge' | 'bot-settings' | 'bot-profiles' | 'leads' | 'widget' | 'whatsapp' | 'billing' | 'pulse-internal' | 'pulse-hr' | 'cv-screening' | 'finance' | 'finance-transactions' | 'finance-tax' | 'finance-gateway';
 
