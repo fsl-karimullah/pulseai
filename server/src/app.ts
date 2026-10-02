@@ -19,6 +19,7 @@ import telegramRoutes from './routes/telegram';
 import feedbackRoutes from './routes/feedback';
 import publicStatsRoutes from './routes/publicStats';
 import botProfilesRoutes from './routes/botProfiles';
+import financeRoutes from './routes/finance';
 
 const MAX_FILE_SIZE_MB = 50;
 
@@ -70,6 +71,7 @@ export async function createServer() {
   await server.register(feedbackRoutes,        { prefix: '/api' });
   await server.register(publicStatsRoutes,     { prefix: '/api' });
   await server.register(botProfilesRoutes,     { prefix: '/api' });
+  await server.register(financeRoutes,          { prefix: '/api' });
 
   // Root health check
   server.get('/', async () => ({

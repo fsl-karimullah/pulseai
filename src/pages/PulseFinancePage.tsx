@@ -26,6 +26,12 @@ import {
   Truck,
   Zap,
   LineChart,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Bot,
+  Filter,
+  CreditCard,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -35,6 +41,8 @@ import FinanceDashboard from '../components/finance/FinanceDashboard';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type TransactionType = 'income' | 'expense';
+type TxStatus = 'approved' | 'pending' | 'rejected';
+type TxSource = 'manual' | 'bot' | 'checkout';
 
 interface Transaction {
   id: string;
@@ -44,6 +52,11 @@ interface Transaction {
   amount: number;
   date: string;
   notes?: string;
+  status: TxStatus;
+  source: TxSource;
+  customer_name?: string;
+  customer_contact?: string;
+  approved_at?: string;
   created_at: string;
 }
 
@@ -52,6 +65,7 @@ interface Summary {
   totalExpense: number;
   netProfit: number;
   transactionCount: number;
+  pendingCount: number;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -84,6 +98,30 @@ const formatRp = (val: number) =>
 
 const MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 
+// ── Status Badge ──────────────────────────────────────────────────────────────
+const StatusBadge: React.FC<{ status: TxStatus; source?: TxSource }> = ({ status, source }) => {
+  if (status === 'approved') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+        <CheckCircle2 size={9} /> Disetujui
+      </span>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 animate-pulse">
+        <Clock size={9} /> Menunggu
+        {source === 'bot' && <Bot size={9} className="ml-0.5" />}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100">
+      <XCircle size={9} /> Ditolak
+    </span>
+  );
+};
+
 // ── Modal Tambah/Edit Transaksi ─────────────────────────────────────────────────────
 interface AddTxModalProps {
   onClose: () => void;
@@ -110,7 +148,6 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId, transa
   // ── AI auto-categorize when description changes ──
   const handleDescriptionChange = (val: string) => {
     setDescription(val);
-    // Only suggest if no edit mode (new tx) and description is long enough
     if (transactionToEdit) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (val.trim().length < 4) { setAiSuggested(null); return; }
@@ -120,7 +157,7 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId, transa
       setAiLoading(false);
       if (suggested) {
         setAiSuggested(suggested);
-        setCategory(suggested); // auto-fill
+        setCategory(suggested);
       }
     }, 800);
   };
@@ -149,7 +186,12 @@ const AddTxModal: React.FC<AddTxModalProps> = ({ onClose, onSaved, orgId, transa
         const { error } = await supabase.from('finance_transactions').update(payload).eq('id', transactionToEdit.id);
         dbErr = error;
       } else {
-        const { error } = await supabase.from('finance_transactions').insert(payload);
+        const { error } = await supabase.from('finance_transactions').insert({
+          ...payload,
+          status: 'approved',
+          source: 'manual',
+          approved_at: new Date().toISOString(),
+        });
         dbErr = error;
       }
       
@@ -320,21 +362,23 @@ const PulseFinancePage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [summary, setSummary] = useState<Summary>({ totalIncome: 0, totalExpense: 0, netProfit: 0, transactionCount: 0 });
+  const [summary, setSummary] = useState<Summary>({ totalIncome: 0, totalExpense: 0, netProfit: 0, transactionCount: 0, pendingCount: 0 });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear] = useState(new Date().getFullYear());
+  const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  // Derive activeView dari URL path — sehingga klik sidebar langsung ganti tab
+  // Derive activeView dari URL path
   const activeView: 'overview' | 'tax' | 'analytics' =
     location.pathname === '/finance/tax' ? 'tax'
     : location.pathname === '/finance/analytics' ? 'analytics'
     : 'overview';
 
-  // Fetch org_id dari tabel organizations
+  // Fetch org_id
   useEffect(() => {
     if (!user) return;
     supabase
@@ -353,43 +397,47 @@ const PulseFinancePage: React.FC = () => {
       const startDate = new Date(selectedYear, selectedMonth, 1).toISOString().split('T')[0];
       const endDate   = new Date(selectedYear, selectedMonth + 1, 0).toISOString().split('T')[0];
 
-      const { data } = await supabase
+      let query = supabase
         .from('finance_transactions')
         .select('*')
         .eq('org_id', orgId)
         .gte('date', startDate)
         .lte('date', endDate)
-        .order('date', { ascending: false });
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false });
 
-      const txs = data || [];
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data } = await query;
+      const txs = (data || []) as Transaction[];
       setTransactions(txs);
 
-      const totalIncome  = txs.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-      const totalExpense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+      const approved = txs.filter(t => t.status === 'approved');
+      const totalIncome  = approved.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+      const totalExpense = approved.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+      const pendingCount = txs.filter(t => t.status === 'pending').length;
       setSummary({
         totalIncome,
         totalExpense,
         netProfit: totalIncome - totalExpense,
-        transactionCount: txs.length,
+        transactionCount: approved.length,
+        pendingCount,
       });
     } catch (err) {
       console.error('Error fetching finance data:', err);
     } finally {
       setLoading(false);
     }
-  }, [orgId, selectedMonth, selectedYear]);
+  }, [orgId, selectedMonth, selectedYear, statusFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleDeleteTransaction = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) return;
-    
     try {
-      const { error } = await supabase
-        .from('finance_transactions')
-        .delete()
-        .eq('id', id);
-
+      const { error } = await supabase.from('finance_transactions').delete().eq('id', id);
       if (error) throw error;
       fetchData();
     } catch (err) {
@@ -398,9 +446,38 @@ const PulseFinancePage: React.FC = () => {
     }
   };
 
+  const handleApprove = async (id: string) => {
+    setApprovingId(id);
+    try {
+      const { error } = await supabase
+        .from('finance_transactions')
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      fetchData();
+    } catch (err) {
+      alert('Gagal menyetujui transaksi.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    if (!confirm('Tolak transaksi ini? Transaksi tidak akan masuk ke laporan keuangan.')) return;
+    try {
+      const { error } = await supabase
+        .from('finance_transactions')
+        .update({ status: 'rejected' })
+        .eq('id', id);
+      if (error) throw error;
+      fetchData();
+    } catch (err) {
+      alert('Gagal menolak transaksi.');
+    }
+  };
+
   // Hitung estimasi pajak
-  // PPh Final UMKM: 0.5% x omzet (income)
-  const annualIncomeEstimate = summary.totalIncome * 12; // estimasi setahun dari bulan ini
+  const annualIncomeEstimate = summary.totalIncome * 12;
   const isUMKM = annualIncomeEstimate <= UMKM_THRESHOLD;
   const monthlyTaxEstimate = summary.totalIncome * PPH_FINAL_RATE;
   const annualTaxEstimate  = annualIncomeEstimate * PPH_FINAL_RATE;
@@ -416,11 +493,13 @@ const PulseFinancePage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                <Wallet size={11} /> Pulse Finance — MVP
+                <Wallet size={11} /> Pulse Finance
               </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                Beta
-              </span>
+              {summary.pendingCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 animate-pulse">
+                  <Clock size={9} /> {summary.pendingCount} Menunggu Verifikasi
+                </span>
+              )}
             </div>
             <h1 className="text-2xl font-black text-white">Keuangan Bisnis</h1>
             <p className="text-slate-400 text-sm mt-1">Catat pemasukan & pengeluaran, pantau kesehatan bisnis Anda secara real-time.</p>
@@ -433,6 +512,29 @@ const PulseFinancePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Pending Alert Banner ── */}
+      {summary.pendingCount > 0 && activeView === 'overview' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0">
+            <Clock size={18} className="text-amber-600" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-amber-900">
+              {summary.pendingCount} transaksi checkout menunggu verifikasi Anda
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Periksa mutasi rekening Anda, lalu klik <strong>"Setujui"</strong> untuk mengkonfirmasi pembayaran masuk ke laporan keuangan.
+            </p>
+          </div>
+          <button
+            onClick={() => setStatusFilter('pending')}
+            className="flex-shrink-0 text-xs font-bold text-amber-700 border border-amber-300 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Lihat Semua
+          </button>
+        </div>
+      )}
 
       {/* ── Month Filter ── */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
@@ -494,6 +596,7 @@ const PulseFinancePage: React.FC = () => {
                 {loading ? '—' : formatRp(summary.totalIncome)}
               </p>
               <p className="text-sm font-medium text-slate-500 mt-0.5">Total Pemasukan</p>
+              <p className="text-xs text-slate-400 mt-1">{summary.transactionCount} transaksi disetujui</p>
             </div>
 
             {/* Pengeluaran */}
@@ -510,6 +613,11 @@ const PulseFinancePage: React.FC = () => {
                 {loading ? '—' : formatRp(summary.totalExpense)}
               </p>
               <p className="text-sm font-medium text-slate-500 mt-0.5">Total Pengeluaran</p>
+              {summary.pendingCount > 0 && (
+                <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                  <Clock size={10} /> {summary.pendingCount} pending perlu verifikasi
+                </p>
+              )}
             </div>
 
             {/* Laba Bersih */}
@@ -543,17 +651,36 @@ const PulseFinancePage: React.FC = () => {
 
           {/* Daftar Transaksi */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-slate-50 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
               <div>
                 <h3 className="font-bold text-slate-900">Transaksi {MONTHS[selectedMonth]} {selectedYear}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">{summary.transactionCount} transaksi dicatat</p>
+                <p className="text-xs text-slate-400 mt-0.5">{summary.transactionCount} disetujui · {summary.pendingCount} pending</p>
               </div>
-              <button
-                onClick={() => { setEditingTransaction(null); setShowModal(true); }}
-                className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                <PlusCircle size={13} /> Tambah
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Status filter */}
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-xl p-1">
+                  <Filter size={12} className="text-slate-400 ml-1" />
+                  {(['all', 'approved', 'pending', 'rejected'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStatusFilter(s)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                        statusFilter === s
+                          ? s === 'pending' ? 'bg-amber-500 text-white' : 'bg-slate-900 text-white'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {s === 'all' ? 'Semua' : s === 'approved' ? 'Setuju' : s === 'pending' ? 'Pending' : 'Ditolak'}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => { setEditingTransaction(null); setShowModal(true); }}
+                  className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <PlusCircle size={13} /> Tambah
+                </button>
+              </div>
             </div>
 
             {loading ? (
@@ -584,54 +711,126 @@ const PulseFinancePage: React.FC = () => {
               <div className="divide-y divide-slate-50">
                 {transactions.map((tx) => {
                   const isIncome = tx.type === 'income';
+                  const isPending = tx.status === 'pending';
+                  const isRejected = tx.status === 'rejected';
                   return (
-                    <div key={tx.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/60 transition-colors group">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        isIncome ? 'bg-emerald-50' : 'bg-rose-50'
+                    <div
+                      key={tx.id}
+                      className={`flex items-start gap-4 px-5 py-3.5 hover:bg-slate-50/60 transition-colors group ${
+                        isPending ? 'bg-amber-50/40 hover:bg-amber-50/70 border-l-2 border-amber-300' : ''
+                      } ${isRejected ? 'opacity-50' : ''}`}
+                    >
+                      {/* Icon */}
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isPending ? 'bg-amber-100' : isIncome ? 'bg-emerald-50' : 'bg-rose-50'
                       }`}>
-                        {isIncome ? (
-                          <ArrowUpRight size={16} className="text-emerald-500" />
-                        ) : (
-                          <ArrowDownRight size={16} className="text-rose-500" />
-                        )}
+                        {isPending
+                          ? <Clock size={16} className="text-amber-500" />
+                          : isIncome
+                          ? <ArrowUpRight size={16} className="text-emerald-500" />
+                          : <ArrowDownRight size={16} className="text-rose-500" />
+                        }
                       </div>
+
+                      {/* Info */}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-800 truncate">{tx.description}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             isIncome ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'
                           }`}>{tx.category}</span>
                           <span className="text-[10px] text-slate-400">
                             {new Date(tx.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                           </span>
+                          <StatusBadge status={tx.status} source={tx.source} />
+                          {tx.customer_name && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                              <Bot size={9} /> {tx.customer_name}
+                              {tx.customer_contact && ` · ${tx.customer_contact}`}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <p className={`text-sm font-black flex-shrink-0 ${isIncome ? 'text-emerald-600' : 'text-rose-600'}`}>
+
+                      {/* Amount + Actions */}
+                      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                        <p className={`text-sm font-black ${
+                          isPending ? 'text-amber-600' : isIncome ? 'text-emerald-600' : 'text-rose-600'
+                        }`}>
                           {isIncome ? '+' : '-'}{formatRp(Number(tx.amount))}
                         </p>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                          <button
-                            onClick={() => { setEditingTransaction(tx); setShowModal(true); }}
-                            className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
-                            title="Edit transaksi"
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTransaction(tx.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                            title="Hapus transaksi"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
+
+                        {/* Approve / Reject untuk pending */}
+                        {isPending ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleApprove(tx.id)}
+                              disabled={approvingId === tx.id}
+                              className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 border border-emerald-200 px-2 py-1 rounded-lg transition-all"
+                            >
+                              {approvingId === tx.id ? <Loader2 size={9} className="animate-spin" /> : <CheckCircle2 size={10} />}
+                              Setujui
+                            </button>
+                            <button
+                              onClick={() => handleReject(tx.id)}
+                              className="flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-100 px-2 py-1 rounded-lg transition-all"
+                            >
+                              <XCircle size={10} /> Tolak
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            {!isRejected && (
+                              <button
+                                onClick={() => { setEditingTransaction(tx); setShowModal(true); }}
+                                className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
+                                title="Edit transaksi"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteTransaction(tx.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                              title="Hapus transaksi"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
+          </div>
+
+          {/* ── Payment Gateway Banner (Coming Soon) ── */}
+          <div className="relative overflow-hidden bg-gradient-to-r from-violet-900 via-violet-800 to-indigo-900 rounded-2xl p-6 border border-violet-700">
+            <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 to-indigo-500/10 pointer-events-none" />
+            <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-violet-500/10 blur-2xl" />
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center flex-shrink-0">
+                <CreditCard size={22} className="text-violet-300" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-bold text-white">Integrasi Payment Gateway</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-400/20 text-violet-300 border border-violet-400/30">
+                    Coming Soon
+                  </span>
+                </div>
+                <p className="text-sm text-violet-300 leading-relaxed">
+                  Segera hadir — hubungkan Xendit, Midtrans, atau Stripe ke akun Anda. Transaksi checkout akan terverifikasi <strong className="text-violet-200">otomatis</strong> tanpa perlu cek manual.
+                </p>
+              </div>
+              <div className="flex-shrink-0">
+                <span className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold bg-violet-500/20 text-violet-300 border border-violet-400/30 cursor-not-allowed">
+                  Daftar Notifikasi <ChevronRight size={14} />
+                </span>
+              </div>
+            </div>
           </div>
         </>
       )}

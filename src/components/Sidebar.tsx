@@ -18,6 +18,7 @@ import {
   FolderKanban,
   TrendingUp,
   Receipt,
+  Landmark,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -57,7 +58,6 @@ const navGroups: { header: string; emoji: string; items: NavItem[] }[] = [
       { id: 'leads', path: '/leads', label: 'Prospek (Leads)', icon: Users, badge: true },
       { id: 'knowledge', path: '/knowledge', label: 'Basis Pengetahuan', icon: BookOpen },
       { id: 'bot-profiles', path: '/bot-profiles', label: 'Bot Profiles', icon: Bot },
-      { id: 'bot-settings', path: '/bot-settings', label: 'Pengaturan Bot', icon: Settings2 },
       { id: 'widget', path: '/integration/widget', label: 'Widget Website', icon: Monitor },
       { id: 'whatsapp', path: '/integration/whatsapp', label: 'Integrasi WhatsApp', icon: MessageCircle },
       { id: 'pulse-internal', path: '/dashboard/pulse-internal', label: 'PulseInternal', icon: Database, comingSoon: true },
@@ -77,6 +77,7 @@ const navGroups: { header: string; emoji: string; items: NavItem[] }[] = [
     items: [
       { id: 'finance-transactions', path: '/finance/transactions', label: 'Transaksi', icon: Receipt },
       { id: 'finance-tax', path: '/finance/tax', label: 'Estimasi Pajak', icon: TrendingUp },
+      { id: 'finance-gateway', path: '/finance/gateway', label: 'Payment Gateway', icon: Landmark, comingSoon: true },
     ],
   },
   {
