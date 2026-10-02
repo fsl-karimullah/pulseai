@@ -21,6 +21,10 @@ export type ChatMessage = {
 export type GeminiResponse = {
   message: string;
   triggerLeadCapture: boolean;
+  checkoutDetected?: boolean;
+  checkoutAmount?: number;
+  checkoutDescription?: string;
+  customerName?: string;
 };
 
 // ─────────────────────────────────────────────
@@ -234,6 +238,12 @@ const buildSystemPrompt = (
     `   - Jawab pertanyaan user berdasarkan petunjuk yang ada di dalam gambar (misalnya nama event, tanggal, lokasi di poster) DIGABUNGKAN dengan informasi dari [KNOWLEDGE BASE].`,
     `   - Jika informasi di gambar tidak ada di [KNOWLEDGE BASE], kamu tetap BOLEH menjawab berdasarkan teks/konteks yang jelas-jelas tertulis di dalam gambar tersebut.`,
     ``,
+    `9. **DETEKSI CHECKOUT / KONFIRMASI PEMBAYARAN:**`,
+    `   - Jika user mengirim pesan yang mengindikasikan bahwa mereka TELAH melakukan pembayaran atau transfer, set "checkoutDetected": true.`,
+    `   - Contoh sinyal checkout: "sudah transfer", "udah bayar", "bukti transfer", "sudah dp", "sudah bayar", "ini bukti pembayaran", "pay", "paid", "already paid", "transferred", "saya sudah beli".`,
+    `   - Jika checkout terdeteksi, ekstrak: nominal (checkoutAmount sebagai angka tanpa format, 0 jika tidak ada), deskripsi produk (checkoutDescription), dan nama customer dari history jika ada (customerName).`,
+    `   - Jika checkout TIDAK terdeteksi, set "checkoutDetected": false dan biarkan checkoutAmount: 0.`,
+    ``,
   ];
 
   if (topics.length > 0) {
@@ -339,7 +349,11 @@ const buildSystemPrompt = (
     lines.push(`**RESPONSE FORMAT** — respond strictly with valid JSON exactly matching this schema:`);
     lines.push(`{`);
     lines.push(`  "message": "your conversation response",`);
-    lines.push(`  "triggerLeadCapture": boolean`);
+    lines.push(`  "triggerLeadCapture": boolean,`);
+    lines.push(`  "checkoutDetected": boolean,`);
+    lines.push(`  "checkoutAmount": number,`);
+    lines.push(`  "checkoutDescription": "nama produk yang dibeli atau deskripsi singkat",`);
+    lines.push(`  "customerName": "nama customer jika diketahui dari history, atau null"`);
     lines.push(`}`);
   }
 
@@ -487,13 +501,17 @@ export async function generateChatResponse(
           return {
             message: parsed.message ?? 'Sorry, I could not generate a response.',
             triggerLeadCapture: parsed.triggerLeadCapture === true,
+            checkoutDetected: parsed.checkoutDetected === true,
+            checkoutAmount: typeof parsed.checkoutAmount === 'number' ? parsed.checkoutAmount : 0,
+            checkoutDescription: parsed.checkoutDescription || '',
+            customerName: parsed.customerName || '',
           };
         }
         // Last resort: return raw text
         console.warn(`[Gemini] [Org: ${orgId}] Could not parse JSON, returning raw text. Length: ${raw.length}`);
-        return { message: raw, triggerLeadCapture: false };
+        return { message: raw, triggerLeadCapture: false, checkoutDetected: false };
       } catch {
-        return { message: raw, triggerLeadCapture: false };
+        return { message: raw, triggerLeadCapture: false, checkoutDetected: false };
       }
     } catch (error: any) {
       lastError = error;

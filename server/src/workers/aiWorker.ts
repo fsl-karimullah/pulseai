@@ -70,7 +70,7 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
       resolvedProjectId
     } = data;
 
-    let { message: botReply, triggerLeadCapture } = await generateChatResponse(
+    let { message: botReply, triggerLeadCapture, checkoutDetected, checkoutAmount, checkoutDescription, customerName } = await generateChatResponse(
       message,
       history,
       context,
@@ -218,6 +218,37 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
         sender: 'bot',
         message_text: botReply,
       });
+
+      // ── Auto-record PENDING finance transaction if AI detected a checkout ──
+      if (checkoutDetected && resolvedOrgId) {
+        try {
+          const txAmount = (checkoutAmount && checkoutAmount > 0) ? checkoutAmount : 0;
+          const txDescription = checkoutDescription || `Checkout via WhatsApp — ${pushName || sender}`;
+          const txCustomerName = customerName || pushName || null;
+          const txCustomerContact = hasValidPhone ? leadPhone : null;
+
+          await supabase.from('finance_transactions').insert({
+            org_id: resolvedOrgId,
+            type: 'income',
+            category: 'Penjualan Produk',
+            description: txDescription,
+            amount: txAmount > 0 ? txAmount : 1, // Gunakan 1 jika nominal tidak diketahui, admin bisa edit
+            date: new Date().toISOString().split('T')[0],
+            notes: txAmount === 0
+              ? `Nominal belum dikonfirmasi. Customer: ${txCustomerContact || sender}. Periksa mutasi rekening.`
+              : `Checkout via WhatsApp. Customer: ${txCustomerContact || sender}.`,
+            status: 'pending',   // ← Wajib di-approve admin setelah cek mutasi
+            source: 'bot',
+            customer_name: txCustomerName,
+            customer_contact: txCustomerContact,
+          });
+
+          console.log(`[Finance] Checkout PENDING recorded for org ${resolvedOrgId}: "${txDescription}" Rp ${txAmount}`);
+        } catch (financeErr: any) {
+          // Finance recording failure MUST NOT crash the main chat flow
+          console.error('[Finance] Failed to record checkout transaction:', financeErr.message);
+        }
+      }
 
       // Deduct credits
       if (!isSubscriber) {
