@@ -652,7 +652,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
                       const metaStatus = ms?.status || (loadingMetaStatus ? 'LOADING' : 'UNKNOWN');
                       const verifiedName = ms?.verified_name || s.phone_label;
                       const qualityRating = ms?.quality_rating || 'UNKNOWN';
-                      const wabaUrl = `https://business.facebook.com/wa/manage/phone-numbers/${s.meta_waba_id ? `?waba_id=${s.meta_waba_id}` : ''}`;
+
+
 
                       const statusBadge = () => {
                         if (metaStatus === 'LOADING') {
