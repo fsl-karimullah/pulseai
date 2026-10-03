@@ -65,6 +65,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [metaPhoneStatuses, setMetaPhoneStatuses] = useState<Record<string, MetaPhoneStatus>>({});
   const [loadingMetaStatus, setLoadingMetaStatus] = useState<boolean>(false);
 
+  const [showMetaVerifyGuideModal, setShowMetaVerifyGuideModal] = useState<boolean>(false);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
 
@@ -599,32 +600,40 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* Pending warning banner — shown if any session is PENDING */}
-                {metaSessions.some(s => {
-                  const ms = metaPhoneStatuses[s.meta_phone_number_id || ''];
-                  return !ms || ms.status === 'PENDING' || ms.code_verification_status === 'NOT_VERIFIED';
-                }) && (
-                  <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
-                    <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600 flex-shrink-0">
-                      <AlertTriangle size={15} />
+                  {/* Pending warning banner */}
+                  {metaSessions.some(s => {
+                    const ms = metaPhoneStatuses[s.meta_phone_number_id || ''];
+                    return !ms || ms.status === 'PENDING' || ms.code_verification_status === 'NOT_VERIFIED';
+                  }) && (
+                    <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+                      <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600 flex-shrink-0">
+                        <AlertTriangle size={15} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-amber-900 mb-0.5">Nomor Belum Terverifikasi di Meta</p>
+                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                          Selain verifikasi nomor, Anda juga perlu <strong>melengkapi data perusahaan</strong> di Meta Business Manager agar nomor dapat diaktifkan penuh.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => setShowMetaVerifyGuideModal(true)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 text-[11px] font-bold rounded-xl transition-colors whitespace-nowrap"
+                        >
+                          <Info size={11} /> Panduan Lengkap
+                        </button>
+                        <a
+                          href="https://business.facebook.com/wa/manage/phone-numbers/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#1877F2] text-white text-[11px] font-bold rounded-xl hover:bg-[#166fe5] transition-colors whitespace-nowrap shadow-sm"
+                        >
+                          <MessageCircle size={12} />
+                          Buka Meta Business Manager
+                        </a>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-amber-900 mb-0.5">Nomor Belum Terverifikasi di Meta</p>
-                      <p className="text-[11px] text-amber-800 leading-relaxed">
-                        Klik <strong>Settings (⚙)</strong> pada nomor di Meta Business Manager → pilih <strong>"Add phone number"</strong> atau <strong>"Verify"</strong> untuk menyelesaikan proses aktivasi.
-                      </p>
-                    </div>
-                    <a
-                      href="https://business.facebook.com/wa/manage/phone-numbers/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#1877F2] text-white text-[11px] font-bold rounded-xl hover:bg-[#166fe5] transition-colors whitespace-nowrap flex-shrink-0 shadow-sm"
-                    >
-                      <MessageCircle size={12} />
-                      Buka Meta Business Manager
-                    </a>
-                  </div>
-                )}
+                  )}
 
                 <table className="w-full text-left border-collapse mt-2">
                   <thead>
@@ -724,16 +733,14 @@ const WhatsAppIntegrationPage: React.FC = () => {
                             <div className="flex items-center justify-end gap-2">
                               {/* Verify button — shown for pending/unverified numbers */}
                               {(metaStatus === 'PENDING' || metaStatus === 'UNKNOWN' || !ms) && (
-                                <a
-                                  href={wabaUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                <button
+                                  onClick={() => setShowMetaVerifyGuideModal(true)}
                                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
-                                  title="Verifikasi nomor di Meta Business Manager"
+                                  title="Panduan verifikasi nomor di Meta"
                                 >
                                   <ShieldCheck size={12} />
                                   Verifikasi di Meta
-                                </a>
+                                </button>
                               )}
                               {/* WA Blast Official Button for Connected Meta numbers */}
                               {metaStatus === 'CONNECTED' && s.meta_phone_number_id && (
@@ -1066,6 +1073,221 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Meta Verification Guide Modal ──────────────────── */}
+      {showMetaVerifyGuideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) setShowMetaVerifyGuideModal(false); }}>
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl relative overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Top gradient bar */}
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#25D366] via-[#1877F2] to-violet-500" />
+
+            {/* Header */}
+            <div className="px-7 pt-7 pb-5 border-b border-slate-100 flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#1877F2] to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+                  <ShieldCheck size={20} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">Panduan Verifikasi Nomor WhatsApp</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Ikuti langkah berikut untuk mengaktifkan nomor Anda di Meta</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMetaVerifyGuideModal(false)}
+                className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors text-slate-500"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="overflow-y-auto flex-1 px-7 py-6 space-y-6">
+
+              {/* Alert: 2 requirements */}
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
+                <AlertTriangle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-amber-900">Ada 2 Hal yang Harus Dilengkapi</p>
+                  <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                    Nomor WhatsApp di Meta tidak cukup hanya diverifikasi satu kali. Anda juga harus <strong>melengkapi profil bisnis perusahaan</strong> agar nomor bisa berjalan normal dan mendapat status <span className="bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">CONNECTED</span>.
+                  </p>
+                </div>
+              </div>
+
+              {/* PART 1: Company Data */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-lg bg-[#1877F2] flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-[10px] font-black">1</span>
+                  </div>
+                  <h3 className="text-sm font-black text-slate-900">Lengkapi Data Perusahaan di Meta Business Manager</h3>
+                </div>
+                <div className="space-y-2.5 ml-8">
+                  {[
+                    {
+                      icon: '🏢',
+                      title: 'Nama Bisnis Resmi',
+                      desc: 'Masukkan nama perusahaan / bisnis yang terdaftar secara resmi (sesuai akta atau NIB).',
+                      required: true,
+                    },
+                    {
+                      icon: '🌐',
+                      title: 'Website Bisnis',
+                      desc: 'URL website resmi perusahaan Anda. Jika belum punya, bisa gunakan halaman media sosial resmi (Facebook Page / Instagram bisnis).',
+                      required: true,
+                    },
+                    {
+                      icon: '📂',
+                      title: 'Kategori Industri',
+                      desc: 'Pilih kategori industri yang paling sesuai dengan bisnis Anda (misal: Retail, Jasa, Teknologi, dll).',
+                      required: true,
+                    },
+                    {
+                      icon: '📍',
+                      title: 'Alamat Bisnis',
+                      desc: 'Alamat lengkap tempat usaha Anda beroperasi, termasuk kota dan negara.',
+                      required: false,
+                    },
+                    {
+                      icon: '✅',
+                      title: 'Verifikasi Bisnis (Business Verification)',
+                      desc: 'Proses verifikasi oleh Meta di mana Anda mengunggah dokumen resmi bisnis (KTP direktur, SIUP, NPWP, atau NIB). Ini membuka limit pengiriman pesan lebih tinggi.',
+                      required: false,
+                    },
+                  ].map((item) => (
+                    <div key={item.title} className="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
+                      <span className="text-base flex-shrink-0">{item.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <p className="text-xs font-bold text-slate-800">{item.title}</p>
+                          {item.required && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">WAJIB</span>
+                          )}
+                          {!item.required && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">DIREKOMENDASIKAN</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 ml-8">
+                  <a
+                    href="https://business.facebook.com/settings/info"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1877F2] hover:underline"
+                  >
+                    <ExternalLink size={12} /> Buka Pengaturan Bisnis Meta →
+                  </a>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* PART 2: Phone Number Verification */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-lg bg-[#25D366] flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-[10px] font-black">2</span>
+                  </div>
+                  <h3 className="text-sm font-black text-slate-900">Verifikasi Nomor Telepon WhatsApp</h3>
+                </div>
+                <div className="space-y-2 ml-8">
+                  {[
+                    { step: '①', text: 'Buka Meta Business Manager → pilih akun WhatsApp Business (WABA) Anda.' },
+                    { step: '②', text: 'Masuk ke menu "Nomor Telepon" (Phone Numbers).' },
+                    { step: '③', text: 'Klik ikon Pengaturan (⚙️) pada nomor yang berstatus Pending.' },
+                    { step: '④', text: 'Pilih "Verify Phone Number" → masukkan kode OTP yang dikirim via SMS atau telepon.' },
+                    { step: '⑤', text: 'Tunggu beberapa menit setelah verifikasi. Status akan berubah dari "Pending" menjadi "Connected" ✅.' },
+                  ].map((item) => (
+                    <div key={item.step} className="flex items-start gap-3">
+                      <span className="text-base font-black text-slate-400 flex-shrink-0 w-5 text-center">{item.step}</span>
+                      <p className="text-xs text-slate-700 leading-relaxed">{item.text}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 ml-8">
+                  <a
+                    href="https://business.facebook.com/wa/manage/phone-numbers/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-[#25D366] hover:underline"
+                  >
+                    <ExternalLink size={12} /> Buka Manajemen Nomor WhatsApp →
+                  </a>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* Status meaning */}
+              <div>
+                <h3 className="text-sm font-black text-slate-900 mb-3">Arti Status Nomor</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { status: 'CONNECTED', color: 'bg-emerald-50 border-emerald-200 text-emerald-700', dot: 'bg-emerald-500', desc: 'Nomor aktif & siap digunakan bot.' },
+                    { status: 'PENDING', color: 'bg-amber-50 border-amber-200 text-amber-700', dot: 'bg-amber-500', desc: 'Menunggu verifikasi OTP atau data bisnis.' },
+                    { status: 'FLAGGED', color: 'bg-orange-50 border-orange-200 text-orange-700', dot: 'bg-orange-500', desc: 'Kualitas rendah akibat laporan spam. Kurangi broadcast.' },
+                    { status: 'BANNED', color: 'bg-red-50 border-red-200 text-red-700', dot: 'bg-red-500', desc: 'Nomor diblokir permanen oleh Meta.' },
+                    { status: 'UNKNOWN', color: 'bg-slate-50 border-slate-200 text-slate-600', dot: 'bg-slate-400', desc: 'Status belum dapat diambil dari server Meta.' },
+                    { status: 'DISCONNECTED', color: 'bg-slate-50 border-slate-200 text-slate-600', dot: 'bg-slate-400', desc: 'Koneksi terputus, perlu dihubungkan ulang.' },
+                  ].map((s) => (
+                    <div key={s.status} className={`flex items-start gap-2.5 p-3 rounded-xl border ${s.color}`}>
+                      <div className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${s.dot}`} />
+                      <div>
+                        <p className="text-[11px] font-black">{s.status}</p>
+                        <p className="text-[10px] opacity-80 leading-relaxed mt-0.5">{s.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pro tip */}
+              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-4 flex gap-3">
+                <Zap size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-bold text-white mb-1">💡 Tips Penting</p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Nomor yang belum diverifikasi bisnis (<strong className="text-slate-300">Business Verification</strong>) hanya bisa mengirim maksimal <strong className="text-amber-400">250 percakapan/hari</strong>. Setelah diverifikasi, limit naik hingga <strong className="text-emerald-400">100.000+ percakapan/hari</strong>.
+                  </p>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer actions */}
+            <div className="px-7 py-5 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 flex-wrap">
+              <button
+                onClick={() => setShowMetaVerifyGuideModal(false)}
+                className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Tutup
+              </button>
+              <div className="flex items-center gap-2">
+                <a
+                  href="https://business.facebook.com/settings/info"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-[#1877F2] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors"
+                >
+                  <ExternalLink size={13} /> Data Bisnis
+                </a>
+                <a
+                  href="https://business.facebook.com/wa/manage/phone-numbers/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-[#1877F2] hover:bg-[#166fe5] rounded-xl transition-colors shadow-sm"
+                >
+                  <MessageCircle size={13} /> Verifikasi Nomor
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       )}
