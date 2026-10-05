@@ -815,22 +815,98 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         }
 
         // Step 2: Always update the DB row to DISCONNECTED regardless of gateway result
-        if (sessionRow?.phone_number) {
-          await supabase
-            .from('whatsapp_sessions')
-            .update({
-              status: 'DISCONNECTED',
-              disconnected_at: new Date().toISOString(),
-            })
-            .eq('phone_number', sessionRow.phone_number);
-          fastify.log.info({ orgId, phoneLabel, phone: sessionRow.phone_number }, '[Disconnect] DB row marked DISCONNECTED');
-        } else {
-          fastify.log.warn({ orgId, phoneLabel }, '[Disconnect] No session row found in DB — nothing to update');
-        }
+        await supabase
+          .from('whatsapp_sessions')
+          .update({
+            status: 'DISCONNECTED',
+            disconnected_at: new Date().toISOString(),
+          })
+          .eq('org_id', orgId)
+          .eq('phone_label', phoneLabel);
+
+        fastify.log.info({ orgId, phoneLabel }, '[Disconnect] DB row marked DISCONNECTED');
 
         return reply.send({ success: true, message: `Sesi '${phoneLabel}' berhasil diputuskan.` });
       } catch (error: any) {
         fastify.log.error(error, '[Disconnect] Error during disconnect');
+        return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+      }
+    }
+  );
+
+  // POST /api/whatsapp/reconnect - Reconnect a disconnected session
+  fastify.post(
+    '/whatsapp/reconnect',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { phoneLabel } = request.body as { phoneLabel?: string };
+
+        if (!phoneLabel) {
+          return reply.status(400).send({ success: false, message: "Missing body parameter: 'phoneLabel'" });
+        }
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        await supabase
+          .from('whatsapp_sessions')
+          .update({
+            status: 'CONNECTED',
+            disconnected_at: null,
+            connected_at: new Date().toISOString(),
+          })
+          .eq('org_id', org.id)
+          .eq('phone_label', phoneLabel);
+
+        return reply.send({ success: true, message: `Sesi '${phoneLabel}' berhasil dihubungkan kembali.` });
+      } catch (error: any) {
+        fastify.log.error(error, '[Reconnect] Error during reconnect');
+        return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+      }
+    }
+  );
+
+  // DELETE /api/whatsapp/session - Delete session record permanently
+  fastify.delete(
+    '/whatsapp/session',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { phoneLabel } = request.query as { phoneLabel?: string };
+
+        if (!phoneLabel) {
+          return reply.status(400).send({ success: false, message: "Missing query parameter: 'phoneLabel'" });
+        }
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        await supabase
+          .from('whatsapp_sessions')
+          .delete()
+          .eq('org_id', org.id)
+          .eq('phone_label', phoneLabel);
+
+        return reply.send({ success: true, message: `Sesi '${phoneLabel}' berhasil dihapus.` });
+      } catch (error: any) {
+        fastify.log.error(error, '[Delete Session] Error during delete');
         return reply.status(500).send({ success: false, message: 'Internal Server Error' });
       }
     }

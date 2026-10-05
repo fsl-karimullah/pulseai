@@ -300,7 +300,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
   const handleDisconnect = async (label: string) => {
     if (!organization?.id || !session?.access_token) return;
-    if (!confirm(`Yakin ingin memutuskan koneksi sesi '${label}'? Semua kredensial dan riwayat cache akan dihapus.`)) return;
+    if (!confirm(`Yakin ingin memutuskan koneksi sesi '${label}'?`)) return;
     
     setLoading(true);
     setError(null);
@@ -317,6 +317,56 @@ const WhatsAppIntegrationPage: React.FC = () => {
       }
     } catch {
       setError('Gagal memutuskan koneksi WhatsApp.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReconnect = async (label: string) => {
+    if (!organization?.id || !session?.access_token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/whatsapp/reconnect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ phoneLabel: label })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchSessions();
+      } else {
+        setError(data.message || 'Gagal menghubungkan kembali sesi.');
+      }
+    } catch {
+      setError('Gagal menghubungkan kembali WhatsApp.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (label: string) => {
+    if (!organization?.id || !session?.access_token) return;
+    if (!confirm(`Yakin ingin menghapus sesi '${label}' secara permanen? Sesi ini akan dihapus dari daftar.`)) return;
+    
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/whatsapp/session?phoneLabel=${encodeURIComponent(label)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchSessions();
+      } else {
+        setError(data.message || 'Gagal menghapus sesi.');
+      }
+    } catch {
+      setError('Gagal menghapus sesi WhatsApp.');
     } finally {
       setLoading(false);
     }
@@ -709,6 +759,14 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
 
                       const statusBadge = () => {
+                        if (s.status === 'DISCONNECTED') {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-medium">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                              Terputus
+                            </span>
+                          );
+                        }
                         if (metaStatus === 'LOADING') {
                           return (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-medium">
@@ -785,72 +843,93 @@ const WhatsAppIntegrationPage: React.FC = () => {
                           <td className="px-6 py-4">{qualityBadge()}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center justify-end gap-2">
-                              {/* Verify button — shown for pending/unverified numbers */}
-                              {(metaStatus === 'PENDING' || metaStatus === 'UNKNOWN' || !ms) && (
-                                <button
-                                  onClick={() => setShowMetaVerifyGuideModal(true)}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
-                                  title="Panduan verifikasi nomor di Meta"
-                                >
-                                  <ShieldCheck size={12} />
-                                  Verifikasi di Meta
-                                </button>
-                              )}
-                              {/* WA Blast Official Button for Connected Meta numbers */}
-                              {metaStatus === 'CONNECTED' && s.meta_phone_number_id && (
+                              {s.status === 'DISCONNECTED' ? (
                                 <>
                                   <button
-                                    onClick={() => {
-                                      setSelectedMetaPhone(s.meta_phone_number_id || '');
-                                      setBlastStep('form');
-                                      setBlastResult(null);
-                                      setShowMetaBlastModal(true);
-                                    }}
-                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
-                                    title="Kirim Pesan Broadcast via Meta API"
+                                    onClick={() => handleReconnect(s.phone_label)}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                    title="Hubungkan kembali sesi ini"
                                   >
-                                    <Send size={12} />
-                                    Blast
+                                    <RefreshCw size={12} /> Hubungkan
                                   </button>
                                   <button
-                                    onClick={() => {
-                                      setInteractivePhoneId(s.meta_phone_number_id || '');
-                                      setInteractiveTo('');
-                                      setInteractiveBody('');
-                                      setInteractiveHeader('');
-                                      setInteractiveFooter('');
-                                      setInteractiveSent(false);
-                                      setInteractiveError(null);
-                                      setShowInteractiveModal(true);
-                                    }}
-                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
-                                    title="Kirim Pesan Interaktif (Tombol/List)"
+                                    onClick={() => handleDeleteSession(s.phone_label)}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
+                                    title="Hapus sesi secara permanen"
                                   >
-                                    <MousePointerClick size={12} />
-                                    Interaktif
+                                    <Trash2 size={13} /> Hapus
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {/* Verify button — shown for pending/unverified numbers */}
+                                  {(metaStatus === 'PENDING' || metaStatus === 'UNKNOWN' || !ms) && (
+                                    <button
+                                      onClick={() => setShowMetaVerifyGuideModal(true)}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                      title="Panduan verifikasi nomor di Meta"
+                                    >
+                                      <ShieldCheck size={12} />
+                                      Verifikasi di Meta
+                                    </button>
+                                  )}
+                                  {/* WA Blast Official Button for Connected Meta numbers */}
+                                  {metaStatus === 'CONNECTED' && s.meta_phone_number_id && (
+                                    <>
+                                      <button
+                                        onClick={() => {
+                                          setSelectedMetaPhone(s.meta_phone_number_id || '');
+                                          setBlastStep('form');
+                                          setBlastResult(null);
+                                          setShowMetaBlastModal(true);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                        title="Kirim Pesan Broadcast via Meta API"
+                                      >
+                                        <Send size={12} />
+                                        Blast
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setInteractivePhoneId(s.meta_phone_number_id || '');
+                                          setInteractiveTo('');
+                                          setInteractiveBody('');
+                                          setInteractiveHeader('');
+                                          setInteractiveFooter('');
+                                          setInteractiveSent(false);
+                                          setInteractiveError(null);
+                                          setShowInteractiveModal(true);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                        title="Kirim Pesan Interaktif (Tombol/List)"
+                                      >
+                                        <MousePointerClick size={12} />
+                                        Interaktif
+                                      </button>
+                                    </>
+                                  )}
+                                  {/* Refresh status button */}
+                                  {s.meta_phone_number_id && (
+                                    <button
+                                      onClick={() => {
+                                        if (session?.access_token) {
+                                          fetchMetaPhoneStatuses([s], session.access_token);
+                                        }
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                      title="Refresh status dari Meta"
+                                    >
+                                      <RefreshCw size={13} className={loadingMetaStatus ? 'animate-spin' : ''} />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleDisconnect(s.phone_label)}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
+                                  >
+                                    <LogOut size={13} /> Putuskan
                                   </button>
                                 </>
                               )}
-                              {/* Refresh status button */}
-                              {s.meta_phone_number_id && (
-                                <button
-                                  onClick={() => {
-                                    if (session?.access_token) {
-                                      fetchMetaPhoneStatuses([s], session.access_token);
-                                    }
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                  title="Refresh status dari Meta"
-                                >
-                                  <RefreshCw size={13} className={loadingMetaStatus ? 'animate-spin' : ''} />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => handleDisconnect(s.phone_label)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center gap-1 font-bold text-[11px]"
-                              >
-                                <LogOut size={13} /> Putuskan
-                              </button>
                             </div>
                           </td>
                         </tr>
