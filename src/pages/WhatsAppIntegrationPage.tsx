@@ -66,6 +66,9 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [loadingMetaStatus, setLoadingMetaStatus] = useState<boolean>(false);
 
   const [showMetaVerifyGuideModal, setShowMetaVerifyGuideModal] = useState<boolean>(false);
+  const [metaPricingBannerDismissed, setMetaPricingBannerDismissed] = useState<boolean>(
+    () => localStorage.getItem('pulse_meta_oct26_banner_dismissed') === 'true'
+  );
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newLabel, setNewLabel] = useState<string>('');
 
@@ -589,7 +592,57 @@ const WhatsAppIntegrationPage: React.FC = () => {
             </div>
           </div>
 
+          {/* ── Pembaruan Kebijakan Harga Meta 1 Oktober ─────── */}
+          {!metaPricingBannerDismissed && (
+            <div className="mx-4 mt-4 flex items-start gap-3 px-5 py-4 bg-gradient-to-r from-slate-900 to-blue-950 border border-blue-800/50 rounded-2xl relative overflow-hidden">
+              {/* decorative glow */}
+              <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-6 -left-6 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
+              {/* Icon */}
+              <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-400/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-lg">📢</span>
+              </div>
+              {/* Content */}
+              <div className="flex-1 min-w-0 relative">
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/25 uppercase tracking-widest">Pembaruan 1 Oktober</span>
+                  <p className="text-xs font-bold text-white">Perubahan Kebijakan Harga Meta WhatsApp API</p>
+                </div>
+                <p className="text-[11px] text-blue-200/90 leading-relaxed">
+                  Meta kini mengenakan biaya <strong className="text-white">per-pesan</strong> untuk semua balasan dalam jendela 24 jam. Setiap nomor mendapat jatah
+                  <strong className="text-amber-300"> 1.000 pesan balasan GRATIS/bulan</strong>. Selain itu, Meta{' '}
+                  <strong className="text-white">mewajibkan metode pembayaran (kartu kredit)</strong> terdaftar di akun WABA Anda — nomor tanpa kartu kredit berisiko ditangguhkan.
+                </p>
+                <div className="flex items-center gap-3 mt-2.5 flex-wrap">
+                  <a
+                    href="https://business.facebook.com/settings/payment-methods"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-300 hover:text-amber-200 bg-amber-400/10 hover:bg-amber-400/20 px-2.5 py-1 rounded-lg border border-amber-400/20 transition-colors"
+                  >
+                    <ExternalLink size={10} /> Tambah Kartu Kredit di Meta →
+                  </a>
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 size={11} /> Bot PulseAI sudah dioptimasi untuk hemat kuota pesan
+                  </span>
+                </div>
+              </div>
+              {/* Dismiss */}
+              <button
+                onClick={() => {
+                  setMetaPricingBannerDismissed(true);
+                  localStorage.setItem('pulse_meta_oct26_banner_dismissed', 'true');
+                }}
+                className="p-1.5 text-blue-400/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex-shrink-0 relative"
+                title="Tutup notifikasi ini"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+
           {/* Meta Sessions Table */}
+
           <div className="overflow-x-auto">
             {loadingSessions ? (
               <div className="p-8 text-center text-slate-400 text-xs">Memuat sesi Meta...</div>
