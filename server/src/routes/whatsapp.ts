@@ -1047,7 +1047,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     current: number;
     successCount: number;
     failedCount: number;
-    delaySeconds: number;
+    delayFrom: number;
+    delayTo: number;
     status: 'running' | 'completed' | 'cancelled' | 'failed';
     startedAt: string;
     completedAt?: string;
@@ -1225,11 +1226,14 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         fastify.log.warn({ blastId: job.id, to: num, err: rawErr }, '[Blast] Failed sending to recipient');
       }
 
-      // Responsive delay between messages
-      if (i < targetNumbers.length - 1 && job.delaySeconds > 0) {
-        const waitMs = job.delaySeconds * 1000;
+      // Responsive delay between messages (randomized range)
+      if (i < targetNumbers.length - 1 && job.delayTo > 0) {
+        const from = job.delayFrom * 1000;
+        const to = job.delayTo * 1000;
+        const waitMs = Math.floor(Math.random() * (to - from + 1)) + from;
         const step = 250;
         let elapsed = 0;
+        fastify.log.info({ blastId: job.id, waitMs }, '[Blast] Waiting between messages');
         while (elapsed < waitMs) {
           const check = activeBlastJobs.get(job.orgId);
           if (!check || check.id !== job.id || check.status === 'cancelled') return;
@@ -1262,7 +1266,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         message = '',
         templateName = 'hello_world',
         languageCode = 'en_US',
-        delaySeconds = 5,
+        delayFrom = 5,
+        delayTo = 10,
       } = request.body as {
         platform?: 'baileys' | 'meta';
         phoneLabel?: string;
@@ -1271,7 +1276,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         message?: string;
         templateName?: string;
         languageCode?: string;
-        delaySeconds?: number;
+        delayFrom?: number;
+        delayTo?: number;
       };
 
       const { data: org } = await supabase
@@ -1353,7 +1359,8 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         current: 0,
         successCount: 0,
         failedCount: 0,
-        delaySeconds: Math.max(1, Number(delaySeconds) || 5),
+        delayFrom: Math.max(1, Number(delayFrom) || 5),
+        delayTo: Math.max(1, Number(delayTo) || Math.max(10, Number(delayFrom) || 5)),
         status: 'running',
         startedAt: new Date().toISOString(),
         logs: [],

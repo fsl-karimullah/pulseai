@@ -61,7 +61,8 @@ interface ActiveBlastJob {
   current: number;
   successCount: number;
   failedCount: number;
-  delaySeconds: number;
+  delayFrom: number;
+  delayTo: number;
   status: 'running' | 'completed' | 'cancelled' | 'failed';
   startedAt: string;
   completedAt?: string;
@@ -150,7 +151,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [selectedBaileysPhoneLabel, setSelectedBaileysPhoneLabel] = useState<string>('');
   const [baileysMessageText, setBaileysMessageText] = useState<string>('Halo {nama}, terima kasih telah menghubungi kami! Ada yang bisa kami bantu?');
   const [baileysTargetNumbers, setBaileysTargetNumbers] = useState<string>('');
-  const [baileysDelaySeconds, setBaileysDelaySeconds] = useState<number>(5);
+  const [baileysDelayFrom, setBaileysDelayFrom] = useState<number>(60);
+  const [baileysDelayTo, setBaileysDelayTo] = useState<number>(120);
   const [agreedTerms, setAgreedTerms] = useState<boolean>(false);
   const [baileysBlastLoading, setBaileysBlastLoading] = useState<boolean>(false);
   const [baileysBlastResult, setBaileysBlastResult] = useState<{ total: number; successCount: number; failedCount: number } | null>(null);
@@ -705,7 +707,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   </div>
                   <p className="text-xs text-slate-600 mt-0.5">
                     {activeBlastJob.status === 'running' ? (
-                      <>Mengirim <strong>{activeBlastJob.current}</strong> dari <strong>{activeBlastJob.total}</strong> pesan ({Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%) • Delay: {activeBlastJob.delaySeconds} dtk • Berhasil: <span className="text-emerald-700 font-bold">{activeBlastJob.successCount}</span> • Gagal: <span className="text-rose-600 font-bold">{activeBlastJob.failedCount}</span></>
+                      <>Mengirim <strong>{activeBlastJob.current}</strong> dari <strong>{activeBlastJob.total}</strong> pesan ({Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%) • Delay: {activeBlastJob.delayFrom}–{activeBlastJob.delayTo} dtk • Berhasil: <span className="text-emerald-700 font-bold">{activeBlastJob.successCount}</span> • Gagal: <span className="text-rose-600 font-bold">{activeBlastJob.failedCount}</span></>
                     ) : (
                       <>Total {activeBlastJob.total} target: <strong className="text-emerald-700">{activeBlastJob.successCount} berhasil</strong>, <strong className="text-rose-600">{activeBlastJob.failedCount} gagal</strong>.</>
                     )}
@@ -2016,7 +2018,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
                         targetNumbers: rawList,
                         templateName: templateName.trim() || 'hello_world',
                         languageCode: 'en_US',
-                        delaySeconds: 1
+                        delayFrom: 1,
+                        delayTo: 3
                       })
                     });
                     const data = await res.json();
@@ -2266,7 +2269,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
                         phoneLabel: label,
                         targetNumbers: rawList,
                         message: baileysMessageText,
-                        delaySeconds: baileysDelaySeconds
+                        delayFrom: baileysDelayFrom,
+                        delayTo: baileysDelayTo
                       })
                     });
                     const data = await res.json();
@@ -2308,25 +2312,42 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                        <span>Jeda Pengiriman / Delay (Detik)</span>
+                        <span>Jeda Pengiriman / Delay (Acak)</span>
                         <span className="text-[10px] text-slate-400 font-normal">Min: 1 detik</span>
                       </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min={1}
-                          max={3600}
-                          value={baileysDelaySeconds}
-                          onChange={(e) => setBaileysDelaySeconds(Math.max(1, Number(e.target.value)))}
-                          placeholder="Masukkan jeda dalam detik (contoh: 5, 60, 120)"
-                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 pr-16"
-                        />
-                        <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                          Detik
-                        </span>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={3600}
+                            value={baileysDelayFrom}
+                            onChange={(e) => {
+                              const v = Math.max(1, Number(e.target.value));
+                              setBaileysDelayFrom(v);
+                              if (v > baileysDelayTo) setBaileysDelayTo(v);
+                            }}
+                            placeholder="Min"
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 pr-12"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">dari</span>
+                        </div>
+                        <span className="text-slate-400 font-bold text-sm">–</span>
+                        <div className="relative flex-1">
+                          <input
+                            type="number"
+                            min={baileysDelayFrom}
+                            max={3600}
+                            value={baileysDelayTo}
+                            onChange={(e) => setBaileysDelayTo(Math.max(baileysDelayFrom, Number(e.target.value)))}
+                            placeholder="Max"
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 pr-12"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">dtk</span>
+                        </div>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Disarankan: minimal 5 detik agar pesan tidak terdeteksi otomatis oleh bot WhatsApp.
+                        Jeda acak antara <strong>{baileysDelayFrom}</strong>–<strong>{baileysDelayTo}</strong> detik per pesan. Disarankan ≥ 60 dtk agar tidak terdeteksi bot.
                       </p>
                     </div>
                   </div>
@@ -2449,7 +2470,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   </h4>
                   <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                     {activeBlastJob?.status === 'running'
-                      ? `Pesan sedang dikirim oleh server dengan jeda delay ${activeBlastJob.delaySeconds} detik. Anda dapat menutup jendela ini dan berpindah halaman tanpa membatalkan pengiriman.`
+                      ? `Pesan sedang dikirim oleh server dengan jeda acak ${activeBlastJob.delayFrom}–${activeBlastJob.delayTo} detik per pesan. Anda dapat menutup jendela ini dan berpindah halaman tanpa membatalkan pengiriman.`
                       : 'Seluruh antrean pesan broadcast gateway telah selesai diproses.'}
                   </p>
                 </div>
@@ -2467,7 +2488,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                       />
                     </div>
                     <p className="text-[10px] text-emerald-600 text-center">
-                      Jeda delay {activeBlastJob.delaySeconds} detik per pesan berjalan di server VPS.
+                      Jeda acak {activeBlastJob.delayFrom}–{activeBlastJob.delayTo} detik per pesan berjalan di server VPS.
                     </p>
                   </div>
                 )}
