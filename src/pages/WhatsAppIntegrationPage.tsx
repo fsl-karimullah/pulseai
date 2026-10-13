@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock, Radio, StopCircle, Eye, Bot, BotOff } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock, Radio, StopCircle, Eye, Bot, BotOff, FileText, Copy, Check, Search } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
@@ -44,6 +44,13 @@ interface MetaPhoneStatus {
   waba_id: string;
 }
 
+interface BlastRecipientLog {
+  phone: string;
+  status: 'success' | 'failed';
+  reason: string;
+  timestamp: string;
+}
+
 interface ActiveBlastJob {
   id: string;
   orgId: string;
@@ -59,6 +66,7 @@ interface ActiveBlastJob {
   startedAt: string;
   completedAt?: string;
   error?: string;
+  logs?: BlastRecipientLog[];
 }
 
 const WhatsAppIntegrationPage: React.FC = () => {
@@ -151,6 +159,25 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [activeBlastJob, setActiveBlastJob] = useState<ActiveBlastJob | null>(null);
   const [showActiveBlastWidget, setShowActiveBlastWidget] = useState<boolean>(true);
   const [cancellingBlast, setCancellingBlast] = useState<boolean>(false);
+
+  // Blast Logs Modal States
+  const [showBlastLogsModal, setShowBlastLogsModal] = useState<boolean>(false);
+  const [blastLogsFilter, setBlastLogsFilter] = useState<'all' | 'failed' | 'success'>('all');
+  const [blastLogsSearch, setBlastLogsSearch] = useState<string>('');
+  const [copiedFailedNumbers, setCopiedFailedNumbers] = useState<boolean>(false);
+
+  const handleCopyFailedNumbers = () => {
+    if (!activeBlastJob?.logs) return;
+    const failedNumbers = activeBlastJob.logs
+      .filter((l) => l.status === 'failed')
+      .map((l) => l.phone)
+      .join('\n');
+
+    if (!failedNumbers) return;
+    navigator.clipboard.writeText(failedNumbers);
+    setCopiedFailedNumbers(true);
+    setTimeout(() => setCopiedFailedNumbers(false), 2500);
+  };
 
   const fetchActiveBlastStatus = async () => {
     if (!session?.access_token) return;
@@ -699,6 +726,15 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   </button>
                 )}
                 <button
+                  type="button"
+                  onClick={() => setShowBlastLogsModal(true)}
+                  className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Lihat rincian status & alasan gagal per nomor"
+                >
+                  <FileText size={13} />
+                  Log Pengiriman
+                </button>
+                <button
                   onClick={() => {
                     if (activeBlastJob.platform === 'baileys') {
                       setShowBaileysBlastModal(true);
@@ -721,6 +757,15 @@ const WhatsAppIntegrationPage: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {activeBlastJob.error && (
+              <div className="mt-2.5 p-2.5 bg-rose-50/90 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+                <AlertTriangle size={15} className="text-rose-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-[11px] leading-relaxed">
+                  <strong className="font-bold">Info Kegagalan:</strong> {activeBlastJob.error}
+                </div>
+              </div>
+            )}
 
             {activeBlastJob.status === 'running' && (
               <div className="mt-3">
@@ -2123,6 +2168,17 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   </div>
                 </div>
 
+                {activeBlastJob && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBlastLogsModal(true)}
+                    className="w-full py-2.5 px-4 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <FileText size={14} className="text-indigo-600" />
+                    Lihat Rincian Log & Alasan Gagal per Nomor
+                  </button>
+                )}
+
                 <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
                   <button
                     onClick={() => setShowMetaBlastModal(false)}
@@ -2430,6 +2486,17 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     <p className="text-lg font-extrabold text-rose-500">{activeBlastJob?.failedCount ?? baileysBlastResult?.failedCount ?? 0}</p>
                   </div>
                 </div>
+
+                {activeBlastJob && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBlastLogsModal(true)}
+                    className="w-full py-2.5 px-4 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <FileText size={14} className="text-emerald-700" />
+                    Lihat Rincian Log & Alasan Gagal per Nomor
+                  </button>
+                )}
 
                 <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
                   <button
@@ -2836,6 +2903,225 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   </div>
                 </form>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Log Pengiriman WhatsApp Broadcast ──────────────────────── */}
+      {showBlastLogsModal && activeBlastJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Top accent border */}
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-800">
+                    Log Pengiriman WhatsApp Broadcast
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Sesi: <span className="font-semibold text-slate-700">{activeBlastJob.phoneLabel}</span> ({activeBlastJob.platform === 'baileys' ? 'Gateway Baileys' : 'Meta Cloud API'})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBlastLogsModal(false)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Critical error alert if session disconnected */}
+            {activeBlastJob.error && (
+              <div className="mt-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-2.5 shadow-sm">
+                <AlertTriangle size={17} className="text-rose-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-[11px] leading-relaxed">
+                  <strong className="block font-bold text-rose-900 mb-0.5">Penyebab Pengiriman Terhenti:</strong>
+                  {activeBlastJob.error}
+                </div>
+              </div>
+            )}
+
+            {/* Summary counters */}
+            <div className="grid grid-cols-3 gap-2.5 my-3">
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl text-center">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Nomor</span>
+                <span className="text-base font-extrabold text-slate-800">{activeBlastJob.total}</span>
+              </div>
+              <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl text-center">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Berhasil Terkirim</span>
+                <span className="text-base font-extrabold text-emerald-700">{activeBlastJob.successCount}</span>
+              </div>
+              <div className="p-3 bg-rose-50/70 border border-rose-100 rounded-2xl text-center">
+                <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider block">Gagal Dikirim</span>
+                <span className="text-base font-extrabold text-rose-600">{activeBlastJob.failedCount}</span>
+              </div>
+            </div>
+
+            {/* Filter Tabs & Search & Copy Failed Numbers */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-100">
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setBlastLogsFilter('all')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    blastLogsFilter === 'all'
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Semua ({activeBlastJob.logs?.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlastLogsFilter('failed')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    blastLogsFilter === 'failed'
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : 'text-rose-600 hover:text-rose-700'
+                  }`}
+                >
+                  Gagal ({activeBlastJob.logs?.filter((l) => l.status === 'failed').length ?? activeBlastJob.failedCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlastLogsFilter('success')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    blastLogsFilter === 'success'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-emerald-700 hover:text-emerald-800'
+                  }`}
+                >
+                  Berhasil ({activeBlastJob.logs?.filter((l) => l.status === 'success').length ?? activeBlastJob.successCount})
+                </button>
+              </div>
+
+              {/* Action Buttons: Search & Copy Failed */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 sm:w-44">
+                  <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari nomor..."
+                    value={blastLogsSearch}
+                    onChange={(e) => setBlastLogsSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {activeBlastJob.failedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleCopyFailedNumbers}
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-sm"
+                    title="Salin semua nomor yang gagal ke clipboard untuk blast ulang"
+                  >
+                    {copiedFailedNumbers ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+                    {copiedFailedNumbers ? 'Tersalin!' : 'Salin Nomor Gagal'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Logs List Table */}
+            <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[350px] divide-y divide-slate-100 mt-2 pr-1">
+              {(() => {
+                const logs = activeBlastJob.logs || [];
+                const filtered = logs.filter((l) => {
+                  if (blastLogsFilter === 'failed' && l.status !== 'failed') return false;
+                  if (blastLogsFilter === 'success' && l.status !== 'success') return false;
+                  if (blastLogsSearch.trim() && !l.phone.includes(blastLogsSearch.trim())) return false;
+                  return true;
+                });
+
+                if (logs.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-400 text-xs">
+                      {activeBlastJob.failedCount > 0 || activeBlastJob.successCount > 0
+                        ? 'Rincian nomor tersimpan pada log pengiriman sesi berikutnya.'
+                        : 'Belum ada data pengiriman untuk broadcast ini.'}
+                    </div>
+                  );
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-400 text-xs">
+                      Tidak ada log yang cocok dengan filter pencarian.
+                    </div>
+                  );
+                }
+
+                return (
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider sticky top-0 bg-white shadow-xs">
+                        <th className="py-2.5 px-2">#</th>
+                        <th className="py-2.5 px-2">Nomor WhatsApp</th>
+                        <th className="py-2.5 px-2">Status</th>
+                        <th className="py-2.5 px-2">Penyebab / Keterangan</th>
+                        <th className="py-2.5 px-2 text-right">Waktu</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filtered.map((item, idx) => {
+                        const isSuccess = item.status === 'success';
+                        return (
+                          <tr key={`${item.phone}-${idx}`} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-2.5 px-2 text-[11px] text-slate-400 font-mono">{idx + 1}</td>
+                            <td className="py-2.5 px-2 font-mono font-semibold text-slate-800 whitespace-nowrap">
+                              +{item.phone}
+                            </td>
+                            <td className="py-2.5 px-2 whitespace-nowrap">
+                              {isSuccess ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                                  <Check size={10} /> Sukses
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+                                  <X size={10} /> Gagal
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <span className={`text-[11px] leading-snug block ${
+                                isSuccess ? 'text-slate-600' : 'text-rose-600 font-medium'
+                              }`}>
+                                {item.reason || (isSuccess ? 'Pesan berhasil terkirim' : 'Gagal mengirim')}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                              {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <p className="text-[11px] text-slate-400">
+                Log disimpan otomatis selama proses broadcast berlangsung.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowBlastLogsModal(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+              >
+                Tutup
+              </button>
             </div>
           </div>
         </div>

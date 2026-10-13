@@ -1028,6 +1028,15 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
   // ──────────────────────────────────────────────────────────────────────────
   // WHATSAPP BROADCAST / BLAST ENGINE (BACKGROUND WORKER)
   // ──────────────────────────────────────────────────────────────────────────
+  // WHATSAPP BROADCAST / BLAST ENGINE (BACKGROUND WORKER)
+  // ──────────────────────────────────────────────────────────────────────────
+  interface BlastRecipientLog {
+    phone: string;
+    status: 'success' | 'failed';
+    reason: string;
+    timestamp: string;
+  }
+
   interface BlastJob {
     id: string;
     orgId: string;
@@ -1043,9 +1052,49 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     startedAt: string;
     completedAt?: string;
     error?: string;
+    logs: BlastRecipientLog[];
   }
 
   const activeBlastJobs = new Map<string, BlastJob>(); // key: orgId
+
+  function parseBlastError(raw: any): string {
+    const text = String(raw || '');
+    if (!text) return 'Gagal mengirim pesan';
+    if (text.includes('is not connected') || text.includes('not connected') || text.includes('Session not found')) {
+      return 'Sesi WhatsApp terputus / QR logout dari ponsel';
+    }
+    if (text.includes('not registered') || text.includes('exists: false')) {
+      return 'Nomor tidak terdaftar di WhatsApp';
+    }
+    if (text.includes('timeout') || text.includes('TIMEDOUT')) {
+      return 'Koneksi timeout (server atau perangkat tidak merespons)';
+    }
+    if (text.includes('Connection Closed') || text.includes('ECONNRESET')) {
+      return 'Koneksi socket terputus saat pengiriman';
+    }
+    if (text.includes('Rate limit') || text.includes('429')) {
+      return 'Terkena pembatasan frekuensi pengiriman (Rate Limit)';
+    }
+    return text.length > 120 ? text.slice(0, 120) + '...' : text;
+  }
+
+  function parseMetaError(raw: any): string {
+    const text = String(raw || '');
+    if (!text) return 'Gagal diproses Meta API';
+    if (text.includes('template does not exist') || text.includes('Template not found')) {
+      return 'Template pesan tidak ditemukan atau belum disetujui di Meta';
+    }
+    if (text.includes('Payment') || text.includes('capability') || text.includes('payment method')) {
+      return 'Kendala metode pembayaran / saldo WABA Meta';
+    }
+    if (text.includes('rate limit') || text.includes('spam')) {
+      return 'Pembatasan rate limit oleh Meta';
+    }
+    if (text.includes('recipient is not a valid WhatsApp user') || text.includes('not a valid')) {
+      return 'Nomor tujuan tidak terdaftar di WhatsApp';
+    }
+    return text.length > 120 ? text.slice(0, 120) + '...' : text;
+  }
 
   function normalizeRecipientPhone(raw: string): string {
     let clean = raw.trim().replace(/\D/g, '');
@@ -1092,8 +1141,30 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           );
           if (res.data?.success) {
             job.successCount++;
+            job.logs.push({
+              phone: num,
+              status: 'success',
+              reason: 'Pesan berhasil terkirim ke WhatsApp penerima',
+              timestamp: new Date().toISOString(),
+            });
           } else {
             job.failedCount++;
+            const rawErr = res.data?.message || res.data?.error || 'Gagal mengirim pesan';
+            const reason = parseBlastError(rawErr);
+            job.logs.push({
+              phone: num,
+              status: 'failed',
+              reason,
+              timestamp: new Date().toISOString(),
+            });
+
+            // Stop blast early if session is disconnected to prevent cascade failures
+            if (String(rawErr).includes('not connected') || String(rawErr).includes('Session not found')) {
+              job.status = 'failed';
+              job.error = `Broadcast dihentikan: Sesi WhatsApp '${job.phoneLabel}' terputus dari ponsel. Silakan hubungkan kembali nomor Anda via QR code.`;
+              fastify.log.warn({ blastId: job.id, to: num, err: rawErr }, '[Blast] Aborting due to disconnected session');
+              return;
+            }
           }
         } else if (job.platform === 'meta') {
           const payload = {
@@ -1115,14 +1186,43 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           );
           if (res.data?.messages) {
             job.successCount++;
+            job.logs.push({
+              phone: num,
+              status: 'success',
+              reason: 'Pesan template berhasil diterima oleh Meta Cloud API',
+              timestamp: new Date().toISOString(),
+            });
           } else {
             job.failedCount++;
+            const rawErr = res.data?.error?.message || 'Gagal diproses Meta';
+            job.logs.push({
+              phone: num,
+              status: 'failed',
+              reason: parseMetaError(rawErr),
+              timestamp: new Date().toISOString(),
+            });
           }
         }
       } catch (err: any) {
         job.failedCount++;
-        const errMsg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
-        fastify.log.warn({ blastId: job.id, to: num, err: errMsg }, '[Blast] Failed sending to recipient');
+        const rawErr = err.response?.data?.error?.message || err.response?.data?.message || err.message;
+        const reason = job.platform === 'meta' ? parseMetaError(rawErr) : parseBlastError(rawErr);
+        job.logs.push({
+          phone: num,
+          status: 'failed',
+          reason,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Stop blast early if Baileys session is disconnected
+        if (job.platform === 'baileys' && (String(rawErr).includes('not connected') || String(rawErr).includes('Session not found'))) {
+          job.status = 'failed';
+          job.error = `Broadcast dihentikan: Sesi WhatsApp '${job.phoneLabel}' terputus dari ponsel. Silakan hubungkan kembali nomor Anda via QR code.`;
+          fastify.log.warn({ blastId: job.id, to: num, err: rawErr }, '[Blast] Aborting due to disconnected session');
+          return;
+        }
+
+        fastify.log.warn({ blastId: job.id, to: num, err: rawErr }, '[Blast] Failed sending to recipient');
       }
 
       // Responsive delay between messages
@@ -1256,6 +1356,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         delaySeconds: Math.max(1, Number(delaySeconds) || 5),
         status: 'running',
         startedAt: new Date().toISOString(),
+        logs: [],
       };
 
       activeBlastJobs.set(org.id, job);
