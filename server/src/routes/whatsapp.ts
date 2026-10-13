@@ -184,26 +184,43 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       //
       let resolvedOrgId: string = userId; // safe fallback
       let resolvedProjectId: string | null = null;
+      let sessionChatbotEnabled: boolean = true;
 
       if (botNumber) {
-        const { data: sessionRecord, error: lookupError } = await supabase
+        let sessionRecord: any = null;
+        const { data: sRecord, error: lookupError } = await supabase
           .from('whatsapp_sessions')
-          .select('org_id, project_id')
+          .select('org_id, project_id, is_chatbot_enabled')
           .eq('phone_number', botNumber)
           .maybeSingle();
 
-        if (lookupError) {
+        if (lookupError?.code === '42703') {
+          // Schema fallback if is_chatbot_enabled column not yet migrated
+          const { data: sFallback } = await supabase
+            .from('whatsapp_sessions')
+            .select('org_id, project_id')
+            .eq('phone_number', botNumber)
+            .maybeSingle();
+          sessionRecord = sFallback;
+        } else if (lookupError) {
           // DB error — log and continue with userId fallback (non-fatal)
           fastify.log.warn(
             { botNumber, err: lookupError.message },
             '[Tenant] whatsapp_sessions lookup failed — falling back to userId'
           );
-        } else if (sessionRecord?.org_id) {
+        } else {
+          sessionRecord = sRecord;
+        }
+
+        if (sessionRecord?.org_id) {
           // ✅ Authoritative org found — use it
           resolvedOrgId = sessionRecord.org_id;
           resolvedProjectId = sessionRecord.project_id ?? null;
+          if (sessionRecord.is_chatbot_enabled !== undefined && sessionRecord.is_chatbot_enabled !== null) {
+            sessionChatbotEnabled = Boolean(sessionRecord.is_chatbot_enabled);
+          }
           fastify.log.info(
-            { botNumber, resolvedOrgId, resolvedProjectId },
+            { botNumber, resolvedOrgId, resolvedProjectId, sessionChatbotEnabled },
             '[Tenant] Resolved orgId/projectId from whatsapp_sessions'
           );
         } else {
@@ -272,6 +289,18 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           { onConflict: 'phone_number' }
         ).then(({ error }) => {
           if (error) fastify.log.warn({ err: error.message, botNumber }, 'Failed to update session status');
+        });
+      }
+
+      // ── Step 2.5: Check if chatbot is disabled (Blast-Only mode) ───────
+      if (!sessionChatbotEnabled) {
+        fastify.log.info(
+          { botNumber, sender, resolvedOrgId },
+          '[Incoming] Chatbot is disabled for this session (Blast-Only mode) — skipping AI response'
+        );
+        return reply.send({
+          success: true,
+          message: 'Customer message logged, AI response skipped (Blast-Only mode)',
         });
       }
 
@@ -907,6 +936,90 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         return reply.send({ success: true, message: `Sesi '${phoneLabel}' berhasil dihapus.` });
       } catch (error: any) {
         fastify.log.error(error, '[Delete Session] Error during delete');
+        return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+      }
+    }
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // PATCH /api/whatsapp/session/toggle-chatbot
+  //
+  // Toggle chatbot AI on/off for a session (Blast-Only mode vs Auto-Reply).
+  // Body: { phoneLabel?: string, phoneNumber?: string, isChatbotEnabled: boolean }
+  // ──────────────────────────────────────────────────────────────────────────
+  fastify.patch(
+    '/whatsapp/session/toggle-chatbot',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = (request as any).user?.id;
+        const { phoneLabel, phoneNumber, isChatbotEnabled } = request.body as {
+          phoneLabel?: string;
+          phoneNumber?: string;
+          isChatbotEnabled: boolean;
+        };
+
+        if (typeof isChatbotEnabled !== 'boolean') {
+          return reply.status(400).send({
+            success: false,
+            message: 'Parameter isChatbotEnabled (boolean) wajib diisi',
+          });
+        }
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!org) {
+          return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+        }
+
+        let updateQuery = supabase
+          .from('whatsapp_sessions')
+          .update({ is_chatbot_enabled: isChatbotEnabled })
+          .eq('org_id', org.id);
+
+        if (phoneNumber) {
+          updateQuery = updateQuery.eq('phone_number', phoneNumber);
+        } else if (phoneLabel) {
+          updateQuery = updateQuery.eq('phone_label', phoneLabel);
+        } else {
+          return reply.status(400).send({
+            success: false,
+            message: 'phoneLabel atau phoneNumber wajib disertakan',
+          });
+        }
+
+        const { error: updateError } = await updateQuery;
+
+        if (updateError) {
+          if (updateError.code === '42703') {
+            return reply.status(400).send({
+              success: false,
+              message:
+                'Kolom is_chatbot_enabled belum ada di database. Silakan jalankan migrasi 032 di Supabase SQL Editor.',
+            });
+          }
+          fastify.log.error(updateError, '[Toggle Chatbot] Error updating session');
+          return reply.status(500).send({ success: false, message: updateError.message });
+        }
+
+        fastify.log.info(
+          { orgId: org.id, phoneLabel, phoneNumber, isChatbotEnabled },
+          '[Toggle Chatbot] Session chatbot status updated'
+        );
+
+        return reply.send({
+          success: true,
+          isChatbotEnabled,
+          message: isChatbotEnabled
+            ? 'Chatbot AI diaktifkan. AI akan membalas pesan masuk secara otomatis.'
+            : 'Mode Blast-Only aktif. Chatbot AI dinonaktifkan untuk nomor ini (pesan masuk tetap dicatat).',
+        });
+      } catch (error: any) {
+        fastify.log.error(error, '[Toggle Chatbot] Error');
         return reply.status(500).send({ success: false, message: 'Internal Server Error' });
       }
     }
@@ -1595,11 +1708,23 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         fastify.log.info({ sender, botNumber, message: messageText.slice(0, 20) }, 'Processing Meta Incoming Message');
 
         // ── Step 1: Resolve orgId from botNumber ───────────
-        const { data: sessionRecord, error: lookupError } = await supabase
+        let sessionRecord: any = null;
+        const { data: sRecord, error: lookupError } = await supabase
           .from('whatsapp_sessions')
-          .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token')
+          .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token, is_chatbot_enabled')
           .eq('phone_number', botNumber)
           .maybeSingle();
+
+        if (lookupError?.code === '42703') {
+          const { data: sFallback } = await supabase
+            .from('whatsapp_sessions')
+            .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token')
+            .eq('phone_number', botNumber)
+            .maybeSingle();
+          sessionRecord = sFallback;
+        } else {
+          sessionRecord = sRecord;
+        }
 
         if (!sessionRecord) {
           fastify.log.warn({ botNumber }, '[Meta] Unregistered bot number, ignoring message');
@@ -1610,6 +1735,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
         const phoneLabel = sessionRecord.phone_label || 'meta';
         const userId = sessionRecord.gateway_user_id || resolvedOrgId;
         const resolvedProjectId = sessionRecord.project_id || await resolveDefaultProjectId(resolvedOrgId);
+        const metaChatbotEnabled = sessionRecord.is_chatbot_enabled !== false;
 
         // ── Step 1.5: Log incoming customer message ────────
         try {
@@ -1622,6 +1748,15 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           });
         } catch (logErr: any) {
           fastify.log.warn({ err: logErr.message }, 'Failed to log Meta message to chat_logs');
+        }
+
+        // ── Step 1.6: Check if chatbot is disabled (Blast-Only mode) ───────
+        if (!metaChatbotEnabled) {
+          fastify.log.info(
+            { botNumber, sender, resolvedOrgId },
+            '[Meta] Chatbot is disabled for this session (Blast-Only mode) — skipping AI response'
+          );
+          return reply.status(200).send('EVENT_RECEIVED');
         }
 
         // ── Step 2: Fetch bot settings ─────────────────────

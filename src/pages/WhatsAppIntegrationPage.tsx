@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock, Radio, StopCircle, Eye } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock, Radio, StopCircle, Eye, Bot, BotOff } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
@@ -26,6 +26,7 @@ interface WhatsAppSession {
   platform?: 'baileys' | 'meta';
   meta_waba_id?: string;
   meta_phone_number_id?: string;
+  is_chatbot_enabled?: boolean;
   connected_at: string | null;
   disconnected_at: string | null;
   created_at: string;
@@ -186,6 +187,67 @@ const WhatsAppIntegrationPage: React.FC = () => {
       console.error('Failed cancelling blast', err);
     } finally {
       setCancellingBlast(false);
+    }
+  };
+
+  const [togglingChatbot, setTogglingChatbot] = useState<string | null>(null);
+
+  const handleToggleChatbot = async (s: WhatsAppSession) => {
+    if (!session?.access_token) return;
+    const targetKey = s.phone_number || s.phone_label;
+    const currentEnabled = s.is_chatbot_enabled !== false;
+    const nextEnabled = !currentEnabled;
+
+    setTogglingChatbot(targetKey);
+    // Optimistic UI update
+    setSessions(prev =>
+      prev.map(item => {
+        if ((s.phone_number && item.phone_number === s.phone_number) || item.phone_label === s.phone_label) {
+          return { ...item, is_chatbot_enabled: nextEnabled };
+        }
+        return item;
+      })
+    );
+
+    try {
+      const res = await fetch('/api/whatsapp/session/toggle-chatbot', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          phoneLabel: s.phone_label,
+          phoneNumber: s.phone_number,
+          isChatbotEnabled: nextEnabled,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        // Revert on error
+        setSessions(prev =>
+          prev.map(item => {
+            if ((s.phone_number && item.phone_number === s.phone_number) || item.phone_label === s.phone_label) {
+              return { ...item, is_chatbot_enabled: currentEnabled };
+            }
+            return item;
+          })
+        );
+        setError(data.message || 'Gagal mengubah status chatbot.');
+      }
+    } catch {
+      // Revert on network error
+      setSessions(prev =>
+        prev.map(item => {
+          if ((s.phone_number && item.phone_number === s.phone_number) || item.phone_label === s.phone_label) {
+            return { ...item, is_chatbot_enabled: currentEnabled };
+          }
+          return item;
+        })
+      );
+      setError('Terjadi kendala jaringan saat mengubah status chatbot.');
+    } finally {
+      setTogglingChatbot(null);
     }
   };
 
@@ -905,6 +967,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                       <th className="px-6 py-3.5">Nomor</th>
                       <th className="px-6 py-3.5">Nama Bisnis</th>
                       <th className="px-6 py-3.5">Status Meta</th>
+                      <th className="px-6 py-3.5">Chatbot AI</th>
                       <th className="px-6 py-3.5">Kualitas</th>
                       <th className="px-6 py-3.5 text-right">Aksi</th>
                     </tr>
@@ -1000,6 +1063,34 @@ const WhatsAppIntegrationPage: React.FC = () => {
                           <td className="px-6 py-4 font-mono text-slate-700">+{s.phone_number}</td>
                           <td className="px-6 py-4 text-slate-600 font-medium">{verifiedName}</td>
                           <td className="px-6 py-4">{statusBadge()}</td>
+                          <td className="px-6 py-4">
+                            <button
+                              type="button"
+                              disabled={togglingChatbot === (s.phone_number || s.phone_label)}
+                              onClick={() => handleToggleChatbot(s)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${
+                                s.is_chatbot_enabled !== false
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                  : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                              }`}
+                              title={
+                                s.is_chatbot_enabled !== false
+                                  ? 'Chatbot Aktif: AI membalas pesan otomatis. Klik untuk beralih ke Mode Blast Saja (AI Nonaktif).'
+                                  : 'Mode Blast Saja: AI tidak membalas. Klik untuk mengaktifkan balasan otomatis AI.'
+                              }
+                            >
+                              {togglingChatbot === (s.phone_number || s.phone_label) ? (
+                                <Loader2 size={11} className="animate-spin text-slate-500" />
+                              ) : s.is_chatbot_enabled !== false ? (
+                                <Bot size={12} className="text-emerald-600" />
+                              ) : (
+                                <BotOff size={12} className="text-slate-500" />
+                              )}
+                              <span>
+                                {s.is_chatbot_enabled !== false ? 'AI Aktif' : 'Blast Saja (AI Off)'}
+                              </span>
+                            </button>
+                          </td>
                           <td className="px-6 py-4">{qualityBadge()}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center justify-end gap-2">
@@ -1195,6 +1286,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     <th className="px-6 py-3.5">Nomor WhatsApp</th>
                     <th className="px-6 py-3.5">Platform</th>
                     <th className="px-6 py-3.5">Status</th>
+                    <th className="px-6 py-3.5">Chatbot AI</th>
                     <th className="px-6 py-3.5 text-right">Aksi</th>
                   </tr>
                 </thead>
@@ -1218,6 +1310,34 @@ const WhatsAppIntegrationPage: React.FC = () => {
                             Terputus
                           </span>
                         )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          type="button"
+                          disabled={togglingChatbot === (s.phone_number || s.phone_label)}
+                          onClick={() => handleToggleChatbot(s)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${
+                            s.is_chatbot_enabled !== false
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                          }`}
+                          title={
+                            s.is_chatbot_enabled !== false
+                              ? 'Chatbot Aktif: AI membalas pesan otomatis. Klik untuk beralih ke Mode Blast Saja (AI Nonaktif).'
+                              : 'Mode Blast Saja: AI tidak membalas. Klik untuk mengaktifkan balasan otomatis AI.'
+                          }
+                        >
+                          {togglingChatbot === (s.phone_number || s.phone_label) ? (
+                            <Loader2 size={11} className="animate-spin text-slate-500" />
+                          ) : s.is_chatbot_enabled !== false ? (
+                            <Bot size={12} className="text-emerald-600" />
+                          ) : (
+                            <BotOff size={12} className="text-slate-500" />
+                          )}
+                          <span>
+                            {s.is_chatbot_enabled !== false ? 'AI Aktif' : 'Blast Saja (AI Off)'}
+                          </span>
+                        </button>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
