@@ -912,6 +912,309 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // WHATSAPP BROADCAST / BLAST ENGINE (BACKGROUND WORKER)
+  // ──────────────────────────────────────────────────────────────────────────
+  interface BlastJob {
+    id: string;
+    orgId: string;
+    platform: 'baileys' | 'meta';
+    phoneLabel: string;
+    phoneNumberId?: string;
+    total: number;
+    current: number;
+    successCount: number;
+    failedCount: number;
+    delaySeconds: number;
+    status: 'running' | 'completed' | 'cancelled' | 'failed';
+    startedAt: string;
+    completedAt?: string;
+    error?: string;
+  }
+
+  const activeBlastJobs = new Map<string, BlastJob>(); // key: orgId
+
+  function normalizeRecipientPhone(raw: string): string {
+    let clean = raw.trim().replace(/\D/g, '');
+    if (clean.startsWith('0')) {
+      clean = '62' + clean.substring(1);
+    } else if (clean.startsWith('8') && clean.length >= 9 && clean.length <= 13) {
+      clean = '62' + clean;
+    }
+    return clean;
+  }
+
+  async function runBlastWorker(
+    job: BlastJob,
+    targetNumbers: string[],
+    messageText: string,
+    gatewayUserId: string,
+    metaToken?: string,
+    metaTemplateName: string = 'hello_world',
+    metaLangCode: string = 'en_US'
+  ) {
+    fastify.log.info({ blastId: job.id, orgId: job.orgId, total: targetNumbers.length }, '[Blast] Starting background worker');
+
+    for (let i = 0; i < targetNumbers.length; i++) {
+      const currentJob = activeBlastJobs.get(job.orgId);
+      if (!currentJob || currentJob.id !== job.id || currentJob.status === 'cancelled') {
+        fastify.log.info({ blastId: job.id, orgId: job.orgId }, '[Blast] Job cancelled by user');
+        return;
+      }
+
+      const num = targetNumbers[i];
+      job.current = i + 1;
+
+      try {
+        if (job.platform === 'baileys') {
+          const res = await axios.post(
+            `${gatewayUrl}/api/session/send`,
+            {
+              userId: gatewayUserId,
+              phoneLabel: job.phoneLabel,
+              to: num,
+              message: messageText,
+            },
+            { timeout: 15000 }
+          );
+          if (res.data?.success) {
+            job.successCount++;
+          } else {
+            job.failedCount++;
+          }
+        } else if (job.platform === 'meta') {
+          const payload = {
+            messaging_product: 'whatsapp',
+            to: num,
+            type: 'template',
+            template: {
+              name: metaTemplateName,
+              language: { code: metaLangCode },
+            },
+          };
+          const res = await axios.post(
+            `https://graph.facebook.com/v21.0/${job.phoneNumberId}/messages`,
+            payload,
+            {
+              headers: { Authorization: `Bearer ${metaToken}` },
+              timeout: 15000,
+            }
+          );
+          if (res.data?.messages) {
+            job.successCount++;
+          } else {
+            job.failedCount++;
+          }
+        }
+      } catch (err: any) {
+        job.failedCount++;
+        const errMsg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
+        fastify.log.warn({ blastId: job.id, to: num, err: errMsg }, '[Blast] Failed sending to recipient');
+      }
+
+      // Responsive delay between messages
+      if (i < targetNumbers.length - 1 && job.delaySeconds > 0) {
+        const waitMs = job.delaySeconds * 1000;
+        const step = 250;
+        let elapsed = 0;
+        while (elapsed < waitMs) {
+          const check = activeBlastJobs.get(job.orgId);
+          if (!check || check.id !== job.id || check.status === 'cancelled') return;
+          await new Promise((r) => setTimeout(r, Math.min(step, waitMs - elapsed)));
+          elapsed += step;
+        }
+      }
+    }
+
+    const finalCheck = activeBlastJobs.get(job.orgId);
+    if (finalCheck && finalCheck.id === job.id && finalCheck.status === 'running') {
+      finalCheck.status = 'completed';
+      finalCheck.completedAt = new Date().toISOString();
+      fastify.log.info(
+        { blastId: job.id, success: finalCheck.successCount, failed: finalCheck.failedCount },
+        '[Blast] Worker finished all messages'
+      );
+    }
+  }
+
+  // POST /api/whatsapp/blast/start - Start asynchronous background blast
+  fastify.post('/whatsapp/blast/start', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const {
+        platform = 'baileys',
+        phoneLabel = 'default',
+        phoneNumberId,
+        targetNumbers,
+        message = '',
+        templateName = 'hello_world',
+        languageCode = 'en_US',
+        delaySeconds = 5,
+      } = request.body as {
+        platform?: 'baileys' | 'meta';
+        phoneLabel?: string;
+        phoneNumberId?: string;
+        targetNumbers: string[] | string;
+        message?: string;
+        templateName?: string;
+        languageCode?: string;
+        delaySeconds?: number;
+      };
+
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!org) {
+        return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+      }
+
+      // Check if there is already a running blast for this org
+      const existingJob = activeBlastJobs.get(org.id);
+      if (existingJob && existingJob.status === 'running') {
+        return reply.status(409).send({
+          success: false,
+          message: 'Masih ada proses broadcast yang sedang berjalan di latar belakang.',
+          job: existingJob,
+        });
+      }
+
+      // Parse and normalize target numbers
+      let rawList: string[] = [];
+      if (Array.isArray(targetNumbers)) {
+        rawList = targetNumbers;
+      } else if (typeof targetNumbers === 'string') {
+        rawList = targetNumbers.split(/[\n,;]+/).map((n) => n.trim()).filter(Boolean);
+      }
+
+      const cleanList = rawList.map(normalizeRecipientPhone).filter((n) => n.length >= 7);
+      if (cleanList.length === 0) {
+        return reply.status(400).send({ success: false, message: 'Daftar nomor tujuan tidak valid atau kosong.' });
+      }
+
+      if (platform === 'baileys' && !message.trim()) {
+        return reply.status(400).send({ success: false, message: 'Pesan broadcast tidak boleh kosong.' });
+      }
+
+      // Fetch session information
+      let gatewayUserId = org.id;
+      let metaToken = '';
+
+      if (platform === 'baileys') {
+        const { data: sessionRow } = await supabase
+          .from('whatsapp_sessions')
+          .select('gateway_user_id, status, phone_number')
+          .eq('org_id', org.id)
+          .eq('phone_label', phoneLabel)
+          .maybeSingle();
+
+        if (sessionRow?.status === 'DISCONNECTED') {
+          return reply.status(400).send({ success: false, message: `Sesi '${phoneLabel}' berstatus terputus. Hubungkan kembali terlebih dahulu.` });
+        }
+        if (sessionRow?.gateway_user_id) {
+          gatewayUserId = sessionRow.gateway_user_id;
+        }
+      } else {
+        const { data: sessionRow } = await supabase
+          .from('whatsapp_sessions')
+          .select('meta_access_token, meta_phone_number_id, status')
+          .eq('org_id', org.id)
+          .eq('meta_phone_number_id', phoneNumberId)
+          .maybeSingle();
+
+        metaToken = sessionRow?.meta_access_token || process.env.META_ACCESS_TOKEN || '';
+        if (!metaToken) {
+          return reply.status(400).send({ success: false, message: 'Token akses Meta tidak ditemukan.' });
+        }
+      }
+
+      const job: BlastJob = {
+        id: `blast_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        orgId: org.id,
+        platform,
+        phoneLabel,
+        phoneNumberId,
+        total: cleanList.length,
+        current: 0,
+        successCount: 0,
+        failedCount: 0,
+        delaySeconds: Math.max(1, Number(delaySeconds) || 5),
+        status: 'running',
+        startedAt: new Date().toISOString(),
+      };
+
+      activeBlastJobs.set(org.id, job);
+
+      // Launch async worker without blocking HTTP reply
+      runBlastWorker(job, cleanList, message, gatewayUserId, metaToken, templateName, languageCode).catch((err) => {
+        fastify.log.error({ blastId: job.id, err: err.message }, '[Blast] Unhandled worker error');
+        job.status = 'failed';
+        job.error = err.message;
+      });
+
+      return reply.send({
+        success: true,
+        message: 'Broadcast WhatsApp telah dimulai di latar belakang.',
+        job,
+      });
+    } catch (error: any) {
+      fastify.log.error(error, '[Blast Start] Error starting blast');
+      return reply.status(500).send({ success: false, message: error.message || 'Internal Server Error' });
+    }
+  });
+
+  // GET /api/whatsapp/blast/status - Get current active blast job status
+  fastify.get('/whatsapp/blast/status', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!org) {
+        return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+      }
+
+      const job = activeBlastJobs.get(org.id) || null;
+      return reply.send({ success: true, job });
+    } catch (error: any) {
+      fastify.log.error(error, '[Blast Status] Error getting status');
+      return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+    }
+  });
+
+  // POST /api/whatsapp/blast/cancel - Cancel active blast job
+  fastify.post('/whatsapp/blast/cancel', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!org) {
+        return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
+      }
+
+      const job = activeBlastJobs.get(org.id);
+      if (!job || job.status !== 'running') {
+        return reply.send({ success: true, message: 'Tidak ada broadcast yang sedang berjalan.', job: null });
+      }
+
+      job.status = 'cancelled';
+      job.completedAt = new Date().toISOString();
+      return reply.send({ success: true, message: 'Broadcast berhasil dihentikan.', job });
+    } catch (error: any) {
+      fastify.log.error(error, '[Blast Cancel] Error cancelling job');
+      return reply.status(500).send({ success: false, message: 'Internal Server Error' });
+    }
+  });
+
   // Health check
   fastify.get('/whatsapp/incoming', async (_request, reply) => {
     return reply.send({ success: true, message: 'WhatsApp Webhook endpoint is active (use POST to send data)' });

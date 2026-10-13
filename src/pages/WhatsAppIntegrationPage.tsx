@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock } from 'lucide-react';
+import { MessageCircle, Zap, ShieldCheck, Smartphone, LogOut, Loader2, RefreshCw, AlertTriangle, X, Info, Plus, FolderKanban, ChevronDown, BookOpen, Send, CheckCircle2, ExternalLink, BarChart2, List, MousePointerClick, Trash2, Lock, Radio, StopCircle, Eye } from 'lucide-react';
 import { useOrganization } from '../hooks/useOrganization';
 import { useAuth } from '../contexts/AuthContext';
 import { useProjects } from '../contexts/ProjectContext';
@@ -41,6 +41,23 @@ interface MetaPhoneStatus {
   code_verification_status: 'VERIFIED' | 'NOT_VERIFIED' | 'EXPIRED';
   name_status: string;
   waba_id: string;
+}
+
+interface ActiveBlastJob {
+  id: string;
+  orgId: string;
+  platform: 'baileys' | 'meta';
+  phoneLabel: string;
+  phoneNumberId?: string;
+  total: number;
+  current: number;
+  successCount: number;
+  failedCount: number;
+  delaySeconds: number;
+  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
 }
 
 const WhatsAppIntegrationPage: React.FC = () => {
@@ -127,8 +144,50 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [baileysDelaySeconds, setBaileysDelaySeconds] = useState<number>(5);
   const [agreedTerms, setAgreedTerms] = useState<boolean>(false);
   const [baileysBlastLoading, setBaileysBlastLoading] = useState<boolean>(false);
-  const [baileysBlastProgress, setBaileysBlastProgress] = useState<{ current: number; total: number } | null>(null);
   const [baileysBlastResult, setBaileysBlastResult] = useState<{ total: number; successCount: number; failedCount: number } | null>(null);
+
+  // Background WA Blast Job States (Runs on server, non-blocking)
+  const [activeBlastJob, setActiveBlastJob] = useState<ActiveBlastJob | null>(null);
+  const [showActiveBlastWidget, setShowActiveBlastWidget] = useState<boolean>(true);
+  const [cancellingBlast, setCancellingBlast] = useState<boolean>(false);
+
+  const fetchActiveBlastStatus = async () => {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch('/api/whatsapp/blast/status', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveBlastJob(data.job || null);
+        if (data.job?.status === 'running') {
+          setShowActiveBlastWidget(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed fetching blast status', err);
+    }
+  };
+
+  const handleCancelBlast = async () => {
+    if (!session?.access_token || !activeBlastJob) return;
+    if (!confirm('Yakin ingin menghentikan broadcast yang sedang berjalan? Pesan yang belum terkirim akan dibatalkan.')) return;
+    setCancellingBlast(true);
+    try {
+      const res = await fetch('/api/whatsapp/blast/cancel', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.job) {
+        setActiveBlastJob(data.job);
+      }
+    } catch (err) {
+      console.error('Failed cancelling blast', err);
+    } finally {
+      setCancellingBlast(false);
+    }
+  };
 
   const fetchSessions = async () => {
     if (!organization?.id || !session?.access_token || !activeProjectId) {
@@ -185,6 +244,19 @@ const WhatsAppIntegrationPage: React.FC = () => {
     if (orgLoading) return;
     fetchSessions();
   }, [organization, session, orgLoading, activeProjectId]);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    fetchActiveBlastStatus();
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    if (!session?.access_token || !activeBlastJob || activeBlastJob.status !== 'running') return;
+    const interval = setInterval(() => {
+      fetchActiveBlastStatus();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [session?.access_token, activeBlastJob?.status]);
 
   useEffect(() => {
     const initFB = () => {
@@ -510,6 +582,94 @@ const WhatsAppIntegrationPage: React.FC = () => {
             <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
             <p className="flex-1">{error}</p>
             <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600"><X size={16} /></button>
+          </div>
+        )}
+
+        {/* ── Active Background Broadcast Banner ──────────────────────── */}
+        {activeBlastJob && showActiveBlastWidget && (
+          <div className={`p-4 rounded-3xl border shadow-md transition-all ${
+            activeBlastJob.status === 'running'
+              ? 'bg-gradient-to-r from-emerald-50 via-teal-50 to-white border-emerald-200'
+              : activeBlastJob.status === 'completed'
+              ? 'bg-emerald-50 border-emerald-200'
+              : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-2xl flex-shrink-0 ${
+                  activeBlastJob.status === 'running'
+                    ? 'bg-emerald-600 text-white animate-pulse'
+                    : activeBlastJob.status === 'completed'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {activeBlastJob.status === 'running' ? <Radio size={20} /> : <CheckCircle2 size={20} />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wide">
+                      {activeBlastJob.status === 'running' ? 'Broadcast WhatsApp Berjalan di Latar Belakang' : activeBlastJob.status === 'completed' ? 'Broadcast WhatsApp Selesai' : 'Broadcast WhatsApp Dihentikan'}
+                    </h4>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white border border-slate-200 font-bold text-slate-600">
+                      {activeBlastJob.platform === 'baileys' ? `Gateway (${activeBlastJob.phoneLabel})` : 'Meta Official'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {activeBlastJob.status === 'running' ? (
+                      <>Mengirim <strong>{activeBlastJob.current}</strong> dari <strong>{activeBlastJob.total}</strong> pesan ({Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%) • Delay: {activeBlastJob.delaySeconds} dtk • Berhasil: <span className="text-emerald-700 font-bold">{activeBlastJob.successCount}</span> • Gagal: <span className="text-rose-600 font-bold">{activeBlastJob.failedCount}</span></>
+                    ) : (
+                      <>Total {activeBlastJob.total} target: <strong className="text-emerald-700">{activeBlastJob.successCount} berhasil</strong>, <strong className="text-rose-600">{activeBlastJob.failedCount} gagal</strong>.</>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-center">
+                {activeBlastJob.status === 'running' && (
+                  <button
+                    onClick={handleCancelBlast}
+                    disabled={cancellingBlast}
+                    className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    title="Hentikan pengiriman broadcast"
+                  >
+                    <StopCircle size={13} />
+                    {cancellingBlast ? 'Menghentikan...' : 'Hentikan'}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (activeBlastJob.platform === 'baileys') {
+                      setShowBaileysBlastModal(true);
+                    } else {
+                      setShowMetaBlastModal(true);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Buka dialog modal broadcast"
+                >
+                  <Eye size={13} />
+                  Detail
+                </button>
+                <button
+                  onClick={() => setShowActiveBlastWidget(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-white transition-colors cursor-pointer"
+                  title="Sembunyikan progress bar ini"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {activeBlastJob.status === 'running' && (
+              <div className="mt-3">
+                <div className="w-full h-2 bg-emerald-200/60 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                    style={{ width: `${Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1671,47 +1831,43 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   setBlastLoading(true);
                   setError(null);
 
-                  // Extract phone numbers (separated by comma, newline, or space)
-                  const rawList = targetNumbers.split(/[\n,;]+/).map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
+                  const rawList = targetNumbers.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
                   if (rawList.length === 0) {
                     setError('Format nomor tujuan tidak valid.');
                     setBlastLoading(false);
                     return;
                   }
 
-                  let successCount = 0;
-                  let failedCount = 0;
-
-                  for (const num of rawList) {
-                    try {
-                      const res = await fetch('/api/whatsapp/meta/send-template', {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${session?.access_token}`
-                        },
-                        body: JSON.stringify({
-                          phoneNumberId: selectedMetaPhone || metaSessions[0]?.meta_phone_number_id,
-                          to: num,
-                          templateName: templateName.trim() || 'hello_world',
-                          languageCode: 'en_US'
-                        })
-                      });
-                      const data = await res.json();
-                      if (data.success) {
-                        successCount++;
-                      } else {
-                        failedCount++;
-                      }
-                    } catch {
-                      failedCount++;
+                  try {
+                    const res = await fetch('/api/whatsapp/blast/start', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`
+                      },
+                      body: JSON.stringify({
+                        platform: 'meta',
+                        phoneNumberId: selectedMetaPhone || metaSessions[0]?.meta_phone_number_id,
+                        targetNumbers: rawList,
+                        templateName: templateName.trim() || 'hello_world',
+                        languageCode: 'en_US',
+                        delaySeconds: 1
+                      })
+                    });
+                    const data = await res.json();
+                    if (data.success && data.job) {
+                      setActiveBlastJob(data.job);
+                      setShowActiveBlastWidget(true);
+                      setBlastStep('success');
+                      setBlastResult({ total: data.job.total, successCount: 0, failedCount: 0 });
+                    } else {
+                      setError(data.message || 'Gagal memulai broadcast Meta.');
                     }
+                  } catch (err: any) {
+                    setError(err.message || 'Gagal menghubungi server untuk broadcast Meta.');
+                  } finally {
+                    setBlastLoading(false);
                   }
-
-                  setBlastLoading(false);
-                  setBlastResult({ total: rawList.length, successCount, failedCount });
-                  setBlastStep('success');
-                  fetchSessions();
                 }}
                 className="space-y-4"
               >
@@ -1792,30 +1948,78 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </form>
             ) : (
               <div className="text-center py-4 space-y-4">
-                <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 size={32} />
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto ${
+                  activeBlastJob?.status === 'running'
+                    ? 'bg-indigo-100 text-indigo-600 animate-pulse'
+                    : activeBlastJob?.status === 'completed'
+                    ? 'bg-emerald-100 text-emerald-600'
+                    : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {activeBlastJob?.status === 'running' ? <Radio size={30} /> : <CheckCircle2 size={32} />}
                 </div>
-                <h4 className="text-base font-extrabold text-slate-900">Broadcast WhatsApp Berhasil Terkirim!</h4>
+
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900">
+                    {activeBlastJob?.status === 'running'
+                      ? 'Broadcast Meta Sedang Berjalan di Latar Belakang!'
+                      : activeBlastJob?.status === 'completed'
+                      ? 'Broadcast Meta Selesai!'
+                      : 'Broadcast Meta Dihentikan'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                    {activeBlastJob?.status === 'running'
+                      ? 'Pesan sedang diproses oleh server di latar belakang. Anda dapat menutup modal ini kapan saja tanpa membatalkan pengiriman.'
+                      : 'Seluruh antrean pesan broadcast telah selesai diproses.'}
+                  </p>
+                </div>
+
+                {activeBlastJob?.status === 'running' && (
+                  <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-2xl space-y-2">
+                    <div className="flex justify-between text-xs font-bold text-indigo-900">
+                      <span>Proses Pengiriman ({activeBlastJob.current} dari {activeBlastJob.total})</span>
+                      <span>{Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-indigo-200/60 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-600 transition-all duration-300 rounded-full"
+                        style={{ width: `${Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-3 gap-2 text-center">
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase">Total Target</p>
-                    <p className="text-lg font-extrabold text-slate-800">{blastResult?.total || 0}</p>
+                    <p className="text-lg font-extrabold text-slate-800">{activeBlastJob?.total || blastResult?.total || 0}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-emerald-600 font-bold uppercase">Berhasil</p>
-                    <p className="text-lg font-extrabold text-emerald-600">{blastResult?.successCount || 0}</p>
+                    <p className="text-lg font-extrabold text-emerald-600">{activeBlastJob?.successCount ?? blastResult?.successCount ?? 0}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-rose-500 font-bold uppercase">Gagal</p>
-                    <p className="text-lg font-extrabold text-rose-500">{blastResult?.failedCount || 0}</p>
+                    <p className="text-lg font-extrabold text-rose-500">{activeBlastJob?.failedCount ?? blastResult?.failedCount ?? 0}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowMetaBlastModal(false)}
-                  className="w-full py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
-                >
-                  Selesai
-                </button>
+
+                <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                  <button
+                    onClick={() => setShowMetaBlastModal(false)}
+                    className="flex-1 py-3 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer shadow-md"
+                  >
+                    {activeBlastJob?.status === 'running' ? 'Jalankan di Background (Tutup Modal)' : 'Selesai & Tutup'}
+                  </button>
+                  {activeBlastJob?.status === 'running' && (
+                    <button
+                      onClick={handleCancelBlast}
+                      disabled={cancellingBlast}
+                      className="py-3 px-5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                    >
+                      {cancellingBlast ? 'Menghentikan...' : 'Hentikan Broadcast'}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1865,58 +2069,44 @@ const WhatsAppIntegrationPage: React.FC = () => {
                   setBaileysBlastLoading(true);
                   setError(null);
 
-                  // Extract numbers
-                  const rawList = baileysTargetNumbers.split(/[\n,;]+/).map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
+                  const rawList = baileysTargetNumbers.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
                   if (rawList.length === 0) {
                     setError('Format nomor tujuan tidak valid.');
                     setBaileysBlastLoading(false);
                     return;
                   }
 
-                  let successCount = 0;
-                  let failedCount = 0;
-                  setBaileysBlastProgress({ current: 0, total: rawList.length });
-
                   const label = selectedBaileysPhoneLabel || baileysSessions[0]?.phone_label || 'default';
 
-                  for (let i = 0; i < rawList.length; i++) {
-                    const num = rawList[i];
-                    setBaileysBlastProgress({ current: i + 1, total: rawList.length });
-
-                    try {
-                      const res = await fetch(`${GATEWAY_URL}/api/session/send-message`, {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'x-gateway-secret': import.meta.env.VITE_GATEWAY_SECRET || ''
-                        },
-                        body: JSON.stringify({
-                          userId: organization?.id,
-                          phoneLabel: label,
-                          to: num,
-                          message: baileysMessageText
-                        })
-                      });
-                      const data = await res.json();
-                      if (data.success) {
-                        successCount++;
-                      } else {
-                        failedCount++;
-                      }
-                    } catch {
-                      failedCount++;
+                  try {
+                    const res = await fetch('/api/whatsapp/blast/start', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`
+                      },
+                      body: JSON.stringify({
+                        platform: 'baileys',
+                        phoneLabel: label,
+                        targetNumbers: rawList,
+                        message: baileysMessageText,
+                        delaySeconds: baileysDelaySeconds
+                      })
+                    });
+                    const data = await res.json();
+                    if (data.success && data.job) {
+                      setActiveBlastJob(data.job);
+                      setShowActiveBlastWidget(true);
+                      setBaileysBlastStep('success');
+                      setBaileysBlastResult({ total: data.job.total, successCount: 0, failedCount: 0 });
+                    } else {
+                      setError(data.message || 'Gagal memulai broadcast Gateway.');
                     }
-
-                    // Delay between messages to prevent spam detection & blocking
-                    if (i < rawList.length - 1 && baileysDelaySeconds > 0) {
-                      await new Promise(resolve => setTimeout(resolve, baileysDelaySeconds * 1000));
-                    }
+                  } catch (err: any) {
+                    setError(err.message || 'Gagal menghubungi server untuk broadcast.');
+                  } finally {
+                    setBaileysBlastLoading(false);
                   }
-
-                  setBaileysBlastLoading(false);
-                  setBaileysBlastProgress(null);
-                  setBaileysBlastResult({ total: rawList.length, successCount, failedCount });
-                  setBaileysBlastStep('success');
                 }}
                 className="flex flex-col flex-1 overflow-hidden"
               >
@@ -2000,10 +2190,18 @@ const WhatsAppIntegrationPage: React.FC = () => {
                         rows={8}
                         value={baileysTargetNumbers}
                         onChange={(e) => setBaileysTargetNumbers(e.target.value)}
-                        placeholder="Contoh:&#10;6281234567890&#10;6289876543210&#10;6285554443330"
+                        placeholder="Contoh:&#10;081234567890&#10;6289876543210&#10;085554443330"
                         className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500 flex-1"
                       />
                     </div>
+                  </div>
+
+                  {/* Server Background Info Banner */}
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-200/70 rounded-2xl flex items-center gap-2.5">
+                    <Radio size={16} className="text-emerald-600 shrink-0" />
+                    <p className="text-xs text-emerald-900 leading-relaxed">
+                      <strong>Berjalan di Background Server:</strong> Setelah dimulai, proses pengiriman berjalan di server VPS. Anda dapat menutup modal atau browser kapan saja tanpa menunggu.
+                    </p>
                   </div>
 
                   {/* Row 3: Tips Anti-Blokir (Full Width compact) */}
@@ -2033,23 +2231,6 @@ const WhatsAppIntegrationPage: React.FC = () => {
                       </span>
                     </label>
                   </div>
-
-                  {/* Progress bar during sending */}
-                  {baileysBlastLoading && baileysBlastProgress && (
-                    <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-1.5">
-                      <div className="flex justify-between text-xs font-bold text-emerald-800">
-                        <span>Mengirim broadcast... ({baileysBlastProgress.current} dari {baileysBlastProgress.total})</span>
-                        <span>{Math.round((baileysBlastProgress.current / baileysBlastProgress.total) * 100)}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-emerald-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
-                          style={{ width: `${(baileysBlastProgress.current / baileysBlastProgress.total) * 100}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-emerald-600 text-center">Mohon tunggu, memberikan jeda delay {baileysDelaySeconds} detik per pesan...</p>
-                    </div>
-                  )}
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 flex gap-3 shrink-0 mt-2">
@@ -2059,12 +2240,12 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     className="flex-1 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {baileysBlastLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                    {baileysBlastLoading ? 'Proses Broadcast...' : 'Mulai Kirim Blast Gateway'}
+                    {baileysBlastLoading ? 'Menyiapkan Broadcast...' : 'Mulai Kirim Blast di Background'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowBaileysBlastModal(false)}
-                    className="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                    className="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
                   >
                     Batal
                   </button>
@@ -2072,30 +2253,81 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </form>
             ) : (
               <div className="text-center py-4 space-y-4">
-                <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 size={32} />
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto ${
+                  activeBlastJob?.status === 'running'
+                    ? 'bg-emerald-100 text-emerald-600 animate-pulse'
+                    : activeBlastJob?.status === 'completed'
+                    ? 'bg-emerald-100 text-emerald-600'
+                    : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {activeBlastJob?.status === 'running' ? <Radio size={30} /> : <CheckCircle2 size={32} />}
                 </div>
-                <h4 className="text-base font-extrabold text-slate-900">Broadcast WhatsApp Baileys Selesai!</h4>
+
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900">
+                    {activeBlastJob?.status === 'running'
+                      ? 'Broadcast Gateway Sedang Berjalan di Latar Belakang!'
+                      : activeBlastJob?.status === 'completed'
+                      ? 'Broadcast Gateway Baileys Selesai!'
+                      : 'Broadcast Gateway Dihentikan'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                    {activeBlastJob?.status === 'running'
+                      ? `Pesan sedang dikirim oleh server dengan jeda delay ${activeBlastJob.delaySeconds} detik. Anda dapat menutup jendela ini dan berpindah halaman tanpa membatalkan pengiriman.`
+                      : 'Seluruh antrean pesan broadcast gateway telah selesai diproses.'}
+                  </p>
+                </div>
+
+                {activeBlastJob?.status === 'running' && (
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
+                    <div className="flex justify-between text-xs font-bold text-emerald-800">
+                      <span>Proses Pengiriman ({activeBlastJob.current} dari {activeBlastJob.total})</span>
+                      <span>{Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-emerald-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                        style={{ width: `${Math.round((activeBlastJob.current / Math.max(1, activeBlastJob.total)) * 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-emerald-600 text-center">
+                      Jeda delay {activeBlastJob.delaySeconds} detik per pesan berjalan di server VPS.
+                    </p>
+                  </div>
+                )}
+
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-3 gap-2 text-center">
                   <div>
                     <p className="text-[10px] text-slate-400 font-bold uppercase">Total Target</p>
-                    <p className="text-lg font-extrabold text-slate-800">{baileysBlastResult?.total || 0}</p>
+                    <p className="text-lg font-extrabold text-slate-800">{activeBlastJob?.total || baileysBlastResult?.total || 0}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-emerald-600 font-bold uppercase">Berhasil</p>
-                    <p className="text-lg font-extrabold text-emerald-600">{baileysBlastResult?.successCount || 0}</p>
+                    <p className="text-lg font-extrabold text-emerald-600">{activeBlastJob?.successCount ?? baileysBlastResult?.successCount ?? 0}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-rose-500 font-bold uppercase">Gagal</p>
-                    <p className="text-lg font-extrabold text-rose-500">{baileysBlastResult?.failedCount || 0}</p>
+                    <p className="text-lg font-extrabold text-rose-500">{activeBlastJob?.failedCount ?? baileysBlastResult?.failedCount ?? 0}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowBaileysBlastModal(false)}
-                  className="w-full py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
-                >
-                  Selesai
-                </button>
+
+                <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                  <button
+                    onClick={() => setShowBaileysBlastModal(false)}
+                    className="flex-1 py-3 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-colors cursor-pointer shadow-md"
+                  >
+                    {activeBlastJob?.status === 'running' ? 'Jalankan di Background (Tutup Modal)' : 'Selesai & Tutup'}
+                  </button>
+                  {activeBlastJob?.status === 'running' && (
+                    <button
+                      onClick={handleCancelBlast}
+                      disabled={cancellingBlast}
+                      className="py-3 px-5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                    >
+                      {cancellingBlast ? 'Menghentikan...' : 'Hentikan Broadcast'}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
