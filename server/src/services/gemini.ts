@@ -1,3 +1,4 @@
+import { callDeepSeekChat, streamDeepSeekChat } from './deepseek';
 import { GoogleGenerativeAI, type Content, type Part } from '@google/generative-ai';
 import { supabase } from '../config/supabase';
 
@@ -364,6 +365,23 @@ const buildSystemPrompt = (
 // Main export
 // ─────────────────────────────────────────────
 
+
+// Robust JSON extraction: handles truncation and trailing garbage
+const sanitizeJson = (text: string): GeminiResponse | null => {
+  try { return JSON.parse(text); } catch { }
+  let depth = 0, start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') { if (depth === 0) start = i; depth++; }
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try { return JSON.parse(text.slice(start, i + 1)); } catch { }
+      }
+    }
+  }
+  return null;
+};
+
 export async function generateChatResponse(
   userMessage: string,
   history: ChatMessage[],
@@ -431,71 +449,58 @@ export async function generateChatResponse(
       parts: [{ text: m.content }],
     }));
 
-  const MAX_RETRIES = 3;
-  let lastError: any;
+  const defaultProvider = (process.env.AI_DEFAULT_PROVIDER || 'gemini').toLowerCase().trim();
+  const enableFallback = process.env.AI_ENABLE_FALLBACK !== 'false'; // default true
+  const hasDeepSeekKey = Boolean(process.env.DEEPSEEK_API_KEY);
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
-    try {
-      const requestOptions = process.env.GEMINI_BASE_URL
-        ? { baseUrl: process.env.GEMINI_BASE_URL }
-        : undefined;
+  const systemPrompt = buildSystemPrompt(
+    botName,
+    company,
+    context,
+    tone,
+    customInstructions,
+    adminWhatsApp,
+    intent,
+    false,
+    topics,
+    hasValidPhone,
+    isFirstMessage
+  );
 
-      const model = genai.getGenerativeModel({
-        model: currentModelName,
-        systemInstruction: buildSystemPrompt(
-          botName,
-          company,
-          context,
-          tone,
-          customInstructions,
-          adminWhatsApp,
-          intent,
-          false,
-          topics,
-          hasValidPhone,
-          isFirstMessage
-        ),
-        generationConfig: {
-          responseMimeType: 'application/json',
-          maxOutputTokens: 1200,
-          temperature: intent === 'small_talk' ? 0.7 : 0.3,
-          topP: 0.85,
-        },
-      }, requestOptions);
+  const executeGeminiCall = async (): Promise<GeminiResponse> => {
+    const MAX_RETRIES = 3;
+    let lastGeminiErr: any;
 
-      const chat = model.startChat({ history: geminiHistory });
-      const result = await chat.sendMessage(userMessage);
-
-      if (!result.response.candidates || result.response.candidates.length === 0) {
-        console.warn('[Gemini] No candidates returned. Possibly blocked by safety filters.');
-        return {
-          message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.',
-          triggerLeadCapture: false,
-        };
-      }
-
-      const raw = result.response.text().trim();
-
-      // Robust JSON extraction: handles truncation and trailing garbage
-      const sanitizeJson = (text: string): GeminiResponse | null => {
-        // 1. Try direct parse first (fastest path)
-        try { return JSON.parse(text); } catch { }
-        // 2. Extract first complete JSON object using brace depth counting
-        let depth = 0, start = -1;
-        for (let i = 0; i < text.length; i++) {
-          if (text[i] === '{') { if (depth === 0) start = i; depth++; }
-          else if (text[i] === '}') {
-            depth--;
-            if (depth === 0 && start !== -1) {
-              try { return JSON.parse(text.slice(start, i + 1)); } catch { }
-            }
-          }
-        }
-        return null;
-      };
-
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
       try {
+        const requestOptions = process.env.GEMINI_BASE_URL
+          ? { baseUrl: process.env.GEMINI_BASE_URL }
+          : undefined;
+
+        const model = genai.getGenerativeModel({
+          model: currentModelName,
+          systemInstruction: systemPrompt,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            maxOutputTokens: 1200,
+            temperature: intent === 'small_talk' ? 0.7 : 0.3,
+            topP: 0.85,
+          },
+        }, requestOptions);
+
+        const chat = model.startChat({ history: geminiHistory });
+        const result = await chat.sendMessage(userMessage);
+
+        if (!result.response.candidates || result.response.candidates.length === 0) {
+          console.warn('[Gemini] No candidates returned. Possibly blocked by safety filters.');
+          return {
+            message: 'Maaf, saya tidak dapat merespon pesan tersebut. Silakan coba pertanyaan lain.',
+            triggerLeadCapture: false,
+          };
+        }
+
+        const raw = result.response.text().trim();
         const parsed = sanitizeJson(raw);
         if (parsed) {
           return {
@@ -507,31 +512,75 @@ export async function generateChatResponse(
             customerName: parsed.customerName || '',
           };
         }
-        // Last resort: return raw text
         console.warn(`[Gemini] [Org: ${orgId}] Could not parse JSON, returning raw text. Length: ${raw.length}`);
         return { message: raw, triggerLeadCapture: false, checkoutDetected: false };
-      } catch {
-        return { message: raw, triggerLeadCapture: false, checkoutDetected: false };
-      }
-    } catch (error: any) {
-      lastError = error;
-      const is503 =
-        error.message?.includes('503') ||
-        error.message?.includes('overloaded') ||
-        error.message?.includes('unavailable');
+      } catch (error: any) {
+        lastGeminiErr = error;
+        const is503 =
+          error.message?.includes('503') ||
+          error.message?.includes('overloaded') ||
+          error.message?.includes('unavailable');
 
-      if (is503 && attempt < MAX_RETRIES) {
-        const delayMs = attempt * 1000;
-        console.warn(`[Gemini] Model overloaded. Retrying in ${delayMs}ms... (Attempt ${attempt}/${MAX_RETRIES})`);
-        await new Promise(res => setTimeout(res, delayMs));
-        continue;
-      }
+        if (is503 && attempt < MAX_RETRIES) {
+          const delayMs = attempt * 1000;
+          console.warn(`[Gemini] Model overloaded. Retrying in ${delayMs}ms... (Attempt ${attempt}/${MAX_RETRIES})`);
+          await new Promise(res => setTimeout(res, delayMs));
+          continue;
+        }
 
-      console.error(`[Gemini] [Org: ${orgId}] Crash on attempt ${attempt}:`, error.message);
-      break;
+        console.error(`[Gemini] [Org: ${orgId}] Crash on attempt ${attempt}:`, error.message);
+        break;
+      }
+    }
+    throw lastGeminiErr || new Error('All Gemini attempts failed.');
+  };
+
+  const executeDeepSeekCall = async (): Promise<GeminiResponse> => {
+    return await callDeepSeekChat(
+      systemPrompt,
+      history,
+      userMessage,
+      intent === 'small_talk' ? 0.7 : 0.3
+    );
+  };
+
+  // ── ROUTING & FALLBACK EXECUTION ──
+  let lastError: any;
+
+  if (defaultProvider === 'deepseek' && hasDeepSeekKey) {
+    try {
+      return await executeDeepSeekCall();
+    } catch (dsErr: any) {
+      lastError = dsErr;
+      console.error(`[AI Provider] Primary (DeepSeek) failed: ${dsErr.message}`);
+      if (enableFallback) {
+        console.warn(`[AI Provider] Falling back to Gemini...`);
+        try {
+          return await executeGeminiCall();
+        } catch (gemErr: any) {
+          lastError = gemErr;
+          console.error(`[AI Provider] Fallback to Gemini also failed: ${gemErr.message}`);
+        }
+      }
+    }
+  } else {
+    // Default: Gemini
+    try {
+      return await executeGeminiCall();
+    } catch (gemErr: any) {
+      lastError = gemErr;
+      console.error(`[AI Provider] Primary (Gemini) failed: ${gemErr.message}`);
+      if (enableFallback && hasDeepSeekKey) {
+        console.warn(`[AI Provider] Falling back to DeepSeek...`);
+        try {
+          return await executeDeepSeekCall();
+        } catch (dsErr: any) {
+          lastError = dsErr;
+          console.error(`[AI Provider] Fallback to DeepSeek also failed: ${dsErr.message}`);
+        }
+      }
     }
   }
-
   console.error('[Gemini] All attempts failed. Last error:', lastError?.message);
   let waLinkMessage = '';
   if (adminWhatsApp) {
@@ -620,6 +669,35 @@ export async function generateChatResponseStream(
         parts,
       };
     });
+
+  const defaultProvider = (process.env.AI_DEFAULT_PROVIDER || 'gemini').toLowerCase().trim();
+  const enableFallback = process.env.AI_ENABLE_FALLBACK !== 'false';
+  const hasDeepSeekKey = Boolean(process.env.DEEPSEEK_API_KEY);
+
+  const systemPromptStream = buildSystemPrompt(
+    botName,
+    company,
+    context,
+    tone,
+    customInstructions,
+    adminWhatsApp,
+    intent,
+    true, // isStreaming
+    topics,
+    hasValidPhone
+  );
+
+  // If deepseek is selected and no image attachments, stream from DeepSeek
+  const hasAttachments = userAttachments && userAttachments.length > 0;
+  if (defaultProvider === 'deepseek' && hasDeepSeekKey && !hasAttachments) {
+    try {
+      return streamDeepSeekChat(systemPromptStream, history, userMessage);
+    } catch (dsErr: any) {
+      console.error(`[AI Stream] DeepSeek stream init failed: ${dsErr.message}`);
+      if (!enableFallback) throw dsErr;
+      console.warn(`[AI Stream] Falling back to Gemini stream...`);
+    }
+  }
 
   const STREAM_MAX_RETRIES = 3;
 
