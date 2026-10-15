@@ -46,9 +46,9 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
 
     const { data, error } = await supabase
       .from('bot_settings')
-      .select('id, org_id, project_id, profile_name, kb_project_ids, bot_name, instructions, tone, is_active, admin_whatsapp, logo_url, created_at, updated_at')
+      .select('id, org_id, project_id, profile_name, kb_project_ids, bot_name, custom_instructions, tone, is_active, admin_whatsapp, logo_url, updated_at')
       .eq('org_id', org.id)
-      .order('created_at', { ascending: true });
+      .order('updated_at', { ascending: true });
 
     if (error) {
       fastify.log.error(error, 'Failed to fetch bot profiles');
@@ -56,13 +56,14 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
     }
 
     // Annotate each profile with channel counts (how many WA/widget channels use it)
-    const enriched = await Promise.all((data || []).map(async (profile) => {
+    const enriched = await Promise.all((data || []).map(async (profile: any) => {
       const [{ count: waCount }, { count: widgetCount }] = await Promise.all([
         supabase.from('whatsapp_sessions').select('*', { count: 'exact', head: true }).eq('bot_settings_id', profile.id),
         supabase.from('widget_channels').select('*', { count: 'exact', head: true }).eq('bot_settings_id', profile.id),
       ]);
       return {
         ...profile,
+        instructions: profile.custom_instructions ?? null,
         profile_name: profile.profile_name ?? 'Bot Utama',
         kb_project_ids: profile.kb_project_ids ?? [],
         whatsapp_channel_count: waCount ?? 0,
@@ -122,7 +123,7 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
         profile_name: profile_name.trim(),
         kb_project_ids: kb_project_ids,
         bot_name: bot_name?.trim() ?? null,
-        instructions: instructions?.trim() ?? null,
+        custom_instructions: instructions?.trim() ?? null,
         tone: tone ?? 'friendly',
         admin_whatsapp: admin_whatsapp?.trim() ?? null,
         logo_url: logo_url ?? null,
@@ -135,7 +136,13 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ success: false, message: 'Gagal membuat Bot Profile' });
     }
 
-    return reply.status(201).send({ success: true, data: newProfile });
+    return reply.status(201).send({
+      success: true,
+      data: {
+        ...newProfile,
+        instructions: newProfile.custom_instructions ?? null,
+      }
+    });
   });
 
   /**
@@ -162,7 +169,11 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
     if (!existing) return reply.status(404).send({ success: false, message: 'Bot Profile tidak ditemukan' });
 
     // Strip fields that must not be overwritten via this endpoint
-    const { org_id: _orgId, id: _id, created_at: _ca, ...safeUpdates } = updates;
+    const { org_id: _orgId, id: _id, created_at: _ca, instructions, ...safeUpdates } = updates;
+
+    if (instructions !== undefined) {
+      safeUpdates.custom_instructions = instructions ? String(instructions).trim() : null;
+    }
 
     const { data: updated, error } = await supabase
       .from('bot_settings')
@@ -176,7 +187,13 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ success: false, message: 'Gagal memperbarui Bot Profile' });
     }
 
-    return reply.send({ success: true, data: updated });
+    return reply.send({
+      success: true,
+      data: {
+        ...updated,
+        instructions: updated.custom_instructions ?? null,
+      }
+    });
   });
 
   /**
