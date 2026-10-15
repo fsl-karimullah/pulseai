@@ -106,20 +106,46 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
     const org = await resolveOrgForUser(userId);
     if (!org) return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
 
-    // Resolve default project for project_id fallback (backward compat)
-    const { data: defaultProject } = await supabase
+    // Find a project that doesn't have a bot_settings row yet, or create one for this profile
+    const { data: orgProjects } = await supabase
       .from('projects')
-      .select('id')
+      .select('id, name')
       .eq('org_id', org.id)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
+
+    const { data: assignedSettings } = await supabase
+      .from('bot_settings')
+      .select('project_id')
+      .eq('org_id', org.id);
+
+    const takenProjectIds = new Set((assignedSettings || []).map((s) => s.project_id).filter(Boolean));
+    const availableProject = (orgProjects || []).find((p) => !takenProjectIds.has(p.id));
+
+    let targetProjectId = availableProject?.id;
+
+    if (!targetProjectId) {
+      // Create a dedicated workspace project for this Bot Profile
+      const { data: newProj, error: projErr } = await supabase
+        .from('projects')
+        .insert({
+          org_id: org.id,
+          name: profile_name.trim(),
+        })
+        .select('id')
+        .single();
+
+      if (projErr || !newProj) {
+        fastify.log.error(projErr, 'Failed to create workspace project for bot profile');
+        return reply.status(500).send({ success: false, message: 'Gagal membuat workspace untuk Bot Profile' });
+      }
+      targetProjectId = newProj.id;
+    }
 
     const { data: newProfile, error } = await supabase
       .from('bot_settings')
       .insert({
         org_id: org.id,
-        project_id: defaultProject?.id ?? null,
+        project_id: targetProjectId,
         profile_name: profile_name.trim(),
         kb_project_ids: kb_project_ids,
         bot_name: bot_name?.trim() ?? null,
