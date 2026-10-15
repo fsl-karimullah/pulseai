@@ -302,6 +302,35 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
     const org = await resolveOrgForUser(userId);
     if (!org) return reply.status(404).send({ success: false, message: 'Organisasi tidak ditemukan' });
 
+    // Handle unassigning
+    if (profileId === 'none' || profileId === 'unassign') {
+      if (channel_type === 'whatsapp') {
+        const { error } = await supabase
+          .from('whatsapp_sessions')
+          .update({ bot_settings_id: null })
+          .or(`phone_number.eq.${channel_id},phone_label.eq.${channel_id}`)
+          .eq('org_id', org.id);
+
+        if (error) {
+          fastify.log.error(error, 'Failed to unassign bot profile from WA session');
+          return reply.status(500).send({ success: false, message: 'Gagal melepas Bot Profile dari nomor WhatsApp' });
+        }
+        return reply.send({ success: true, message: 'Bot Profile berhasil dilepas dari nomor WhatsApp.' });
+      } else if (channel_type === 'widget') {
+        const { error } = await supabase
+          .from('widget_channels')
+          .update({ bot_settings_id: null })
+          .eq('id', channel_id)
+          .eq('org_id', org.id);
+
+        if (error) {
+          fastify.log.error(error, 'Failed to unassign bot profile from widget');
+          return reply.status(500).send({ success: false, message: 'Gagal melepas Bot Profile dari widget' });
+        }
+        return reply.send({ success: true, message: 'Bot Profile berhasil dilepas dari widget.' });
+      }
+    }
+
     // Verify profile belongs to this org
     const { data: profile } = await supabase
       .from('bot_settings')
@@ -313,11 +342,11 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
     if (!profile) return reply.status(404).send({ success: false, message: 'Bot Profile tidak ditemukan' });
 
     if (channel_type === 'whatsapp') {
-      // Verify WA session belongs to this org
+      // Verify WA session belongs to this org (channel_id is phone_number)
       const { data: session } = await supabase
         .from('whatsapp_sessions')
-        .select('id, project_id')
-        .eq('id', channel_id)
+        .select('phone_number, project_id')
+        .or(`phone_number.eq.${channel_id},phone_label.eq.${channel_id}`)
         .eq('org_id', org.id)
         .maybeSingle();
 
@@ -328,7 +357,7 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
       const { error } = await supabase
         .from('whatsapp_sessions')
         .update({ bot_settings_id: profileId, project_id: syncProjectId })
-        .eq('id', channel_id);
+        .eq('phone_number', session.phone_number);
 
       if (error) {
         fastify.log.error(error, 'Failed to assign bot profile to WA session');
@@ -377,15 +406,24 @@ export default async function botProfilesRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ success: false, message: 'channel_type dan channel_id wajib diisi' });
     }
 
-    const table = channel_type === 'whatsapp' ? 'whatsapp_sessions' : 'widget_channels';
-    const { data: channel } = await supabase
-      .from(table)
-      .select('bot_settings_id, bot_settings:bot_settings_id(id, profile_name, kb_project_ids, bot_name, tone)')
-      .eq('id', channel_id)
-      .maybeSingle();
+    if (channel_type === 'whatsapp') {
+      const { data: channel } = await supabase
+        .from('whatsapp_sessions')
+        .select('bot_settings_id, bot_settings:bot_settings_id(id, profile_name, kb_project_ids, bot_name, tone)')
+        .or(`phone_number.eq.${channel_id},phone_label.eq.${channel_id}`)
+        .maybeSingle();
 
-    if (!channel) return reply.status(404).send({ success: false, message: 'Channel tidak ditemukan' });
+      if (!channel) return reply.status(404).send({ success: false, message: 'Channel tidak ditemukan' });
+      return reply.send({ success: true, data: channel });
+    } else {
+      const { data: channel } = await supabase
+        .from('widget_channels')
+        .select('bot_settings_id, bot_settings:bot_settings_id(id, profile_name, kb_project_ids, bot_name, tone)')
+        .eq('id', channel_id)
+        .maybeSingle();
 
-    return reply.send({ success: true, data: channel });
+      if (!channel) return reply.status(404).send({ success: false, message: 'Channel tidak ditemukan' });
+      return reply.send({ success: true, data: channel });
+    }
   });
 }

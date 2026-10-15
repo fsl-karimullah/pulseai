@@ -27,10 +27,18 @@ interface WhatsAppSession {
   meta_waba_id?: string;
   meta_phone_number_id?: string;
   is_chatbot_enabled?: boolean;
+  bot_settings_id?: string;
   connected_at: string | null;
   disconnected_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface BotProfileOption {
+  id: string;
+  profile_name: string;
+  bot_name: string | null;
+  kb_project_ids?: string[];
 }
 
 interface MetaPhoneStatus {
@@ -91,6 +99,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [metaPendingInfo, setMetaPendingInfo] = useState<{ message: string; wabaId: string } | null>(null);
   const [metaPhoneStatuses, setMetaPhoneStatuses] = useState<Record<string, MetaPhoneStatus>>({});
   const [loadingMetaStatus, setLoadingMetaStatus] = useState<boolean>(false);
+  const [botProfiles, setBotProfiles] = useState<BotProfileOption[]>([]);
+  const [assigningBot, setAssigningBot] = useState<string | null>(null);
 
   const [showMetaVerifyGuideModal, setShowMetaVerifyGuideModal] = useState<boolean>(false);
   const [metaPricingBannerDismissed, setMetaPricingBannerDismissed] = useState<boolean>(
@@ -281,12 +291,12 @@ const WhatsAppIntegrationPage: React.FC = () => {
   };
 
   const fetchSessions = async () => {
-    if (!organization?.id || !session?.access_token || !activeProjectId) {
+    if (!organization?.id || !session?.access_token) {
       setLoadingSessions(false);
       return;
     }
     try {
-      const res = await fetch(`/api/whatsapp-sessions?projectId=${activeProjectId}`, {
+      const res = await fetch('/api/whatsapp-sessions', {
         headers: { 'Authorization': `Bearer ${session.access_token}` }
       });
       const data = await res.json();
@@ -303,6 +313,56 @@ const WhatsAppIntegrationPage: React.FC = () => {
       console.error('Failed to fetch sessions', err);
     } finally {
       setLoadingSessions(false);
+    }
+  };
+
+  const fetchBotProfiles = async () => {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch('/api/bot-profiles', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setBotProfiles(data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch bot profiles', err);
+    }
+  };
+
+  const handleAssignBotProfile = async (phoneNumber: string, profileId: string) => {
+    if (!session?.access_token) return;
+    setAssigningBot(phoneNumber);
+    try {
+      const res = await fetch(`/api/bot-profiles/${profileId}/assign-channel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          channel_type: 'whatsapp',
+          channel_id: phoneNumber,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.phone_number === phoneNumber
+              ? { ...s, bot_settings_id: profileId === 'none' ? undefined : profileId }
+              : s
+          )
+        );
+      } else {
+        alert(data.message || 'Gagal mengubah Bot Profile');
+      }
+    } catch (err: any) {
+      console.error('Failed to assign bot profile', err);
+      alert('Terjadi kesalahan saat menghubungkan Bot Profile');
+    } finally {
+      setAssigningBot(null);
     }
   };
 
@@ -334,6 +394,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
   useEffect(() => {
     if (orgLoading) return;
     fetchSessions();
+    fetchBotProfiles();
   }, [organization, session, orgLoading, activeProjectId]);
 
   useEffect(() => {
@@ -1015,6 +1076,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                       <th className="px-6 py-3.5">Nama Bisnis</th>
                       <th className="px-6 py-3.5">Status Meta</th>
                       <th className="px-6 py-3.5">Chatbot AI</th>
+                      <th className="px-6 py-3.5">Bot Profile & KB</th>
                       <th className="px-6 py-3.5">Kualitas</th>
                       <th className="px-6 py-3.5 text-right">Aksi</th>
                     </tr>
@@ -1137,6 +1199,29 @@ const WhatsAppIntegrationPage: React.FC = () => {
                                 {s.is_chatbot_enabled !== false ? 'AI Aktif' : 'Blast Saja (AI Off)'}
                               </span>
                             </button>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-1.5">
+                              <div className="relative min-w-[160px] max-w-[210px]">
+                                <select
+                                  disabled={assigningBot === s.phone_number}
+                                  value={s.bot_settings_id || 'none'}
+                                  onChange={(e) => handleAssignBotProfile(s.phone_number, e.target.value)}
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all disabled:opacity-50 truncate cursor-pointer shadow-sm"
+                                  title="Pilih Bot Profile (Persona & Knowledge Base) untuk nomor ini"
+                                >
+                                  <option value="none">-- Default (Project KB) --</option>
+                                  {botProfiles.map((bp) => (
+                                    <option key={bp.id} value={bp.id}>
+                                      🤖 {bp.profile_name} ({bp.kb_project_ids?.length || 0} KB)
+                                    </option>
+                                  ))}
+                                </select>
+                                {assigningBot === s.phone_number && (
+                                  <Loader2 size={12} className="animate-spin text-blue-600 absolute right-2.5 top-2 pointer-events-none" />
+                                )}
+                              </div>
+                            </div>
                           </td>
                           <td className="px-6 py-4">{qualityBadge()}</td>
                           <td className="px-6 py-4">
@@ -1334,6 +1419,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     <th className="px-6 py-3.5">Platform</th>
                     <th className="px-6 py-3.5">Status</th>
                     <th className="px-6 py-3.5">Chatbot AI</th>
+                    <th className="px-6 py-3.5">Bot Profile & KB</th>
                     <th className="px-6 py-3.5 text-right">Aksi</th>
                   </tr>
                 </thead>
@@ -1385,6 +1471,29 @@ const WhatsAppIntegrationPage: React.FC = () => {
                             {s.is_chatbot_enabled !== false ? 'AI Aktif' : 'Blast Saja (AI Off)'}
                           </span>
                         </button>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-1.5">
+                          <div className="relative min-w-[160px] max-w-[210px]">
+                            <select
+                              disabled={assigningBot === s.phone_number}
+                              value={s.bot_settings_id || 'none'}
+                              onChange={(e) => handleAssignBotProfile(s.phone_number, e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all disabled:opacity-50 truncate cursor-pointer shadow-sm"
+                              title="Pilih Bot Profile (Persona & Knowledge Base) untuk nomor ini"
+                            >
+                              <option value="none">-- Default (Project KB) --</option>
+                              {botProfiles.map((bp) => (
+                                <option key={bp.id} value={bp.id}>
+                                  🤖 {bp.profile_name} ({bp.kb_project_ids?.length || 0} KB)
+                                </option>
+                              ))}
+                            </select>
+                            {assigningBot === s.phone_number && (
+                              <Loader2 size={12} className="animate-spin text-emerald-600 absolute right-2.5 top-2 pointer-events-none" />
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">

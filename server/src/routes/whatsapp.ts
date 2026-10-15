@@ -1815,27 +1815,25 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
         fastify.log.info({ sender, botNumber, message: messageText.slice(0, 20) }, 'Processing Meta Incoming Message');
 
-        // ── Step 1: Resolve orgId from botNumber ───────────
-        let sessionRecord: any = null;
-        const { data: sRecord, error: lookupError } = await supabase
+        // ── Step 1: Resolve session from botNumber or phoneNumberId ───────────
+        let sessionQuery = supabase
           .from('whatsapp_sessions')
-          .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token, is_chatbot_enabled')
-          .eq('phone_number', botNumber)
-          .maybeSingle();
+          .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token, is_chatbot_enabled, bot_settings_id');
 
-        if (lookupError?.code === '42703') {
-          const { data: sFallback } = await supabase
-            .from('whatsapp_sessions')
-            .select('org_id, project_id, phone_label, gateway_user_id, meta_access_token')
-            .eq('phone_number', botNumber)
-            .maybeSingle();
-          sessionRecord = sFallback;
+        if (phoneNumberId) {
+          sessionQuery = sessionQuery.or(`phone_number.eq.${botNumber},meta_phone_number_id.eq.${phoneNumberId}`);
         } else {
-          sessionRecord = sRecord;
+          sessionQuery = sessionQuery.eq('phone_number', botNumber);
+        }
+
+        const { data: sessionRecord, error: lookupError } = await sessionQuery.maybeSingle();
+
+        if (lookupError) {
+          fastify.log.warn({ lookupError, botNumber, phoneNumberId }, '[Meta] Error querying whatsapp_sessions');
         }
 
         if (!sessionRecord) {
-          fastify.log.warn({ botNumber }, '[Meta] Unregistered bot number, ignoring message');
+          fastify.log.warn({ botNumber, phoneNumberId }, '[Meta] Unregistered bot number, ignoring message');
           return reply.status(200).send('EVENT_RECEIVED');
         }
 
@@ -1867,12 +1865,15 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           return reply.status(200).send('EVENT_RECEIVED');
         }
 
-        // ── Step 2: Fetch bot settings ─────────────────────
-        let { data: settings } = await supabase
-          .from('bot_settings')
-          .select('*')
-          .eq('project_id', resolvedProjectId)
-          .maybeSingle();
+        // ── Step 2: Fetch bot settings / Bot Profile ─────────────────────
+        // Priority:
+        // 1. sessionRecord.bot_settings_id (Explicit Bot Profile assigned)
+        // 2. bot_settings matching project_id
+        // 3. Fallback / auto-create
+        const botSettingsId = sessionRecord.bot_settings_id || null;
+        let { data: settings } = botSettingsId
+          ? await supabase.from('bot_settings').select('*').eq('id', botSettingsId).maybeSingle()
+          : await supabase.from('bot_settings').select('*').eq('project_id', resolvedProjectId).maybeSingle();
 
         if (!settings) {
           const { data: newSettings, error: insertError } = await supabase
@@ -1929,8 +1930,11 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
 
         const history: ChatMessage[] = (lead?.metadata as any)?.history || [];
 
-        // ── Step 5: RAG ────────────────────────────────────
-        const chunks  = await retrieveContextByProject(messageText, resolvedProjectId as string, 5);
+        // ── Step 5: RAG — multi-KB or project-scoped knowledge retrieval ─────
+        const kbProjectIds: string[] = settings?.kb_project_ids ?? [];
+        const chunks = kbProjectIds.length > 0
+          ? await retrieveContextByProjects(messageText, kbProjectIds, resolvedOrgId, 5)
+          : await retrieveContextByProject(messageText, resolvedProjectId as string, 5);
         const context = buildContextBlock(chunks);
 
         const leadPhone = getLeadPhoneNumber(messageText, history, cleanSender, lead?.whatsapp);
