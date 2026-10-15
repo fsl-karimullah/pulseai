@@ -421,7 +421,7 @@ export async function generateChatResponse(
 
   // ── Questions and small talk go to the model ──
   const topics = await fetchKnowledgeBaseTopics(orgId, projectId);
-  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3-flash-preview'];
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
 
   // Keep last 6 messages — scrub any assistant turns that contain the company name
   // to prevent hallucinated brand responses from bleeding into the current session
@@ -472,7 +472,7 @@ export async function generateChatResponse(
     let lastGeminiErr: any;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
+      const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash';
       try {
         const requestOptions = process.env.GEMINI_BASE_URL
           ? { baseUrl: process.env.GEMINI_BASE_URL }
@@ -633,7 +633,7 @@ export async function generateChatResponseStream(
   }
 
   const topics = await fetchKnowledgeBaseTopics(orgId);
-  const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
 
   // Scrub hallucinated assistant turns (same logic as non-streaming path)
   const companyScrubPatternStream = new RegExp(company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -702,7 +702,7 @@ export async function generateChatResponseStream(
   const STREAM_MAX_RETRIES = 3;
 
   for (let attempt = 1; attempt <= STREAM_MAX_RETRIES; attempt++) {
-    const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash-lite';
+    const currentModelName = modelsToTry[attempt - 1] || 'gemini-2.5-flash';
     try {
       const requestOptions = process.env.GEMINI_BASE_URL
         ? { baseUrl: process.env.GEMINI_BASE_URL }
