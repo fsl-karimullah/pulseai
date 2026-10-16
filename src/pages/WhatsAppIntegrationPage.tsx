@@ -101,6 +101,8 @@ const WhatsAppIntegrationPage: React.FC = () => {
   const [loadingMetaStatus, setLoadingMetaStatus] = useState<boolean>(false);
   const [botProfiles, setBotProfiles] = useState<BotProfileOption[]>([]);
   const [assigningBot, setAssigningBot] = useState<string | null>(null);
+  const [registeringPhone, setRegisteringPhone] = useState<string | null>(null);
+  const [registerAlert, setRegisterAlert] = useState<{ title: string; message: string; isError: boolean } | null>(null);
 
   const [showMetaVerifyGuideModal, setShowMetaVerifyGuideModal] = useState<boolean>(false);
   const [metaPricingBannerDismissed, setMetaPricingBannerDismissed] = useState<boolean>(
@@ -363,6 +365,44 @@ const WhatsAppIntegrationPage: React.FC = () => {
       alert('Terjadi kesalahan saat menghubungkan Bot Profile');
     } finally {
       setAssigningBot(null);
+    }
+  };
+
+  const handleRegisterPhone = async (phoneNumberId: string) => {
+    if (!session?.access_token) return;
+    setRegisteringPhone(phoneNumberId);
+    try {
+      const res = await fetch('/api/whatsapp/meta/register-phone', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ phoneNumberId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRegisterAlert({
+          title: 'Sertifikat Berhasil Diaktifkan!',
+          message: data.message || 'Nomor berhasil diregistrasi ke Meta Cloud API dan kini berstatus aktif.',
+          isError: false,
+        });
+        await fetchSessions();
+      } else {
+        setRegisterAlert({
+          title: data.title || 'Gagal Mengaktifkan Nomor di Meta',
+          message: data.message || 'Meta belum dapat mengaktifkan sertifikat Cloud API untuk nomor ini.',
+          isError: true,
+        });
+      }
+    } catch (err: any) {
+      setRegisterAlert({
+        title: 'Kesalahan Jaringan',
+        message: err.message || 'Terjadi kesalahan saat menghubungi server.',
+        isError: true,
+      });
+    } finally {
+      setRegisteringPhone(null);
     }
   };
 
@@ -1245,16 +1285,33 @@ const WhatsAppIntegrationPage: React.FC = () => {
                                 </>
                               ) : (
                                 <>
-                                  {/* Verify button — shown for pending/unverified numbers */}
+                                  {/* Verify button & Activate button — shown for pending/unverified numbers */}
                                   {(metaStatus === 'PENDING' || metaStatus === 'UNKNOWN' || !ms) && (
-                                    <button
-                                      onClick={() => setShowMetaVerifyGuideModal(true)}
-                                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
-                                      title="Panduan verifikasi nomor di Meta"
-                                    >
-                                      <ShieldCheck size={12} />
-                                      Verifikasi di Meta
-                                    </button>
+                                    <>
+                                      {s.meta_phone_number_id && (
+                                        <button
+                                          disabled={registeringPhone === s.meta_phone_number_id}
+                                          onClick={() => s.meta_phone_number_id && handleRegisterPhone(s.meta_phone_number_id)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg transition-all font-bold text-[11px] whitespace-nowrap shadow-sm disabled:opacity-50 cursor-pointer"
+                                          title="Coba aktifkan sertifikat Cloud API nomor ini ke Meta"
+                                        >
+                                          {registeringPhone === s.meta_phone_number_id ? (
+                                            <Loader2 size={12} className="animate-spin" />
+                                          ) : (
+                                            <Zap size={12} className="text-amber-300" />
+                                          )}
+                                          Aktifkan Nomor
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => setShowMetaVerifyGuideModal(true)}
+                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors font-bold text-[11px] whitespace-nowrap"
+                                        title="Panduan verifikasi nomor di Meta"
+                                      >
+                                        <ShieldCheck size={12} />
+                                        Panduan Meta
+                                      </button>
+                                    </>
                                   )}
                                   {/* WA Blast Official Button for Connected Meta numbers */}
                                   {metaStatus === 'CONNECTED' && s.meta_phone_number_id && (
@@ -3252,6 +3309,33 @@ const WhatsAppIntegrationPage: React.FC = () => {
               >
                 Tutup
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meta Register / Activation Result Alert Modal */}
+      {registerAlert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setRegisterAlert(null)}>
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl relative border border-slate-100" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-4">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm ${
+                registerAlert.isError ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+              }`}>
+                {registerAlert.isError ? <AlertTriangle size={24} /> : <CheckCircle2 size={24} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-extrabold text-slate-900 mb-1">{registerAlert.title}</h3>
+                <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">{registerAlert.message}</p>
+                <div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => setRegisterAlert(null)}
+                    className="px-5 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors cursor-pointer shadow-sm"
+                  >
+                    Saya Mengerti
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

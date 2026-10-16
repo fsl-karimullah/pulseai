@@ -1702,6 +1702,86 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // POST /api/whatsapp/meta/register-phone - Register and provision Cloud API certificate for phone number
+  fastify.post('/whatsapp/meta/register-phone', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const userId = (request as any).user?.id;
+      const { phoneNumberId, pin = '123456' } = request.body as { phoneNumberId: string; pin?: string };
+
+      if (!phoneNumberId) {
+        return reply.status(400).send({ success: false, message: 'phoneNumberId diperlukan' });
+      }
+
+      const { data: org } = await supabase.from('organizations').select('id').eq('user_id', userId).maybeSingle();
+      if (!org) return reply.status(403).send({ success: false, message: 'Tidak diizinkan' });
+
+      const { data: sessionRecord } = await supabase
+        .from('whatsapp_sessions')
+        .select('meta_access_token, meta_waba_id, phone_number')
+        .eq('org_id', org.id)
+        .eq('meta_phone_number_id', phoneNumberId)
+        .maybeSingle();
+
+      if (!sessionRecord) return reply.status(404).send({ success: false, message: 'Sesi tidak ditemukan' });
+
+      const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
+      if (!token) return reply.status(500).send({ success: false, message: 'Token Meta tidak ditemukan' });
+
+      // Call Meta register endpoint
+      try {
+        const regRes = await axios.post(
+          `https://graph.facebook.com/v21.0/${phoneNumberId}/register`,
+          {
+            messaging_product: 'whatsapp',
+            pin: String(pin),
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+
+        if (regRes.data?.success) {
+          // Update DB session to CONNECTED
+          await supabase
+            .from('whatsapp_sessions')
+            .update({ status: 'CONNECTED', connected_at: new Date().toISOString() })
+            .eq('meta_phone_number_id', phoneNumberId);
+
+          return reply.send({
+            success: true,
+            message: 'Selamat! Nomor Anda berhasil diregistrasi & sertifikat Cloud API telah aktif.'
+          });
+        }
+      } catch (regErr: any) {
+        const errData = regErr.response?.data?.error;
+        fastify.log.warn({ errData }, '[Meta Register Phone] Failed');
+
+        if (errData?.error_subcode === 2388001) {
+          return reply.status(400).send({
+            success: false,
+            code: 2388001,
+            title: 'Nomor Masih Aktif di Aplikasi WhatsApp HP',
+            message:
+              'Nomor ini masih terdaftar di aplikasi WhatsApp (Android/iPhone). ' +
+              'Meta tidak mengizinkan satu nomor aktif di HP dan Cloud API sekaligus. ' +
+              'Solusi: Buka aplikasi WhatsApp di HP Anda -> Setelan -> Akun -> Hapus Akun Saya (Delete My Account). Tunggu 3-5 menit, lalu klik Aktifkan Nomor kembali.'
+          });
+        }
+
+        return reply.status(400).send({
+          success: false,
+          code: errData?.code,
+          title: errData?.error_user_title || 'Registrasi Gagal',
+          message: errData?.error_user_msg || errData?.message || 'Gagal meregistrasi nomor ke Meta Cloud API.'
+        });
+      }
+
+      return reply.send({ success: true });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, message: err.message });
+    }
+  });
+
   // POST /api/whatsapp/meta/send-template - Official Meta WhatsApp Broadcast / Blast Endpoint
   fastify.post('/whatsapp/meta/send-template', { preHandler: [authenticate] }, async (request, reply) => {
     try {
