@@ -466,6 +466,14 @@ const WhatsAppIntegrationPage: React.FC = () => {
       initFB();
     } else {
       window.fbAsyncInit = initFB;
+      if (!document.getElementById('facebook-jssdk')) {
+        const js = document.createElement('script');
+        js.id = 'facebook-jssdk';
+        js.src = 'https://connect.facebook.net/en_US/sdk.js';
+        js.async = true;
+        js.defer = true;
+        document.body.appendChild(js);
+      }
     }
   }, []);
 
@@ -638,7 +646,7 @@ const WhatsAppIntegrationPage: React.FC = () => {
 
   const handleMetaLogin = () => {
     if (!window.FB) {
-      setError('Facebook SDK tidak dimuat.');
+      setError('Facebook SDK tidak dapat dimuat. Ini biasanya karena diblokir oleh AdBlock, uBlock Origin, atau Brave Shields. Silakan nonaktifkan AdBlock untuk situs ini lalu refresh halaman.');
       return;
     }
     if (!activeProjectId) {
