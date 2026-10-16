@@ -1986,7 +1986,7 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
           const token = sessionRecord.meta_access_token || process.env.META_ACCESS_TOKEN;
           if (token) {
             await axios.post(
-              `https://graph.facebook.com/v26.0/${phoneNumberId}/messages`,
+              `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
               {
                 messaging_product: 'whatsapp',
                 to: sender,

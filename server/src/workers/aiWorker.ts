@@ -151,7 +151,7 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
                 const token = data.metaAccessToken || process.env.META_ACCESS_TOKEN;
                 if (token) {
                   await axios.post(
-                    `https://graph.facebook.com/v26.0/${data.metaPhoneNumberId}/messages`,
+                    `https://graph.facebook.com/v21.0/${data.metaPhoneNumberId}/messages`,
                     {
                       messaging_product: 'whatsapp',
                       to: cleanAdminWa,
@@ -188,7 +188,7 @@ export const aiWorker = new Worker(AI_QUEUE_NAME, async (job: Job) => {
           // Delay to simulate typing (optional for meta, but keeps timing similar)
           await new Promise(res => setTimeout(res, 500));
           await axios.post(
-            `https://graph.facebook.com/v26.0/${data.metaPhoneNumberId}/messages`,
+            `https://graph.facebook.com/v21.0/${data.metaPhoneNumberId}/messages`,
             {
               messaging_product: 'whatsapp',
               to: replyTo,

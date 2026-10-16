@@ -1073,10 +1073,10 @@ const WhatsAppIntegrationPage: React.FC = () => {
               </div>
             ) : (
               <>
-                  {/* Pending warning banner */}
+                  {/* Pending warning banner — only show if code verification is not completed */}
                   {metaSessions.some(s => {
                     const ms = metaPhoneStatuses[s.meta_phone_number_id || ''];
-                    return !ms || ms.status === 'PENDING' || ms.code_verification_status === 'NOT_VERIFIED';
+                    return !ms || (ms.code_verification_status !== 'VERIFIED' && ms.status === 'PENDING');
                   }) && (
                     <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
                       <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600 flex-shrink-0">
@@ -1125,10 +1125,9 @@ const WhatsAppIntegrationPage: React.FC = () => {
                     {metaSessions.map((s) => {
                       const ms = s.meta_phone_number_id ? metaPhoneStatuses[s.meta_phone_number_id] : undefined;
                       const metaStatus = ms?.status || (loadingMetaStatus ? 'LOADING' : 'UNKNOWN');
+                      const isCodeVerified = ms?.code_verification_status === 'VERIFIED';
                       const verifiedName = ms?.verified_name || s.phone_label;
                       const qualityRating = ms?.quality_rating || 'UNKNOWN';
-
-
 
                       const statusBadge = () => {
                         if (s.status === 'DISCONNECTED') {
@@ -1146,19 +1145,19 @@ const WhatsAppIntegrationPage: React.FC = () => {
                             </span>
                           );
                         }
+                        if (metaStatus === 'CONNECTED' || isCodeVerified) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Aktif
+                            </span>
+                          );
+                        }
                         if (metaStatus === 'PENDING') {
                           return (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-300 text-[10px] font-bold">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                               Pending Verifikasi
-                            </span>
-                          );
-                        }
-                        if (metaStatus === 'CONNECTED') {
-                          return (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              Aktif
                             </span>
                           );
                         }
